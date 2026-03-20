@@ -12,6 +12,7 @@ import com.geo.analytics.web.dto.ResultSummaryResponse;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -20,14 +21,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/jobs")
 public class JobController {
     private static final Logger log = LoggerFactory.getLogger(JobController.class);
+    private static final ZoneId ZONE_TOKYO = ZoneId.of("Asia/Tokyo");
+    private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final JobPersistenceService jobPersistenceService;
     private final AsyncSgeMeasurementService asyncSgeMeasurementService;
@@ -82,13 +89,31 @@ public class JobController {
 
     @GetMapping("/{jobId}/pdf")
     public ResponseEntity<?> getJobPdf(@PathVariable UUID jobId) {
-        jobPersistenceService.findJobById(jobId);
+        Optional<JobEntity> jobEntityOptional = jobPersistenceService.findJobByIdOptional(jobId);
+        if (jobEntityOptional.isEmpty()) {
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                "解析結果が存在しないためPDFを生成できません");
+            problemDetail.setTitle("PDF Not Available");
+            return ResponseEntity.badRequest().body(problemDetail);
+        }
+        JobEntity jobEntity = jobEntityOptional.get();
+        if (jobPersistenceService.findResultsByJobId(jobId).isEmpty()) {
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                "解析結果が存在しないためPDFを生成できません");
+            problemDetail.setTitle("PDF Not Available");
+            return ResponseEntity.badRequest().body(problemDetail);
+        }
         try {
             byte[] pdfBytes = pdfReportPort.renderJobReportPdf(jobId);
-            String filename = "report_" + jobId + "_" + LocalDate.now() + ".pdf";
+            String filename = buildPdfFilename(jobEntity.getBrandName());
+            ContentDisposition contentDisposition = ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build();
             return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
                 .body(pdfBytes);
         } catch (Exception exception) {
             log.error("PDF generation failed jobId={} message={}", jobId, exception.getMessage(), exception);
@@ -100,4 +125,17 @@ public class JobController {
         }
     }
 
+    private static String buildPdfFilename(String brandName) {
+        String segment = sanitizeFilenameSegment(brandName);
+        String datePart = LocalDate.now(ZONE_TOKYO).format(PDF_DATE);
+        return segment + "_GEOレポート_" + datePart + ".pdf";
+    }
+
+    private static String sanitizeFilenameSegment(String brandName) {
+        if (brandName == null || brandName.isBlank()) {
+            return "brand";
+        }
+        String sanitized = brandName.replaceAll("[\\\\/:*?\"<>|]", "_").strip();
+        return sanitized.isEmpty() ? "brand" : sanitized;
+    }
 }

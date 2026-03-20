@@ -35,6 +35,10 @@ public class JobPersistenceService {
             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
     }
 
+    public Optional<JobEntity> findJobByIdOptional(UUID jobId) {
+        return jobRepository.findById(jobId);
+    }
+
     public List<JobEntity> findJobsByStatus(JobStatus jobStatus) {
         return jobRepository.findByJobStatus(jobStatus);
     }

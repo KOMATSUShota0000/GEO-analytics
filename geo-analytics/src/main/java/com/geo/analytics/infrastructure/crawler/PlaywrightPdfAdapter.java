@@ -8,8 +8,8 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.Margin;
-import com.microsoft.playwright.options.WaitUntilState;
 import com.microsoft.playwright.options.WaitForSelectorState;
+import com.microsoft.playwright.options.WaitUntilState;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,23 +52,27 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
         String pageUrl = pdfBaseUrl + "/job/" + jobId;
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
-             BrowserContextLease contextLease = new BrowserContextLease(browser);
-             PageLease pageLease = new PageLease(contextLease.context().newPage())) {
-            Page page = pageLease.page();
-            page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE));
-            page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(60_000));
-            page.waitForSelector("#pdf-ready-flag", new Page.WaitForSelectorOptions().setState(WaitForSelectorState.ATTACHED));
-            Margin margin = new Margin()
-                .setTop("15mm")
-                .setBottom("15mm")
-                .setLeft("15mm")
-                .setRight("15mm");
-            return page.pdf(
-                new Page.PdfOptions()
-                    .setFormat("A4")
-                    .setPrintBackground(true)
-                    .setMargin(margin));
+        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore)) {
+            try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
+                try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
+                    Page page = pageLease.page();
+                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE));
+                    page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(60_000));
+                    page.waitForSelector(
+                        "#pdf-ready-flag",
+                        new Page.WaitForSelectorOptions().setState(WaitForSelectorState.ATTACHED));
+                    Margin margin = new Margin()
+                        .setTop("15mm")
+                        .setBottom("15mm")
+                        .setLeft("15mm")
+                        .setRight("15mm");
+                    return page.pdf(
+                        new Page.PdfOptions()
+                            .setFormat("A4")
+                            .setPrintBackground(true)
+                            .setMargin(margin));
+                }
+            }
         }
     }
 
