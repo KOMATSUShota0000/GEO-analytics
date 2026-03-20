@@ -1,7 +1,9 @@
 package com.geo.analytics.web.controller;
 
+import com.geo.analytics.application.service.AsyncSgeMeasurementService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobStatusResponse;
@@ -18,9 +20,13 @@ import java.util.UUID;
 @RequestMapping("/api/v1/jobs")
 public class JobController {
     private final JobPersistenceService jobPersistenceService;
+    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
 
-    public JobController(JobPersistenceService jobPersistenceService) {
+    public JobController(
+            JobPersistenceService jobPersistenceService,
+            AsyncSgeMeasurementService asyncSgeMeasurementService) {
         this.jobPersistenceService = jobPersistenceService;
+        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
     }
 
     @PostMapping
@@ -45,6 +51,9 @@ public class JobController {
             @PathVariable UUID jobId,
             @RequestBody @Valid AddQueriesRequest addQueriesRequest) {
         jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, addQueriesRequest.queries());
+        JobEntity jobEntityForSge = jobPersistenceService.findJobById(jobId);
+        List<QueryEntity> queryEntitiesForSge = jobPersistenceService.findQueriesByJobId(jobId);
+        asyncSgeMeasurementService.measureSgeForJob(jobEntityForSge, queryEntitiesForSge);
         return ResponseEntity.noContent().build();
     }
 

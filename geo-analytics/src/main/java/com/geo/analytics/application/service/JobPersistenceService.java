@@ -43,6 +43,10 @@ public class JobPersistenceService {
         return queryRepository.findByJobIdAndProcessedFalse(jobId);
     }
 
+    public List<QueryEntity> findQueriesByJobId(UUID jobId) {
+        return queryRepository.findByJobId(jobId);
+    }
+
     public Optional<QueryEntity> findQueryById(UUID queryId) {
         return queryRepository.findById(queryId);
     }

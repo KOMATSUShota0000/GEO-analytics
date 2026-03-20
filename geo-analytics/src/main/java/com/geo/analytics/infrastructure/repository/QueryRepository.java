@@ -6,5 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 public interface QueryRepository extends JpaRepository<QueryEntity, UUID> {
+    List<QueryEntity> findByJobId(UUID jobId);
+
     List<QueryEntity> findByJobIdAndProcessedFalse(UUID jobId);
 }
