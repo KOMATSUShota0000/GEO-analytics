@@ -24,3 +24,5 @@ app:
       model-name: gemini-2.5-flash
   serpapi:
     api-key: ${SERPAPI_API_KEY:}
+  pdf:
+    base-url: ${APP_PDF_BASE_URL:http://127.0.0.1:5173}

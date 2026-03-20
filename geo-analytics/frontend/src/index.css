@@ -1,3 +1,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@media print {
+  .pdf-no-print {
+    display: none !important;
+  }
+  .pdf-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body {
+    background: white !important;
+  }
+}
