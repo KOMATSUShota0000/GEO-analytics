@@ -21,6 +21,12 @@ public class GeminiBatchJob {
     @JsonProperty("outputConfig")
     private JsonNode outputConfig;
 
+    @JsonProperty("response")
+    private JsonNode response;
+
+    @JsonProperty("metadata")
+    private GeminiBatchJobMetadata batchMetadata;
+
     private final Map<String, Object> additionalProperties = new LinkedHashMap<>();
 
     public String name() {
@@ -34,6 +40,11 @@ public class GeminiBatchJob {
     public String state() {
         if (state != null && !state.isBlank()) {
             return state;
+        }
+        if (batchMetadata != null
+            && batchMetadata.state() != null
+            && !batchMetadata.state().isBlank()) {
+            return batchMetadata.state();
         }
         String extracted = extractNestedString(additionalProperties, "batch", "state");
         if (extracted != null && !extracted.isBlank()) {
@@ -76,6 +87,36 @@ public class GeminiBatchJob {
 
     public void setOutputConfig(JsonNode outputConfig) {
         this.outputConfig = outputConfig;
+    }
+
+    public JsonNode response() {
+        if (response != null && !response.isNull()) {
+            return response;
+        }
+        Object direct = additionalProperties.get("response");
+        if (direct != null) {
+            return ADDITIONAL_TO_NODE.valueToTree(direct);
+        }
+        return JsonNodeFactory.instance.missingNode();
+    }
+
+    public void setResponse(JsonNode response) {
+        this.response = response;
+    }
+
+    public JsonNode metadata() {
+        if (batchMetadata != null) {
+            return ADDITIONAL_TO_NODE.valueToTree(batchMetadata);
+        }
+        Object direct = additionalProperties.get("metadata");
+        if (direct != null) {
+            return ADDITIONAL_TO_NODE.valueToTree(direct);
+        }
+        return JsonNodeFactory.instance.missingNode();
+    }
+
+    public void setBatchMetadata(GeminiBatchJobMetadata batchMetadata) {
+        this.batchMetadata = batchMetadata;
     }
 
     @JsonAnySetter

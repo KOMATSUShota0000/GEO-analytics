@@ -3,6 +3,7 @@ package com.geo.analytics.web.controller;
 import com.geo.analytics.application.port.PdfReportPort;
 import com.geo.analytics.application.service.AsyncSgeMeasurementService;
 import com.geo.analytics.application.service.JobPersistenceService;
+import com.geo.analytics.application.service.JobSyncTestService;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.web.dto.AddQueriesRequest;
@@ -39,14 +40,17 @@ public class JobController {
     private final JobPersistenceService jobPersistenceService;
     private final AsyncSgeMeasurementService asyncSgeMeasurementService;
     private final PdfReportPort pdfReportPort;
+    private final JobSyncTestService jobSyncTestService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
             AsyncSgeMeasurementService asyncSgeMeasurementService,
-            PdfReportPort pdfReportPort) {
+            PdfReportPort pdfReportPort,
+            JobSyncTestService jobSyncTestService) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.pdfReportPort = pdfReportPort;
+        this.jobSyncTestService = jobSyncTestService;
     }
 
     @PostMapping
@@ -64,6 +68,20 @@ public class JobController {
     public ResponseEntity<JobStatusResponse> getJobStatus(@PathVariable UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
         return ResponseEntity.ok(JobStatusResponse.from(jobEntity));
+    }
+
+    @PostMapping("/{jobId}/test-sync")
+    public ResponseEntity<?> testSyncSingleQuery(@PathVariable UUID jobId) {
+        try {
+            JobEntity jobEntity = jobSyncTestService.runSingleUnprocessedQuerySyncTest(jobId);
+            return ResponseEntity.ok(JobStatusResponse.from(jobEntity));
+        } catch (IllegalStateException illegalStateException) {
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                illegalStateException.getMessage());
+            problemDetail.setTitle("Sync test not available");
+            return ResponseEntity.badRequest().body(problemDetail);
+        }
     }
 
     @PostMapping("/{jobId}/queries")

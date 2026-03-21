@@ -1,3 +1,12 @@
+export interface JobStatusResponse {
+  jobId: string;
+  jobStatus: string;
+  brandName: string;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ResultDetail {
   resultId: string;
   query: string;

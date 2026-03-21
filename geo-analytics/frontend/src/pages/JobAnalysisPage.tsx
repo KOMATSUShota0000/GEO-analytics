@@ -51,7 +51,7 @@ export function JobAnalysisPage(): JSX.Element {
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
 
-  const effectiveJobId = jobIdFromRoute ?? jobIdInput.trim();
+  const effectiveJobId = (jobIdFromRoute?.trim() || jobIdInput.trim());
 
   useEffect(() => {
     if (jobIdFromRoute) {

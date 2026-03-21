@@ -1,8 +1,14 @@
 package com.geo.analytics.infrastructure.ai;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SequenceWriter;
+import com.geo.analytics.infrastructure.ai.dto.BatchConfig;
+import com.geo.analytics.infrastructure.ai.dto.BatchGenerateContentRequest;
+import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
+import com.geo.analytics.infrastructure.ai.dto.InputConfig;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJobListResponse;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileUploadResponse;
@@ -15,9 +21,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +46,8 @@ public class GeminiBatchClient {
     private static final String BATCH_STATE_SUCCEEDED = "BATCH_STATE_SUCCEEDED";
     private static final String BATCH_STATE_FAILED = "BATCH_STATE_FAILED";
     private static final String BATCH_STATE_CANCELLED = "BATCH_STATE_CANCELLED";
+    private static final String JOB_STATE_SUBMITTED = "JOB_STATE_SUBMITTED";
+    private static final String BATCH_STATE_SUBMITTED = "BATCH_STATE_SUBMITTED";
 
     private final RestClient restClient;
     private final String geminiApiKey;
@@ -95,18 +109,55 @@ public class GeminiBatchClient {
         }
     }
 
-    public GeminiBatchJob createBatchJob(String uploadedInputFileName) {
-        logger.info("createBatchJob started - input file: {}", uploadedInputFileName);
-        Map<String, Object> batchCreateRequestBody = Map.of(
-            "batch", Map.of(
-                "input_config", Map.of("file_name", uploadedInputFileName)
-            )
-        );
+    public Path writeBatchRequestJsonlToTempFile(String brandName, List<BatchQueryLine> queryLines) {
+        if (queryLines == null || queryLines.isEmpty()) {
+            throw new GeminiBatchApiException("batch query lines are empty");
+        }
+        try {
+            Path tempPath = Files.createTempFile("gemini-batch-req-", ".jsonl");
+            tempPath.toFile().deleteOnExit();
+            try (OutputStream outputStream = Files.newOutputStream(
+                tempPath,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+                try (SequenceWriter sequenceWriter = objectMapper.writer().writeValues(outputStream)) {
+                    for (BatchQueryLine batchQueryLine : queryLines) {
+                        sequenceWriter.write(buildBatchJsonlLineRootMap(brandName, batchQueryLine));
+                        outputStream.write('\n');
+                    }
+                }
+            }
+            return tempPath;
+        } catch (IOException ioException) {
+            throw new GeminiBatchApiException("JSONL stream write failed", ioException);
+        }
+    }
+
+    public GeminiFileMetadata uploadJsonlFile(Path jsonlPath) {
+        try {
+            byte[] bytes = Files.readAllBytes(jsonlPath);
+            return uploadJsonlFile(bytes);
+        } catch (IOException ioException) {
+            throw new GeminiBatchApiException("Failed to read JSONL file: " + jsonlPath, ioException);
+        }
+    }
+
+    public GeminiBatchJob createBatchJob(GeminiFileMetadata uploadedFileMetadata) {
+        if (uploadedFileMetadata == null) {
+            throw new GeminiBatchApiException("uploaded file metadata is null");
+        }
+        String fileName = uploadedFileMetadata.name();
+        if (fileName == null || fileName.isBlank()) {
+            throw new GeminiBatchApiException("file name missing in upload response");
+        }
+        logger.info("createBatchJob started - file name: {}", fileName);
+        BatchGenerateContentRequest batchCreateRequestBody = new BatchGenerateContentRequest(
+            new BatchConfig("geo-analytics-batch", new InputConfig(fileName)));
         String batchCreateUrl = GEMINI_API_BASE_URL
             + "/v1beta/models/" + GEMINI_MODEL_ID
             + ":batchGenerateContent?key=" + geminiApiKey;
-        logger.info("createBatchJob - sending POST to /v1beta/models/{}:batchGenerateContent, body: {}",
-            GEMINI_MODEL_ID, batchCreateRequestBody);
+        logger.info("createBatchJob - sending POST to /v1beta/models/{}:batchGenerateContent",
+            GEMINI_MODEL_ID);
         try {
             GeminiBatchJob createdBatchJob = restClient.post()
                 .uri(URI.create(batchCreateUrl))
@@ -146,6 +197,37 @@ public class GeminiBatchClient {
             throw new GeminiBatchApiException(
                 "Unexpected error during batch job creation: " + exception.getMessage(), exception);
         }
+    }
+
+    public String resolveBatchOutputFileName(GeminiBatchJob batchJob) {
+        if (batchJob == null) {
+            throw new GeminiBatchApiException("batch job is null");
+        }
+        String fromResponse = readResponsesFilePath(batchJob.response());
+        if (fromResponse != null && !fromResponse.isBlank()) {
+            return fromResponse;
+        }
+        String fromMetadataOutput =
+            readResponsesFilePath(batchJob.metadata().path("output"));
+        if (fromMetadataOutput != null && !fromMetadataOutput.isBlank()) {
+            return fromMetadataOutput;
+        }
+        throw new GeminiBatchApiException("batch responsesFile missing");
+    }
+
+    private static String readResponsesFilePath(JsonNode container) {
+        if (container == null || container.isNull() || container.isMissingNode()) {
+            return null;
+        }
+        JsonNode node = container.path("responsesFile");
+        if (node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        String text = node.asText();
+        if (text.isBlank()) {
+            return null;
+        }
+        return text;
     }
 
     public GeminiBatchJob getBatchJobStatus(String geminiBatchJobName) {
@@ -191,10 +273,33 @@ public class GeminiBatchClient {
 
     public String downloadOutputFileContent(String outputFileName) {
         logger.info("downloadOutputFileContent started - file: {}", outputFileName);
-        String downloadUrl = GEMINI_API_BASE_URL + "/v1beta/" + outputFileName + "?key=" + geminiApiKey + "&alt=media";
+        if (outputFileName == null || outputFileName.isBlank()) {
+            throw new GeminiBatchApiException("output file name is blank");
+        }
+        String normalizedName = outputFileName.startsWith("/") ? outputFileName.substring(1) : outputFileName;
+        String metadataUrl = GEMINI_API_BASE_URL + "/v1beta/" + normalizedName + "?key=" + geminiApiKey;
         try {
+            GeminiFileMetadata metadata = restClient.get()
+                .uri(URI.create(metadataUrl))
+                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .retrieve()
+                .body(GeminiFileMetadata.class);
+            if (metadata == null) {
+                throw new GeminiBatchApiException("file metadata is null for " + outputFileName);
+            }
+            String link = null;
+            if (metadata.downloadUri() != null && !metadata.downloadUri().isBlank()) {
+                link = metadata.downloadUri();
+            } else if (metadata.uri() != null && !metadata.uri().isBlank()) {
+                link = metadata.uri();
+            }
+            if (link == null || link.isBlank()) {
+                throw new GeminiBatchApiException(
+                    "file metadata missing uri and downloadUri for " + outputFileName);
+            }
+            String contentUrl = appendApiKeyToGenerativeLanguageUrlIfAbsent(link);
             String rawContent = restClient.get()
-                .uri(URI.create(downloadUrl))
+                .uri(URI.create(contentUrl))
                 .header(HttpHeaders.ACCEPT, MediaType.TEXT_PLAIN_VALUE)
                 .retrieve()
                 .body(String.class);
@@ -283,7 +388,23 @@ public class GeminiBatchClient {
         if ("PENDING".equalsIgnoreCase(trimmedState)) {
             return true;
         }
-        return JOB_STATE_PENDING.equals(trimmedState) || BATCH_STATE_PENDING.equals(trimmedState);
+        if ("SUBMITTED".equalsIgnoreCase(trimmedState)) {
+            return true;
+        }
+        return JOB_STATE_PENDING.equals(trimmedState)
+            || BATCH_STATE_PENDING.equals(trimmedState)
+            || JOB_STATE_SUBMITTED.equals(trimmedState)
+            || BATCH_STATE_SUBMITTED.equals(trimmedState);
+    }
+
+    public boolean isBatchJobActivelyProcessing(String batchJobState) {
+        if (batchJobState == null || batchJobState.isBlank()) {
+            return false;
+        }
+        if (shouldAwaitNextPoll(batchJobState)) {
+            return false;
+        }
+        return !isTerminalState(batchJobState);
     }
 
     public boolean isTerminalState(String batchJobState) {
@@ -307,6 +428,51 @@ public class GeminiBatchClient {
         }
         String trimmedState = batchJobState.trim();
         return JOB_STATE_SUCCEEDED.equals(trimmedState) || BATCH_STATE_SUCCEEDED.equals(trimmedState);
+    }
+
+    private Map<String, Object> buildBatchJsonlLineRootMap(String brandName, BatchQueryLine batchQueryLine) {
+        Map<String, Object> textPart = new LinkedHashMap<>();
+        textPart.put("text", buildBrandVisibilityPrompt(brandName, batchQueryLine.queryText()));
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("parts", List.of(textPart));
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("contents", List.of(content));
+        Map<String, Object> generationConfig = new LinkedHashMap<>();
+        generationConfig.put("responseMimeType", "application/json");
+        request.put("generationConfig", generationConfig);
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("key", batchQueryLine.queryId().toString());
+        root.put("request", request);
+        return root;
+    }
+
+    private String buildBrandVisibilityPrompt(String brandName, String userQuery) {
+        return """
+            You are an AI brand visibility analyzer.
+            Brand under evaluation: %s
+            User query: %s
+            Respond ONLY with valid JSON matching this exact schema with no additional text:
+            {"response":"<natural language answer to the query>","brandMentioned":<true|false>,"mentionRank":<integer 1-10 if mentioned, null if not>,"confidenceScore":<float 0.0-1.0>}
+            """.formatted(brandName, userQuery);
+    }
+
+    private String appendApiKeyToGenerativeLanguageUrlIfAbsent(String url) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+        if (url.contains("key=")) {
+            return url;
+        }
+        try {
+            URI parsed = URI.create(url);
+            String host = parsed.getHost();
+            if (host != null && host.endsWith("generativelanguage.googleapis.com")) {
+                return url + (url.contains("?") ? "&" : "?") + "key=" + geminiApiKey;
+            }
+        } catch (Exception e) {
+            return url;
+        }
+        return url;
     }
 
     private String maskApiKey(String apiKey) {

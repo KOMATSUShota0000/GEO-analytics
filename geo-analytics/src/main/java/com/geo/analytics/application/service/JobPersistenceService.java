@@ -1,5 +1,6 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.ResultEntity;
@@ -20,14 +21,17 @@ public class JobPersistenceService {
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final ResultRepository resultRepository;
+    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
 
     public JobPersistenceService(
             JobRepository jobRepository,
             QueryRepository queryRepository,
-            ResultRepository resultRepository) {
+            ResultRepository resultRepository,
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher) {
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.resultRepository = resultRepository;
+        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
     }
 
     public JobEntity findJobById(UUID jobId) {
@@ -60,6 +64,26 @@ public class JobPersistenceService {
     }
 
     @Transactional
+    public void upsertResultAndMarkQueryProcessed(ResultEntity incoming, UUID queryId) {
+        Optional<ResultEntity> existingOptional =
+            resultRepository.findByJobIdAndQuery(incoming.getJobId(), incoming.getQuery());
+        if (existingOptional.isPresent()) {
+            ResultEntity existing = existingOptional.get();
+            existing.setRawResponse(incoming.getRawResponse());
+            existing.setSomScore(incoming.getSomScore());
+            existing.setBrandMentioned(incoming.getBrandMentioned());
+            existing.setMentionRank(incoming.getMentionRank());
+            resultRepository.save(existing);
+        } else {
+            resultRepository.save(incoming);
+        }
+        queryRepository.findById(queryId).ifPresent(queryEntity -> {
+            queryEntity.setProcessed(true);
+            queryRepository.save(queryEntity);
+        });
+    }
+
+    @Transactional
     public JobEntity createJob(String brandName) {
         JobEntity jobEntity = new JobEntity();
         jobEntity.setBrandName(brandName);
@@ -82,6 +106,7 @@ public class JobPersistenceService {
         });
         jobEntity.setJobStatus(JobStatus.FILE_UPLOADED);
         jobRepository.save(jobEntity);
+        jobStatusBroadcastPublisher.publish(jobEntity);
     }
 
     @Transactional
@@ -98,6 +123,15 @@ public class JobPersistenceService {
         JobEntity jobEntity = jobRepository.findById(jobId)
             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
         jobEntity.setJobStatus(JobStatus.RUNNING);
+        jobEntity.setGeminiJobName(geminiJobName);
+        jobRepository.save(jobEntity);
+    }
+
+    @Transactional
+    public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
+        JobEntity jobEntity = jobRepository.findById(jobId)
+            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+        jobEntity.setJobStatus(JobStatus.SUBMITTED);
         jobEntity.setGeminiJobName(geminiJobName);
         jobRepository.save(jobEntity);
     }
