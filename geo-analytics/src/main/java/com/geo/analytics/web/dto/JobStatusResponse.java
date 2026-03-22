@@ -9,6 +9,8 @@ public record JobStatusResponse(
     String jobStatus,
     String brandName,
     String errorMessage,
+    String pdfStatus,
+    String pdfFilePath,
     LocalDateTime createdAt,
     LocalDateTime updatedAt
 ) {
@@ -18,6 +20,8 @@ public record JobStatusResponse(
             jobEntity.getJobStatus() != null ? jobEntity.getJobStatus().name() : "UNKNOWN",
             jobEntity.getBrandName(),
             jobEntity.getErrorMessage(),
+            jobEntity.getPdfStatus(),
+            jobEntity.getPdfFilePath(),
             jobEntity.getCreatedAt(),
             jobEntity.getUpdatedAt()
         );

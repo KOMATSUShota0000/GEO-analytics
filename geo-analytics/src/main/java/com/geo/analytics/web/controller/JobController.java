@@ -1,11 +1,13 @@
 package com.geo.analytics.web.controller;
 
-import com.geo.analytics.application.port.PdfReportPort;
+import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.AsyncSgeMeasurementService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.JobSyncTestService;
+import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobStatusResponse;
@@ -21,13 +23,15 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -39,22 +43,26 @@ public class JobController {
 
     private final JobPersistenceService jobPersistenceService;
     private final AsyncSgeMeasurementService asyncSgeMeasurementService;
-    private final PdfReportPort pdfReportPort;
     private final JobSyncTestService jobSyncTestService;
+    private final AsyncPdfReportService asyncPdfReportService;
+    private final PdfStorageConfig pdfStorageConfig;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
             AsyncSgeMeasurementService asyncSgeMeasurementService,
-            PdfReportPort pdfReportPort,
-            JobSyncTestService jobSyncTestService) {
+            JobSyncTestService jobSyncTestService,
+            AsyncPdfReportService asyncPdfReportService,
+            PdfStorageConfig pdfStorageConfig) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
-        this.pdfReportPort = pdfReportPort;
         this.jobSyncTestService = jobSyncTestService;
+        this.asyncPdfReportService = asyncPdfReportService;
+        this.pdfStorageConfig = pdfStorageConfig;
     }
 
     @PostMapping
     public ResponseEntity<JobStatusResponse> createJob(@RequestBody @Valid CreateJobRequest createJobRequest) {
+        log.info("createJob request brandName={}", createJobRequest.brandName());
         JobEntity createdJobEntity = jobPersistenceService.createJob(createJobRequest.brandName());
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()
             .path("/{jobId}")
@@ -105,42 +113,40 @@ public class JobController {
         return ResponseEntity.ok(summaries);
     }
 
-    @GetMapping("/{jobId}/pdf")
-    public ResponseEntity<?> getJobPdf(@PathVariable UUID jobId) {
-        Optional<JobEntity> jobEntityOptional = jobPersistenceService.findJobByIdOptional(jobId);
-        if (jobEntityOptional.isEmpty()) {
-            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST,
-                "解析結果が存在しないためPDFを生成できません");
-            problemDetail.setTitle("PDF Not Available");
-            return ResponseEntity.badRequest().body(problemDetail);
+    @PostMapping("/{jobId}/pdf/request")
+    public ResponseEntity<Void> requestPdfGeneration(@PathVariable UUID jobId) {
+        jobPersistenceService.markPdfGeneratingAndPublish(jobId);
+        asyncPdfReportService.generatePdfReport(jobId);
+        return ResponseEntity.accepted().build();
+    }
+
+    @GetMapping("/{jobId}/pdf/download")
+    public ResponseEntity<byte[]> downloadPdf(@PathVariable UUID jobId) throws IOException {
+        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        if (!PdfJobStatusValues.COMPLETED.equals(jobEntity.getPdfStatus())) {
+            return ResponseEntity.notFound().build();
         }
-        JobEntity jobEntity = jobEntityOptional.get();
-        if (jobPersistenceService.findResultsByJobId(jobId).isEmpty()) {
-            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST,
-                "解析結果が存在しないためPDFを生成できません");
-            problemDetail.setTitle("PDF Not Available");
-            return ResponseEntity.badRequest().body(problemDetail);
+        String storedPath = jobEntity.getPdfFilePath();
+        if (storedPath == null || storedPath.isBlank()) {
+            return ResponseEntity.notFound().build();
         }
-        try {
-            byte[] pdfBytes = pdfReportPort.renderJobReportPdf(jobId);
-            String filename = buildPdfFilename(jobEntity.getBrandName());
-            ContentDisposition contentDisposition = ContentDisposition.attachment()
-                .filename(filename, StandardCharsets.UTF_8)
-                .build();
-            return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_PDF)
-                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
-                .body(pdfBytes);
-        } catch (Exception exception) {
-            log.error("PDF generation failed jobId={} message={}", jobId, exception.getMessage(), exception);
-            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "PDF generation failed");
-            problemDetail.setTitle("PDF Generation Failed");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+        Path baseDir = pdfStorageConfig.getTempDirectory().normalize().toAbsolutePath();
+        Path filePath = Path.of(storedPath).normalize().toAbsolutePath();
+        if (!filePath.startsWith(baseDir)) {
+            return ResponseEntity.notFound().build();
         }
+        if (!Files.isRegularFile(filePath)) {
+            return ResponseEntity.notFound().build();
+        }
+        byte[] pdfBytes = Files.readAllBytes(filePath);
+        String filename = buildPdfFilename(jobEntity.getBrandName());
+        ContentDisposition contentDisposition = ContentDisposition.attachment()
+            .filename(filename, StandardCharsets.UTF_8)
+            .build();
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
+            .body(pdfBytes);
     }
 
     private static String buildPdfFilename(String brandName) {

@@ -25,6 +25,12 @@ public class JobEntity {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    @Column(name = "pdf_status", length = 32)
+    private String pdfStatus;
+
+    @Column(name = "pdf_file_path", length = 1024)
+    private String pdfFilePath;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -72,6 +78,22 @@ public class JobEntity {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public String getPdfStatus() {
+        return pdfStatus;
+    }
+
+    public void setPdfStatus(String pdfStatus) {
+        this.pdfStatus = pdfStatus;
+    }
+
+    public String getPdfFilePath() {
+        return pdfFilePath;
+    }
+
+    public void setPdfFilePath(String pdfFilePath) {
+        this.pdfFilePath = pdfFilePath;
     }
 
     public LocalDateTime getCreatedAt() {

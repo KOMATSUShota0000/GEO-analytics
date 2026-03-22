@@ -3,26 +3,29 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}
-    username: postgres
-    password: Koma7851
+    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+    username: "postgres"
+    password: "Koma7851"
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create
     properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: false
+      "[hibernate.dialect]": "org.hibernate.dialect.PostgreSQLDialect"
+      "[hibernate.format_sql]": false
     show-sql: false
   jackson:
     default-property-inclusion: non_null
 app:
   ai:
     gemini:
-      api-key: AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8
-      model-name: gemini-2.5-flash
+      api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
+      model-name: "gemini-2.5-flash"
   serpapi:
-    api-key: ${SERPAPI_API_KEY:}
+    api-key: "${SERPAPI_API_KEY:}"
   pdf:
-    base-url: ${APP_PDF_BASE_URL:http://127.0.0.1:5173}
+    base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
+    temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"
+    internal-token: "${APP_PDF_INTERNAL_TOKEN:dev-internal-token}"
+    default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
+    default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"

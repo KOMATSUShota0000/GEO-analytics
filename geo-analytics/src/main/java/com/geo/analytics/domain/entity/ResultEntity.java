@@ -1,6 +1,14 @@
 package com.geo.analytics.domain.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -17,6 +25,7 @@ public class ResultEntity {
     @Column(name = "query", nullable = false, columnDefinition = "text")
     private String query;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "raw_response", columnDefinition = "jsonb", nullable = false)
     private String rawResponse;
 

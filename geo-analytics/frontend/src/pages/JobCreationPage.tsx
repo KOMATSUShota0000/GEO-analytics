@@ -14,7 +14,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { JobStatusResponse } from "../types/analysis";
+import { normalizeJobStatusResponse } from "../types/analysis";
 
 const theme = createTheme();
 
@@ -59,7 +59,11 @@ export default function JobCreationPage(): JSX.Element {
         const text = await createRes.text();
         throw new Error(text || `HTTP ${createRes.status}`);
       }
-      const created: JobStatusResponse = await createRes.json();
+      const raw: unknown = await createRes.json();
+      const created = normalizeJobStatusResponse(raw);
+      if (created === null) {
+        throw new Error("ジョブ作成レスポンスの形式が不正です");
+      }
       const jobId = created.jobId;
       if (keywords.length > 0) {
         const queriesRes = await fetch(`/api/v1/jobs/${jobId}/queries`, {

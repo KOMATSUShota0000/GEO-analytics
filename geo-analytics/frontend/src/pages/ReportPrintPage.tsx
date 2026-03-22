@@ -1,25 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { useJobNotification } from "../hooks/useJobNotification";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import type { JobAnalysisDetail } from "../types/analysis";
+import type { ResultSummary } from "./JobAnalysisPage";
 
-export interface ResultSummary {
-  query: string;
-  somScore: number;
-  brandMentioned: boolean;
-  mentionRank: number | null;
-}
-
-const PROCESSING_STATUSES = new Set([
-  "CREATED",
-  "FILE_UPLOADED",
-  "SUBMITTED",
-  "RUNNING",
-]);
-
-const PDF_COMPLETED = "COMPLETED";
-const PDF_GENERATING = "GENERATING";
-const PDF_FAILED = "FAILED";
+const TOKEN_FALLBACK = "dev-internal-token";
 
 function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
@@ -46,9 +30,9 @@ function shouldDataBeReadyForPdf(
   return true;
 }
 
-export function JobAnalysisPage(): JSX.Element {
+export default function ReportPrintPage(): JSX.Element {
   const { jobId: jobIdFromRoute } = useParams<{ jobId: string }>();
-  const [jobIdInput, setJobIdInput] = useState(jobIdFromRoute ?? "");
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,47 +41,13 @@ export function JobAnalysisPage(): JSX.Element {
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
 
-  const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
-
-  const {
-    jobStatus,
-    lastError: jobNotifyError,
-    isLoading: jobNotifyLoading,
-  } = useJobNotification(effectiveJobId);
-
-  const displayJobId = jobStatus?.jobId ?? data?.jobId ?? null;
-  const displayJobStatus = jobStatus?.jobStatus ?? data?.jobStatus ?? null;
-  const displayBrand = jobStatus?.brandName ?? data?.brandName ?? null;
-  const resolvedStatus = displayJobStatus ?? "";
-  const isCompletedDisplay = isCompletedJobStatus(resolvedStatus);
-  const isProcessingDisplay =
-    resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
-
-  const requestPdfReport = useCallback(async () => {
-    if (!effectiveJobId.trim()) {
-      return;
-    }
-    try {
-      const res = await fetch(`/api/v1/jobs/${effectiveJobId}/pdf/request`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        console.error("pdf request failed", res.status, t);
-      }
-    } catch (e: unknown) {
-      console.error("pdf request error", e);
-    }
-  }, [effectiveJobId]);
+  const effectiveJobId = jobIdFromRoute?.trim() ?? "";
+  const expectedToken =
+    import.meta.env.VITE_PDF_INTERNAL_TOKEN ?? TOKEN_FALLBACK;
+  const tokenOk = searchParams.get("internal_token") === expectedToken;
 
   useEffect(() => {
-    if (jobIdFromRoute) {
-      setJobIdInput(jobIdFromRoute);
-    }
-  }, [jobIdFromRoute]);
-
-  useEffect(() => {
-    if (!effectiveJobId) {
+    if (!tokenOk || !effectiveJobId) {
       setData(null);
       setLoadError(null);
       return;
@@ -124,10 +74,10 @@ export function JobAnalysisPage(): JSX.Element {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [effectiveJobId]);
+  }, [effectiveJobId, tokenOk]);
 
   useEffect(() => {
-    if (!effectiveJobId || !data || !isCompletedJobStatus(data.jobStatus)) {
+    if (!tokenOk || !effectiveJobId || !data || !isCompletedJobStatus(data.jobStatus)) {
       setResultSummaries(null);
       setResultsError(null);
       setResultsLoading(false);
@@ -155,7 +105,7 @@ export function JobAnalysisPage(): JSX.Element {
       })
       .finally(() => setResultsLoading(false));
     return () => controller.abort();
-  }, [effectiveJobId, data?.jobStatus]);
+  }, [effectiveJobId, data?.jobStatus, tokenOk, data]);
 
   useEffect(() => {
     const ready = shouldDataBeReadyForPdf(
@@ -194,114 +144,72 @@ export function JobAnalysisPage(): JSX.Element {
     resultSummaries,
   ]);
 
+  const isProcessing = useMemo(() => {
+    if (!data) return false;
+    return (
+      data.jobStatus === "CREATED" ||
+      data.jobStatus === "FILE_UPLOADED" ||
+      data.jobStatus === "RUNNING"
+    );
+  }, [data]);
+
+  if (!tokenOk) {
+    return <div className="p-8 text-slate-500" />;
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
-      <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
-      {jobNotifyLoading && jobStatus === null && effectiveJobId && (
-        <div className="pdf-no-print mb-4 flex items-center gap-3 text-slate-600">
-          <span
-            className="inline-block h-8 w-8 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
-            aria-hidden
-          />
-          <span>ジョブ状態を読み込み中です…</span>
-        </div>
-      )}
-      {effectiveJobId && jobNotifyError && (
-        <div className="pdf-no-print mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
-          <strong className="font-semibold">ジョブ状態の取得に失敗しました</strong>
-          <p className="mt-2 text-sm">{jobNotifyError}</p>
-        </div>
-      )}
-      <div className="pdf-no-print mb-6 flex flex-wrap items-center gap-2">
-        <label htmlFor="jobId" className="text-sm font-medium text-slate-700">
-          ジョブID
-        </label>
-        <input
-          id="jobId"
-          type="text"
-          value={jobIdInput}
-          onChange={(e) => setJobIdInput(e.target.value)}
-          placeholder="UUIDを入力"
-          className="min-w-[200px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+      <div
+        className="pdf-avoid-break mb-6 flex items-center gap-4 border-b-2 pb-4"
+        style={{ borderColor: "var(--brand-color, #1976d2)" }}
+      >
+        <div
+          className="h-12 w-12 shrink-0 rounded bg-slate-100 bg-cover bg-center"
+          style={{ backgroundImage: "var(--logo-url, none)" }}
+          aria-hidden
         />
+        <div>
+          <h1
+            className="text-2xl font-semibold tracking-tight"
+            style={{ color: "var(--brand-color, #0f172a)" }}
+          >
+            GEO 解析レポート
+          </h1>
+          {data && (
+            <p className="mt-1 text-sm text-slate-600">
+              <span className="font-medium text-slate-800">ブランド</span>{" "}
+              <span style={{ color: "var(--brand-color, #0f172a)" }}>
+                {data.brandName}
+              </span>
+            </p>
+          )}
+        </div>
       </div>
-      {!effectiveJobId && (
-        <p className="pdf-no-print text-slate-600">
-          ジョブIDを入力するか、URLに /job/&lt;UUID&gt; でアクセスしてください。
-        </p>
-      )}
-      {loading && effectiveJobId && <p className="pdf-no-print text-slate-600">読み込み中です…</p>}
+      {loading && effectiveJobId && <p className="text-slate-600">読み込み中です…</p>}
       {loadError && (
-        <div className="pdf-no-print mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
           <strong className="font-semibold">取得に失敗しました</strong>
           <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{loadError}</pre>
         </div>
       )}
-      {displayJobId && isProcessingDisplay && displayBrand && (
-        <div className="pdf-avoid-break pdf-no-print mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-lg font-medium text-slate-900">解析中です。しばらくお待ちください。</p>
-          <p className="mt-2 text-sm text-slate-600">
-            ステータス: {resolvedStatus} / ブランド: {displayBrand}
-          </p>
+      {data && isProcessing && (
+        <div className="pdf-avoid-break mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-lg font-medium text-slate-900">解析中です。</p>
         </div>
       )}
-      {resolvedStatus === "FAILED" && (jobStatus !== null || data !== null) && (
+      {data && data.jobStatus === "FAILED" && (
         <div className="pdf-avoid-break mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
           <strong className="font-semibold">ジョブが失敗しました</strong>
           <pre className="mt-2 whitespace-pre-wrap break-words text-sm">
-            {jobStatus?.errorMessage ?? data?.errorMessage ?? "理由は記録されていません"}
+            {data.errorMessage ?? "理由は記録されていません"}
           </pre>
         </div>
       )}
-      {displayJobId && isCompletedDisplay && (
-        <div className="pdf-avoid-break mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm text-slate-600">
-            <span className="font-medium text-slate-800">ジョブ</span> {displayJobId}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">
-            <span className="font-medium text-slate-800">ステータス</span> {resolvedStatus}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">
-            <span className="font-medium text-slate-800">ブランド</span> {displayBrand ?? "—"}
-          </p>
-          {jobStatus && (
-            <p className="mt-1 text-sm text-slate-600">
-              <span className="font-medium text-slate-800">PDF</span>{" "}
-              {jobStatus.pdfStatus ?? "未生成"}
-            </p>
-          )}
-        </div>
-      )}
-      {effectiveJobId && isReadyForPdf && jobStatus && (
-        <div className="pdf-no-print mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          {jobStatus.pdfStatus === PDF_COMPLETED && (
-            <a
-              href={`/api/v1/jobs/${effectiveJobId}/pdf/download`}
-              className="inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
-              download
-            >
-              PDFをダウンロード
-            </a>
-          )}
-          {jobStatus.pdfStatus === PDF_GENERATING && (
-            <span className="text-sm text-slate-600">PDFを生成しています…</span>
-          )}
-          {(jobStatus.pdfStatus === null || jobStatus.pdfStatus === PDF_FAILED) && (
-            <button
-              type="button"
-              onClick={requestPdfReport}
-              className="inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-            >
-              PDFレポートを生成
-            </button>
-          )}
-        </div>
-      )}
       {data && isCompletedJobStatus(data.jobStatus) && resultsLoading && (
-        <p className="pdf-no-print mb-4 text-slate-600">解析結果を読み込み中です…</p>
+        <p className="mb-4 text-slate-600">解析結果を読み込み中です…</p>
       )}
       {data && isCompletedJobStatus(data.jobStatus) && resultsError && (
-        <div className="pdf-no-print mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
           <strong className="font-semibold">解析結果の取得に失敗しました</strong>
           <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{resultsError}</pre>
         </div>
@@ -332,7 +240,7 @@ export function JobAnalysisPage(): JSX.Element {
                   resultSummaries.map((row, index) => (
                     <tr
                       key={`${row.query}-${index}`}
-                      className="pdf-avoid-break border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+                      className="pdf-avoid-break border-b border-slate-100 last:border-0"
                     >
                       <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
                       <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">

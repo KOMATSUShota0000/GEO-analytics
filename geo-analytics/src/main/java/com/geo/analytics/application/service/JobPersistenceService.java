@@ -1,6 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
+import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.ResultEntity;
@@ -152,5 +153,41 @@ public class JobPersistenceService {
         List<QueryEntity> processedQueryEntities = queryRepository.findAllById(processedQueryIds);
         processedQueryEntities.forEach(queryEntity -> queryEntity.setProcessed(true));
         queryRepository.saveAll(processedQueryEntities);
+    }
+
+    @Transactional
+    public JobEntity markPdfGeneratingAndPublish(UUID jobId) {
+        JobEntity jobEntity = jobRepository.findById(jobId)
+            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+        if (resultRepository.findByJobId(jobId).isEmpty()) {
+            throw new IllegalArgumentException("解析結果が存在しないためPDFを生成できません");
+        }
+        jobEntity.setPdfStatus(PdfJobStatusValues.GENERATING);
+        jobEntity.setPdfFilePath(null);
+        JobEntity saved = jobRepository.save(jobEntity);
+        jobStatusBroadcastPublisher.publish(saved);
+        return saved;
+    }
+
+    @Transactional
+    public JobEntity markPdfCompletedAndPublish(UUID jobId, String absolutePath) {
+        JobEntity jobEntity = jobRepository.findById(jobId)
+            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+        jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
+        jobEntity.setPdfFilePath(absolutePath);
+        JobEntity saved = jobRepository.save(jobEntity);
+        jobStatusBroadcastPublisher.publish(saved);
+        return saved;
+    }
+
+    @Transactional
+    public JobEntity markPdfFailedAndPublish(UUID jobId) {
+        JobEntity jobEntity = jobRepository.findById(jobId)
+            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+        jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
+        jobEntity.setPdfFilePath(null);
+        JobEntity saved = jobRepository.save(jobEntity);
+        jobStatusBroadcastPublisher.publish(saved);
+        return saved;
     }
 }

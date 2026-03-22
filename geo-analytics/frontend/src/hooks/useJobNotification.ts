@@ -1,7 +1,10 @@
 import { Client, IMessage } from "@stomp/stompjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SockJS from "sockjs-client";
-import type { JobStatusResponse } from "../types/analysis";
+import {
+  normalizeJobStatusResponse,
+  type JobStatusResponse,
+} from "../types/analysis";
 
 export type JobNotificationConnectionState =
   | "idle"
@@ -10,28 +13,28 @@ export type JobNotificationConnectionState =
   | "disconnected"
   | "error";
 
-function isJobStatusResponse(value: unknown): value is JobStatusResponse {
-  if (value === null || typeof value !== "object") {
-    return false;
+function parseJobUpdatedAtMs(updatedAt: string): number {
+  const ms = Date.parse(updatedAt);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function shouldApplyJobStatusUpdate(
+  previous: JobStatusResponse | null,
+  incoming: JobStatusResponse,
+): boolean {
+  if (previous === null) {
+    return true;
   }
-  const record = value as Record<string, unknown>;
   return (
-    typeof record.jobId === "string" &&
-    typeof record.jobStatus === "string" &&
-    typeof record.brandName === "string" &&
-    (record.errorMessage === null || typeof record.errorMessage === "string") &&
-    typeof record.createdAt === "string" &&
-    typeof record.updatedAt === "string"
+    parseJobUpdatedAtMs(incoming.updatedAt) >=
+    parseJobUpdatedAtMs(previous.updatedAt)
   );
 }
 
 function parseJobStatusMessage(body: string): JobStatusResponse | null {
   try {
     const parsed: unknown = JSON.parse(body);
-    if (!isJobStatusResponse(parsed)) {
-      return null;
-    }
-    return parsed;
+    return normalizeJobStatusResponse(parsed);
   } catch {
     return null;
   }
@@ -48,6 +51,7 @@ export interface UseJobNotificationResult {
   jobStatus: JobStatusResponse | null;
   connectionState: JobNotificationConnectionState;
   lastError: string | null;
+  isLoading: boolean;
 }
 
 export function useJobNotification(jobId: string): UseJobNotificationResult {
@@ -55,13 +59,17 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
   const [connectionState, setConnectionState] =
     useState<JobNotificationConnectionState>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const previousJobIdRef = useRef<string>("");
 
   const handleMessage = useCallback((message: IMessage) => {
     const next = parseJobStatusMessage(message.body);
-    if (next !== null) {
-      setJobStatus(next);
+    if (next === null) {
+      return;
     }
+    setJobStatus((prev) =>
+      shouldApplyJobStatusUpdate(prev, next) ? next : prev,
+    );
   }, []);
 
   useEffect(() => {
@@ -71,6 +79,7 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       setJobStatus(null);
       setConnectionState("idle");
       setLastError(null);
+      setIsLoading(false);
       return undefined;
     }
 
@@ -78,42 +87,138 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       setJobStatus(null);
       previousJobIdRef.current = trimmedJobId;
     }
+
+    let cancelled = false;
+    let skipWebSocket = false;
+    const abortController = new AbortController();
+    let stompClient: Client | null = null;
+
     setConnectionState("connecting");
     setLastError(null);
+    setIsLoading(true);
 
-    const client = new Client({
-      webSocketFactory: () => new SockJS(buildSockJsUrl()),
-      reconnectDelay: 5000,
-      onConnect: () => {
-        setConnectionState("connected");
-        client.subscribe(`/topic/jobs/${trimmedJobId}`, handleMessage);
-      },
-      onStompError: (frame) => {
-        setConnectionState("error");
-        const headerMessage = frame.headers["message"];
-        const message =
-          typeof headerMessage === "string" && headerMessage.length > 0
-            ? headerMessage
-            : typeof frame.body === "string" && frame.body.length > 0
-              ? frame.body
-              : "STOMP error";
+    void (async (): Promise<void> => {
+      try {
+        const res = await fetch(`/api/v1/jobs/${trimmedJobId}`, {
+          signal: abortController.signal,
+        });
+        if (cancelled) {
+          return;
+        }
+
+        const responseText = await res.text();
+
+        if (res.status === 404) {
+          console.error("job status fetch not found", res.status, responseText);
+          setJobStatus(null);
+          setLastError("ジョブが見つかりません");
+          setConnectionState("idle");
+          skipWebSocket = true;
+          return;
+        }
+
+        if (!res.ok) {
+          console.error("job status fetch failed", res.status, responseText);
+          setLastError(
+            responseText.length > 0 ? responseText : `HTTP ${res.status}`,
+          );
+        } else {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(responseText) as unknown;
+          } catch {
+            console.error(
+              "job status JSON parse error",
+              res.status,
+              responseText,
+            );
+            setLastError("ジョブ状態の形式が不正です");
+            parsed = null;
+          }
+          if (parsed !== null && !cancelled) {
+            const normalized = normalizeJobStatusResponse(parsed);
+            if (normalized === null) {
+              console.error(
+                "job status validation failed",
+                res.status,
+                responseText,
+              );
+              setLastError("ジョブ状態の形式が不正です");
+            } else {
+              setJobStatus((prev) =>
+                shouldApplyJobStatusUpdate(prev, normalized)
+                  ? normalized
+                  : prev,
+              );
+            }
+          }
+        }
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("job status fetch error", message, err);
         setLastError(message);
-      },
-      onWebSocketClose: () => {
-        setConnectionState("disconnected");
-      },
-      onDisconnect: () => {
-        setConnectionState("disconnected");
-      },
-    });
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
 
-    client.activate();
+      if (cancelled || skipWebSocket) {
+        return;
+      }
+
+      stompClient = new Client({
+        webSocketFactory: () => new SockJS(buildSockJsUrl()),
+        reconnectDelay: 5000,
+        onConnect: () => {
+          if (cancelled) {
+            return;
+          }
+          setConnectionState("connected");
+          stompClient?.subscribe(`/topic/jobs/${trimmedJobId}`, handleMessage);
+        },
+        onStompError: (frame) => {
+          setConnectionState("error");
+          const headerMessage = frame.headers["message"];
+          const message =
+            typeof headerMessage === "string" && headerMessage.length > 0
+              ? headerMessage
+              : typeof frame.body === "string" && frame.body.length > 0
+                ? frame.body
+                : "STOMP error";
+          console.error("STOMP error", message, frame.body);
+          setLastError(message);
+        },
+        onWebSocketClose: () => {
+          setConnectionState("disconnected");
+        },
+        onDisconnect: () => {
+          setConnectionState("disconnected");
+        },
+      });
+
+      if (cancelled) {
+        stompClient?.deactivate();
+        stompClient = null;
+        return;
+      }
+
+      stompClient.activate();
+    })();
 
     return () => {
-      client.deactivate();
-      setConnectionState("disconnected");
+      cancelled = true;
+      abortController.abort();
+      stompClient?.deactivate();
+      stompClient = null;
     };
   }, [jobId, handleMessage]);
 
-  return { jobStatus, connectionState, lastError };
+  return { jobStatus, connectionState, lastError, isLoading };
 }
