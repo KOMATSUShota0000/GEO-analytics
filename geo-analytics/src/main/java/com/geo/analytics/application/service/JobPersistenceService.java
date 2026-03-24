@@ -93,6 +93,15 @@ public class JobPersistenceService {
 
     @Transactional
     public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts) {
+        registerQueriesWithTransition(jobId, queryTexts, JobStatus.FILE_UPLOADED);
+    }
+
+    @Transactional
+    public void registerQueriesAndTransitionToRealtimeProcessing(UUID jobId, List<String> queryTexts) {
+        registerQueriesWithTransition(jobId, queryTexts, JobStatus.REALTIME_PROCESSING);
+    }
+
+    private void registerQueriesWithTransition(UUID jobId, List<String> queryTexts, JobStatus nextStatus) {
         JobEntity jobEntity = jobRepository.findById(jobId)
             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
         if (jobEntity.getJobStatus() != JobStatus.CREATED) {
@@ -105,7 +114,7 @@ public class JobPersistenceService {
             queryEntity.setQueryText(queryText);
             queryRepository.save(queryEntity);
         });
-        jobEntity.setJobStatus(JobStatus.FILE_UPLOADED);
+        jobEntity.setJobStatus(nextStatus);
         jobRepository.save(jobEntity);
         jobStatusBroadcastPublisher.publish(jobEntity);
     }

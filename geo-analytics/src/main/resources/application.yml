@@ -18,6 +18,7 @@ spring:
     default-property-inclusion: non_null
 app:
   ai:
+    realtime-threshold: 10
     gemini:
       api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
       model-name: "gemini-2.5-flash"

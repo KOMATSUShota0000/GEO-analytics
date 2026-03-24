@@ -12,6 +12,7 @@ export interface ResultSummary {
 
 const PROCESSING_STATUSES = new Set([
   "CREATED",
+  "REALTIME_PROCESSING",
   "FILE_UPLOADED",
   "SUBMITTED",
   "RUNNING",
@@ -290,7 +291,12 @@ export function JobAnalysisPage(): JSX.Element {
             <button
               type="button"
               onClick={requestPdfReport}
-              className="inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              disabled={!isCompletedDisplay}
+              className={
+                isCompletedDisplay
+                  ? "inline-flex cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                  : "inline-flex cursor-not-allowed rounded-lg border border-slate-200 bg-slate-200 px-4 py-2 text-sm font-medium text-slate-600 opacity-60"
+              }
             >
               PDFレポートを生成
             </button>

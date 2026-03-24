@@ -1,5 +1,7 @@
 package com.geo.analytics.web.exception;
 
+import com.geo.analytics.domain.exception.ThresholdExceededException;
+import com.geo.analytics.web.dto.ErrorResponse;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
@@ -8,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,6 +21,17 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(ThresholdExceededException.class)
+    public ResponseEntity<ErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
+        int threshold = exception.getThreshold();
+        String message =
+            "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
+        logger.warn("Threshold exceeded threshold={}", threshold);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(new ErrorResponse(message, threshold));
+    }
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ProblemDetail> handleEntityNotFound(EntityNotFoundException exception) {
@@ -67,6 +81,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .contentType(MediaType.APPLICATION_PROBLEM_JSON)
             .body(problemDetail);
+    }
+
+    @ExceptionHandler(HttpMessageNotWritableException.class)
+    public ResponseEntity<Void> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
+        logger.debug(exception.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     }
 
     @ExceptionHandler(JsonbSerializationException.class)

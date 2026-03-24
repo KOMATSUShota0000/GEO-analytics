@@ -148,7 +148,9 @@ export default function ReportPrintPage(): JSX.Element {
     if (!data) return false;
     return (
       data.jobStatus === "CREATED" ||
+      data.jobStatus === "REALTIME_PROCESSING" ||
       data.jobStatus === "FILE_UPLOADED" ||
+      data.jobStatus === "SUBMITTED" ||
       data.jobStatus === "RUNNING"
     );
   }, [data]);

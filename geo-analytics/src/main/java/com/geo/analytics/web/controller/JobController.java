@@ -1,12 +1,11 @@
 package com.geo.analytics.web.controller;
 
 import com.geo.analytics.application.service.AsyncPdfReportService;
-import com.geo.analytics.application.service.AsyncSgeMeasurementService;
 import com.geo.analytics.application.service.JobPersistenceService;
+import com.geo.analytics.application.service.JobQuerySubmissionService;
 import com.geo.analytics.application.service.JobSyncTestService;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
@@ -42,19 +41,19 @@ public class JobController {
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final JobPersistenceService jobPersistenceService;
-    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
+    private final JobQuerySubmissionService jobQuerySubmissionService;
     private final JobSyncTestService jobSyncTestService;
     private final AsyncPdfReportService asyncPdfReportService;
     private final PdfStorageConfig pdfStorageConfig;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
-            AsyncSgeMeasurementService asyncSgeMeasurementService,
+            JobQuerySubmissionService jobQuerySubmissionService,
             JobSyncTestService jobSyncTestService,
             AsyncPdfReportService asyncPdfReportService,
             PdfStorageConfig pdfStorageConfig) {
         this.jobPersistenceService = jobPersistenceService;
-        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
+        this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
         this.asyncPdfReportService = asyncPdfReportService;
         this.pdfStorageConfig = pdfStorageConfig;
@@ -96,10 +95,7 @@ public class JobController {
     public ResponseEntity<Void> addQueriesToJob(
             @PathVariable UUID jobId,
             @RequestBody @Valid AddQueriesRequest addQueriesRequest) {
-        jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, addQueriesRequest.queries());
-        JobEntity jobEntityForSge = jobPersistenceService.findJobById(jobId);
-        List<QueryEntity> queryEntitiesForSge = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(jobEntityForSge, queryEntitiesForSge);
+        jobQuerySubmissionService.submitQueries(jobId, addQueriesRequest.queries(), addQueriesRequest.plan());
         return ResponseEntity.noContent().build();
     }
 
