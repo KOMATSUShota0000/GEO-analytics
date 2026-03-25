@@ -127,7 +127,11 @@ public class JobPersistenceService {
             double somScore,
             boolean brandMentioned,
             Integer mentionRank,
-            Integer overallScore) {
+            Integer overallScore,
+            String resolvedEntityLabel,
+            int tokenCount,
+            int rankPosition,
+            double sentimentIntensity) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -143,6 +147,10 @@ public class JobPersistenceService {
                 existing.setBrandMentioned(brandMentioned);
                 existing.setMentionRank(mentionRank);
                 existing.setOverallScore(overallScore);
+                existing.setResolvedEntityLabel(resolvedEntityLabel);
+                existing.setTokenCount(tokenCount);
+                existing.setRankPosition(rankPosition);
+                existing.setSentimentIntensity(sentimentIntensity);
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
                 auditHistoryRepository.save(existing);
@@ -157,6 +165,10 @@ public class JobPersistenceService {
                 auditHistoryEntity.setBrandMentioned(brandMentioned);
                 auditHistoryEntity.setMentionRank(mentionRank);
                 auditHistoryEntity.setOverallScore(overallScore);
+                auditHistoryEntity.setResolvedEntityLabel(resolvedEntityLabel);
+                auditHistoryEntity.setTokenCount(tokenCount);
+                auditHistoryEntity.setRankPosition(rankPosition);
+                auditHistoryEntity.setSentimentIntensity(sentimentIntensity);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryRepository.save(auditHistoryEntity);
             }

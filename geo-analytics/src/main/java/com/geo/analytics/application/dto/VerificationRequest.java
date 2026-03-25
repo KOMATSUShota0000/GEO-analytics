@@ -1,6 +1,7 @@
 package com.geo.analytics.application.dto;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import java.util.List;
 import java.util.UUID;
 
 public record VerificationRequest(
@@ -11,14 +12,16 @@ public record VerificationRequest(
     String contentHash,
     SubscriptionPlan subscriptionPlan,
     UUID jobId,
-    UUID queryId
+    UUID queryId,
+    String canonicalMainBrand,
+    List<String> registeredCompetitorBrands
 ) {
     public VerificationRequest(String brandName, String query) {
-        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null);
+        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null);
     }
 
     public VerificationRequest(String brandName, String query, String url, String crawledContent, String contentHash) {
-        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null);
+        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null);
     }
 
     public VerificationRequest {

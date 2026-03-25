@@ -12,6 +12,10 @@ public record ResultDetailResponse(
     Boolean brandMentioned,
     Integer mentionRank,
     Integer overallScore,
+    Integer tokenCount,
+    Integer rankPosition,
+    Double sentimentIntensity,
+    String resolvedEntityLabel,
     String rawResponse,
     LocalDate auditDate,
     Instant createdAt
@@ -24,6 +28,10 @@ public record ResultDetailResponse(
             auditHistoryEntity.getBrandMentioned(),
             auditHistoryEntity.getMentionRank(),
             auditHistoryEntity.getOverallScore(),
+            auditHistoryEntity.getTokenCount() != null ? auditHistoryEntity.getTokenCount() : 0,
+            auditHistoryEntity.getRankPosition() != null ? auditHistoryEntity.getRankPosition() : 0,
+            auditHistoryEntity.getSentimentIntensity() != null ? auditHistoryEntity.getSentimentIntensity() : 0.0,
+            auditHistoryEntity.getResolvedEntityLabel(),
             auditHistoryEntity.getRawResponse(),
             auditHistoryEntity.getAuditDate(),
             auditHistoryEntity.getCreatedAt());

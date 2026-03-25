@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
+import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { useJobNotification } from "../hooks/useJobNotification";
 import { useJobStreaming } from "../hooks/useJobStreaming";
 import {
@@ -9,6 +10,7 @@ import {
   liveMetricsFromParsed,
   normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
+  resolveAverageSomScore,
   resolveChartShareData,
   resolveChartTrendData,
   type AnalyticsSummaryNormalized,
@@ -217,6 +219,32 @@ export function JobAnalysisPage(): JSX.Element {
   }, [apiCharts, brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming]);
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
+  const displaySomForTier = useMemo(() => {
+    const avg = resolveAverageSomScore(resultRows, parsedByQueryId, isStreaming);
+    if (avg !== null) {
+      return avg;
+    }
+    if (isCompletedDisplay && resultRows.length === 0) {
+      return 0;
+    }
+    return null;
+  }, [resultRows, parsedByQueryId, isStreaming, isCompletedDisplay]);
+  const showTierSkeleton = useMemo(() => {
+    if (effectiveJobId.length === 0) {
+      return false;
+    }
+    if (loading) {
+      return true;
+    }
+    if (displaySomForTier !== null) {
+      return false;
+    }
+    return isProcessingDisplay || isStreaming;
+  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay, isStreaming]);
+  const showTierBlock = useMemo(() => {
+    return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
+  }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
+  const isProPlanUi = apiCharts?.subscriptionPlan === "PRO";
   const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
   const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
 
@@ -526,6 +554,15 @@ export function JobAnalysisPage(): JSX.Element {
           >
             新規ジョブを作成
           </button>
+        </div>
+      )}
+      {showTierBlock && (
+        <div className="pdf-avoid-break mb-6">
+          <TierDiagnosisCard
+            somScore={showTierSkeleton ? null : displaySomForTier}
+            isProPlan={isProPlanUi}
+            skeleton={showTierSkeleton}
+          />
         </div>
       )}
       {showCharts &&

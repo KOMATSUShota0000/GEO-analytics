@@ -1,7 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.CrawledPageData;
-import com.geo.analytics.application.dto.SomScoreData;
+import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
@@ -9,6 +9,7 @@ import com.geo.analytics.application.port.AiVerificationPort;
 import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import org.springframework.stereotype.Service;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -27,7 +28,7 @@ public class SyncVerificationService {
     }
 
     public SyncVerificationResult verify(String brandName, String query, SubscriptionPlan subscriptionPlan) {
-        return verify(brandName, query, subscriptionPlan, null, null);
+        return verify(brandName, query, subscriptionPlan, null, null, null, null);
     }
 
     public SyncVerificationResult verify(
@@ -36,6 +37,17 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId) {
+        return verify(brandName, query, subscriptionPlan, jobId, queryId, null, null);
+    }
+
+    public SyncVerificationResult verify(
+            String brandName,
+            String query,
+            SubscriptionPlan subscriptionPlan,
+            UUID jobId,
+            UUID queryId,
+            String canonicalMainBrand,
+            List<String> registeredCompetitorBrands) {
         VerificationRequest verificationRequest = new VerificationRequest(
             brandName,
             query,
@@ -44,15 +56,23 @@ public class SyncVerificationService {
             null,
             subscriptionPlan,
             jobId,
-            queryId);
+            queryId,
+            canonicalMainBrand,
+            registeredCompetitorBrands);
         VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
-        SomScoreData parsedSomScoreData = somScoreParser.parse(verificationResponse.rawResponseJson());
+        ConsultantOutputData consultantOutputData =
+            somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
         return new SyncVerificationResult(
             verificationResponse.rawResponseJson(),
             verificationResponse.somScore(),
             verificationResponse.brandMentioned(),
             verificationResponse.mentionRank(),
-            parsedSomScoreData.response());
+            verificationResponse.overallScore(),
+            verificationResponse.tokenCount(),
+            verificationResponse.rankPosition(),
+            verificationResponse.sentimentIntensity(),
+            consultantOutputData.response(),
+            verificationResponse.resolvedEntityLabel());
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -60,7 +80,7 @@ public class SyncVerificationService {
             String query,
             String url,
             SubscriptionPlan subscriptionPlan) {
-        return verifyWithUrl(brandName, query, url, subscriptionPlan, null, null);
+        return verifyWithUrl(brandName, query, url, subscriptionPlan, null, null, null, null);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -70,6 +90,18 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId) {
+        return verifyWithUrl(brandName, query, url, subscriptionPlan, jobId, queryId, null, null);
+    }
+
+    public SyncVerificationResult verifyWithUrl(
+            String brandName,
+            String query,
+            String url,
+            SubscriptionPlan subscriptionPlan,
+            UUID jobId,
+            UUID queryId,
+            String canonicalMainBrand,
+            List<String> registeredCompetitorBrands) {
         CrawledPageData crawledPageData = webCrawlerPort.extractContent(url);
         VerificationRequest verificationRequest = new VerificationRequest(
             brandName,
@@ -79,14 +111,22 @@ public class SyncVerificationService {
             crawledPageData.contentHash(),
             subscriptionPlan,
             jobId,
-            queryId);
+            queryId,
+            canonicalMainBrand,
+            registeredCompetitorBrands);
         VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
-        SomScoreData parsedSomScoreData = somScoreParser.parse(verificationResponse.rawResponseJson());
+        ConsultantOutputData consultantOutputData =
+            somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
         return new SyncVerificationResult(
             verificationResponse.rawResponseJson(),
             verificationResponse.somScore(),
             verificationResponse.brandMentioned(),
             verificationResponse.mentionRank(),
-            parsedSomScoreData.response());
+            verificationResponse.overallScore(),
+            verificationResponse.tokenCount(),
+            verificationResponse.rankPosition(),
+            verificationResponse.sentimentIntensity(),
+            consultantOutputData.response(),
+            verificationResponse.resolvedEntityLabel());
     }
 }

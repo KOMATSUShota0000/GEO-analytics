@@ -2,7 +2,7 @@ package com.geo.analytics.application.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorShareEntry;
-import com.geo.analytics.application.dto.SomScoreData;
+import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -97,7 +97,7 @@ public class AnalyticsAggregationService {
         Map<String, List<Double>> acc = new HashMap<>();
         for (AuditHistoryEntity row : rows) {
             try {
-                SomScoreData data = objectMapper.readValue(row.getRawResponse(), SomScoreData.class);
+                ConsultantOutputData data = objectMapper.readValue(row.getRawResponse(), ConsultantOutputData.class);
                 if (data.competitorComparison() == null) {
                     continue;
                 }

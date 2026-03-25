@@ -45,6 +45,14 @@ public class AuditHistoryEntity {
     private Integer mentionRank;
     @Column(name = "overall_score")
     private Integer overallScore;
+    @Column(name = "resolved_entity_label", length = 512)
+    private String resolvedEntityLabel;
+    @Column(name = "token_count", nullable = false)
+    private Integer tokenCount;
+    @Column(name = "rank_position", nullable = false)
+    private Integer rankPosition;
+    @Column(name = "sentiment_intensity", nullable = false)
+    private Double sentimentIntensity;
     @Column(name = "audit_date", nullable = false)
     private LocalDate auditDate;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -110,6 +118,30 @@ public class AuditHistoryEntity {
     }
     public void setOverallScore(Integer overallScore) {
         this.overallScore = overallScore;
+    }
+    public String getResolvedEntityLabel() {
+        return resolvedEntityLabel;
+    }
+    public void setResolvedEntityLabel(String resolvedEntityLabel) {
+        this.resolvedEntityLabel = resolvedEntityLabel;
+    }
+    public Integer getTokenCount() {
+        return tokenCount;
+    }
+    public void setTokenCount(Integer tokenCount) {
+        this.tokenCount = tokenCount;
+    }
+    public Integer getRankPosition() {
+        return rankPosition;
+    }
+    public void setRankPosition(Integer rankPosition) {
+        this.rankPosition = rankPosition;
+    }
+    public Double getSentimentIntensity() {
+        return sentimentIntensity;
+    }
+    public void setSentimentIntensity(Double sentimentIntensity) {
+        this.sentimentIntensity = sentimentIntensity;
     }
     public LocalDate getAuditDate() {
         return auditDate;

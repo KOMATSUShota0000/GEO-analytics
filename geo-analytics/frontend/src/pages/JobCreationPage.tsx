@@ -22,6 +22,7 @@ import {
 import type { MouseEvent } from "react";
 import { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { LoadingCharacter } from "../components/LoadingCharacter";
 import { normalizeJobStatusResponse } from "../types/analysis";
 
 const theme = createTheme();
@@ -262,11 +263,31 @@ export default function JobCreationPage(): JSX.Element {
               </Stack>
             )}
           </Box>
+          {submitting && (
+            <Box sx={{ mb: 1 }}>
+              <LoadingCharacter />
+            </Box>
+          )}
           <Button
             variant="contained"
             size="large"
             onClick={createJob}
             disabled={submitting}
+            sx={
+              submitting
+                ? {
+                    py: 1.5,
+                    background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                    color: "#fff",
+                    boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
+                    "&.Mui-disabled": {
+                      color: "rgba(255,255,255,0.95)",
+                      opacity: 1,
+                      background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                    },
+                  }
+                : { py: 1.5 }
+            }
           >
             {submitting ? "作成中…" : "ジョブを作成"}
           </Button>

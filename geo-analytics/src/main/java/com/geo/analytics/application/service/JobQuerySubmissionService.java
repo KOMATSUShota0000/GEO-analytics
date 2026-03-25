@@ -1,14 +1,17 @@
 package com.geo.analytics.application.service;
-import com.geo.analytics.application.dto.SomScoreData;
+import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.ThresholdExceededException;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
+import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import org.slf4j.Logger;
@@ -34,6 +37,7 @@ public class JobQuerySubmissionService {
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final int realtimeThreshold;
+    private final ProjectRepository projectRepository;
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
             AsyncSgeMeasurementService asyncSgeMeasurementService,
@@ -43,7 +47,8 @@ public class JobQuerySubmissionService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
-            @Value("${app.ai.realtime-threshold:10}") int realtimeThreshold) {
+            @Value("${app.ai.realtime-threshold:10}") int realtimeThreshold,
+            ProjectRepository projectRepository) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -53,6 +58,7 @@ public class JobQuerySubmissionService {
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.realtimeThreshold = realtimeThreshold;
+        this.projectRepository = projectRepository;
     }
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
         int keywordCount = queryTexts.size();
@@ -79,6 +85,7 @@ public class JobQuerySubmissionService {
     private void executeImmediateParallelProcessing(UUID jobId, SubscriptionPlan subscriptionPlan) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
         String brandName = jobEntity.getBrandName();
+        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         List<QueryEntity> queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         UUID tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         List<CompletableFuture<Void>> pendingPersistenceTasks = new ArrayList<>();
@@ -88,6 +95,7 @@ public class JobQuerySubmissionService {
                     jobEntity.getId(),
                     tenantId,
                     brandName,
+                    competitorHosts,
                     queryEntity,
                     subscriptionPlan,
                     pendingPersistenceTasks);
@@ -99,10 +107,25 @@ public class JobQuerySubmissionService {
             jobStreamRegistryService.complete(jobId);
         }
     }
+    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
+        UUID projectId = jobEntity.getProjectId();
+        if (projectId == null) {
+            return List.of();
+        }
+        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
+            .map(ProjectEntity::getCompetitorUrls)
+            .orElse(List.of())
+            .stream()
+            .map(EntityNormalizer::hostLabelFromUrl)
+            .filter(s -> !s.isBlank())
+            .toList());
+    }
     private void processOneQueryRealtime(
             UUID jobId,
             UUID tenantId,
             String brandName,
+            List<String> competitorHosts,
             QueryEntity queryEntity,
             SubscriptionPlan subscriptionPlan,
             List<CompletableFuture<Void>> pendingPersistenceTasks) {
@@ -113,23 +136,37 @@ public class JobQuerySubmissionService {
                     queryEntity.getQueryText(),
                     subscriptionPlan,
                     jobId,
-                    queryEntity.getId());
+                    queryEntity.getId(),
+                    brandName,
+                    competitorHosts);
                 pendingPersistenceTasks.add(CompletableFuture.runAsync(
                     () -> TenantContext.executeWithTenant(tenantId, () -> {
                         try {
-                            SomScoreData parsedSomScoreData = somScoreParser.parse(syncVerificationResult.rawResponseJson());
-                            double somScore = SomScoreRules.computeFromCitationRank(
-                                parsedSomScoreData.mentionRank(),
-                                parsedSomScoreData.brandMentioned());
+                            ConsultantOutputData consultantOutputData =
+                                somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
+                            double somScore = syncVerificationResult.somScore() != null
+                                ? syncVerificationResult.somScore()
+                                : 0.0;
+                            boolean brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+                            Integer mr = syncVerificationResult.mentionRank() != null
+                                ? syncVerificationResult.mentionRank()
+                                : 0;
+                            Integer ov = syncVerificationResult.overallScore() != null
+                                ? syncVerificationResult.overallScore()
+                                : 0;
                             jobPersistenceService.upsertAuditHistoryForJobQuery(
                                 jobId,
                                 queryEntity.getId(),
                                 queryEntity.getQueryText(),
-                                jsonbOperations.serialize(parsedSomScoreData),
+                                jsonbOperations.serialize(consultantOutputData),
                                 somScore,
-                                Boolean.TRUE.equals(parsedSomScoreData.brandMentioned()),
-                                parsedSomScoreData.mentionRank(),
-                                parsedSomScoreData.overallScore());
+                                brand,
+                                mr,
+                                ov,
+                                syncVerificationResult.resolvedEntityLabel(),
+                                syncVerificationResult.tokenCount(),
+                                syncVerificationResult.rankPosition(),
+                                syncVerificationResult.sentimentIntensity());
                         } catch (Exception exception) {
                             log.error(
                                 "async audit persist failed jobId={} queryId={}",

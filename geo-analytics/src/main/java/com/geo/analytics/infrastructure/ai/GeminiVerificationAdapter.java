@@ -1,5 +1,6 @@
 package com.geo.analytics.infrastructure.ai;
 
+import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
@@ -7,6 +8,9 @@ import com.geo.analytics.application.port.AiVerificationPort;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.SomRawMetrics;
+import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -72,7 +76,7 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
                     UserMessage.from(buildUserContent(verificationRequest)))
                 .responseFormat(ConsultantOutputSchema.responseFormat(plan))
                 .build()).aiMessage().text();
-            return buildVerificationResponse(rawAiResponseJson);
+            return buildVerificationResponse(rawAiResponseJson, plan, verificationRequest);
         } catch (Exception exception) {
             log.error("Gemini verification failed rawDetail={}", formatGeminiErrorDetail(exception), exception);
             throw exception;
@@ -109,7 +113,8 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
                     }
                     jobStreamRegistryService.emitDone(jobId, queryId, fullText);
                     try {
-                        verificationResponseCompletableFuture.complete(buildVerificationResponse(fullText));
+                        verificationResponseCompletableFuture.complete(
+                            buildVerificationResponse(fullText, plan, verificationRequest));
                     } catch (Exception parseException) {
                         verificationResponseCompletableFuture.completeExceptionally(parseException);
                     }
@@ -139,14 +144,41 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
         }
     }
 
-    private VerificationResponse buildVerificationResponse(String rawAiResponseJson) {
-        SomScoreData parsedSomScoreData = somScoreParser.parse(rawAiResponseJson);
+    private VerificationResponse buildVerificationResponse(
+            String rawAiResponseJson,
+            SubscriptionPlan subscriptionPlan,
+            VerificationRequest verificationRequest) {
+        SomScoreData metrics = somScoreParser.parse(rawAiResponseJson);
+        ConsultantOutputData full = somScoreParser.parseConsultantOutput(rawAiResponseJson);
+        int tc = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
+        int rp = metrics.rankPosition() != null ? metrics.rankPosition() : 0;
+        double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
+        String ext = full.extractedBrandMention();
+        String rawName = ext != null && !ext.isBlank() ? ext : verificationRequest.brandName();
+        String main = verificationRequest.canonicalMainBrand() != null
+            && !verificationRequest.canonicalMainBrand().isBlank()
+            ? verificationRequest.canonicalMainBrand()
+            : verificationRequest.brandName();
+        List<String> comps = verificationRequest.registeredCompetitorBrands() != null
+            ? verificationRequest.registeredCompetitorBrands()
+            : List.of();
+        boolean isProPlan = subscriptionPlan == SubscriptionPlan.PRO;
+        String resolved = EntityNormalizer.resolve(rawName, main, comps, isProPlan);
+        boolean isProAnalysis = isProPlan;
+        SomRawMetrics rawMetrics = new SomRawMetrics(tc, rp, si, isProAnalysis);
+        double som = SomScoreCalculator.calculate(rawMetrics);
+        boolean brand = tc > 0 || rp > 0;
+        int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
         return new VerificationResponse(
             rawAiResponseJson,
-            parsedSomScoreData.confidenceScore() != null ? parsedSomScoreData.confidenceScore() : 0.0,
-            parsedSomScoreData.brandMentioned() != null ? parsedSomScoreData.brandMentioned() : false,
-            parsedSomScoreData.mentionRank(),
-            parsedSomScoreData.overallScore());
+            som,
+            brand,
+            rp,
+            overall,
+            tc,
+            rp,
+            si,
+            resolved);
     }
 
     private static String formatGeminiErrorDetail(Throwable throwable) {

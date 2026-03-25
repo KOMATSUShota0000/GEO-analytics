@@ -5,5 +5,10 @@ public record SyncVerificationResult(
     Double somScore,
     Boolean brandMentioned,
     Integer mentionRank,
-    String naturalLanguageResponse
+    Integer overallScore,
+    int tokenCount,
+    int rankPosition,
+    double sentimentIntensity,
+    String naturalLanguageResponse,
+    String resolvedEntityLabel
 ) {}

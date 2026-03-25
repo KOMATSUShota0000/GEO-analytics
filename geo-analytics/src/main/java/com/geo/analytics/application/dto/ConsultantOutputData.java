@@ -1,0 +1,25 @@
+package com.geo.analytics.application.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record ConsultantOutputData(
+    String response,
+    @JsonProperty("extracted_brand_mention") String extractedBrandMention,
+    @JsonProperty("token_count") Integer tokenCount,
+    @JsonProperty("rank_position") Integer rankPosition,
+    @JsonProperty("sentiment_intensity") Double sentimentIntensity,
+    List<TaskDTO> prioritizedTasks,
+    List<CompetitorShareEntry> competitorComparison,
+    String reversalStrategy
+) {
+    public ConsultantOutputData {
+        prioritizedTasks = prioritizedTasks == null ? List.of() : List.copyOf(prioritizedTasks);
+        competitorComparison = competitorComparison == null ? null : List.copyOf(competitorComparison);
+    }
+    public SomScoreData toSomScoreData() {
+        return new SomScoreData(tokenCount, rankPosition, sentimentIntensity);
+    }
+}

@@ -353,6 +353,21 @@ export function resolveChartTrendData(
   }
   return MOCK_TREND_LAST_7_DAYS;
 }
+export function resolveAverageSomScore(
+  resultRows: ResultDetail[],
+  parsedByQueryId: Record<string, unknown>,
+  isStreaming: boolean,
+): number | null {
+  if (resultRows.length > 0) {
+    return resultRows.reduce((s, r) => s + r.somScore, 0) / resultRows.length;
+  }
+  if (isStreaming) {
+    const live = averageLiveScoresFromParsed(parsedByQueryId);
+    return live !== null ? live.somScore : null;
+  }
+  return null;
+}
+
 export function resolveChartShareData(
   brandName: string,
   competitorNames: [string, string],

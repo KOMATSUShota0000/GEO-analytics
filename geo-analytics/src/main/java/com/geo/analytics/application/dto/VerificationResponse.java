@@ -5,5 +5,9 @@ public record VerificationResponse(
     Double somScore,
     Boolean brandMentioned,
     Integer mentionRank,
-    Integer overallScore
+    Integer overallScore,
+    int tokenCount,
+    int rankPosition,
+    double sentimentIntensity,
+    String resolvedEntityLabel
 ) {}

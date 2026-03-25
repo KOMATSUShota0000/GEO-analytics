@@ -54,10 +54,10 @@ public final class ConsultantOutputSchema {
     private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan) {
         JsonObjectSchema.Builder builder = JsonObjectSchema.builder()
             .addStringProperty("response")
-            .addBooleanProperty("brandMentioned")
-            .addIntegerProperty("mentionRank")
-            .addNumberProperty("confidenceScore")
-            .addIntegerProperty("overallScore")
+            .addStringProperty("extracted_brand_mention")
+            .addIntegerProperty("token_count")
+            .addIntegerProperty("rank_position")
+            .addNumberProperty("sentiment_intensity")
             .addProperty(
                 "prioritizedTasks",
                 JsonArraySchema.builder().items(prioritizedTaskItemSchema()).build());
@@ -68,20 +68,20 @@ public final class ConsultantOutputSchema {
             builder.addStringProperty("reversalStrategy");
             builder.required(
                 "response",
-                "brandMentioned",
-                "mentionRank",
-                "confidenceScore",
-                "overallScore",
+                "extracted_brand_mention",
+                "token_count",
+                "rank_position",
+                "sentiment_intensity",
                 "prioritizedTasks",
                 "competitorComparison",
                 "reversalStrategy");
         } else {
             builder.required(
                 "response",
-                "brandMentioned",
-                "mentionRank",
-                "confidenceScore",
-                "overallScore",
+                "extracted_brand_mention",
+                "token_count",
+                "rank_position",
+                "sentiment_intensity",
                 "prioritizedTasks");
         }
         return builder.additionalProperties(false).build();
@@ -109,17 +109,17 @@ public final class ConsultantOutputSchema {
         tasksArray.put("items", taskItem);
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("response", Map.of("type", "STRING"));
-        properties.put("brandMentioned", Map.of("type", "BOOLEAN"));
-        properties.put("mentionRank", Map.of("type", "INTEGER"));
-        properties.put("confidenceScore", Map.of("type", "NUMBER"));
-        properties.put("overallScore", Map.of("type", "INTEGER"));
+        properties.put("extracted_brand_mention", Map.of("type", "STRING"));
+        properties.put("token_count", Map.of("type", "INTEGER"));
+        properties.put("rank_position", Map.of("type", "INTEGER"));
+        properties.put("sentiment_intensity", Map.of("type", "NUMBER"));
         properties.put("prioritizedTasks", tasksArray);
         List<String> required = new ArrayList<>(List.of(
             "response",
-            "brandMentioned",
-            "mentionRank",
-            "confidenceScore",
-            "overallScore",
+            "extracted_brand_mention",
+            "token_count",
+            "rank_position",
+            "sentiment_intensity",
             "prioritizedTasks"));
         if (subscriptionPlan == SubscriptionPlan.PRO) {
             Map<String, Object> entryProps = new LinkedHashMap<>();
