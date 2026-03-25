@@ -23,14 +23,17 @@ public class GeminiBatchExecutorService {
     private final GeminiBatchClient geminiBatchClient;
     private final JobPersistenceService jobPersistenceService;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
+    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
             JobPersistenceService jobPersistenceService,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher) {
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
         this.geminiBatchClient = geminiBatchClient;
         this.jobPersistenceService = jobPersistenceService;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
+        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
     }
 
     @Async
@@ -41,7 +44,9 @@ public class GeminiBatchExecutorService {
                 jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
             if (unprocessedQueryEntities.isEmpty()) {
                 jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
-                jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+                JobEntity emptyJobEntity = jobPersistenceService.findJobById(jobEntity.getId());
+                jobStatusBroadcastPublisher.publish(emptyJobEntity);
+                projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
             }
             List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()

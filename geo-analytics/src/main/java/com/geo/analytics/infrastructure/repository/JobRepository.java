@@ -10,4 +10,5 @@ import java.util.UUID;
 public interface JobRepository extends JpaRepository<JobEntity, UUID> {
     List<JobEntity> findByJobStatus(JobStatus jobStatus);
     Optional<JobEntity> findFirstByProjectIdOrderByCreatedAtDesc(UUID projectId);
+    List<JobEntity> findByProjectIdOrderByCreatedAtDesc(UUID projectId);
 }

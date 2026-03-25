@@ -26,4 +26,6 @@ public final class ConsultantPrompts {
             Assess brand visibility for this query with the information given.
             """.formatted(brandName, userQuery);
     }
+
+    public static final String KEYWORD_SUGGESTION_PROMPT = "あなたは一流のSEO/GEOコンサルタントです。提供されたサイトのDOM由来テキストとターゲット層を分析し、Google SGE等で引用されるために攻略すべき具体的なキーワードを提案してください。カテゴリは次の4つのみ厳守し、category_nameはそれぞれ「比較・検討」「悩み・課題解決」「業界・一般」「潜在層」と完全一致させてください。出力トークン上限によるJSON切断を防ぐため、各カテゴリのキーワードは10〜15件（合計おおよそ40〜60件）に抑え、重複を避け、具体的で検索ボリュームが見込める語句に厳選してください。説明文やマークダウンは出力せず、指定スキーマのJSONオブジェクトのみを返してください。";
 }

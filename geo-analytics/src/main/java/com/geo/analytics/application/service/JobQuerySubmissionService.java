@@ -38,6 +38,7 @@ public class JobQuerySubmissionService {
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final int realtimeThreshold;
     private final ProjectRepository projectRepository;
+    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
             AsyncSgeMeasurementService asyncSgeMeasurementService,
@@ -48,7 +49,8 @@ public class JobQuerySubmissionService {
             JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
             @Value("${app.ai.realtime-threshold:10}") int realtimeThreshold,
-            ProjectRepository projectRepository) {
+            ProjectRepository projectRepository,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -59,6 +61,7 @@ public class JobQuerySubmissionService {
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.realtimeThreshold = realtimeThreshold;
         this.projectRepository = projectRepository;
+        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
     }
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
         int keywordCount = queryTexts.size();
@@ -102,7 +105,9 @@ public class JobQuerySubmissionService {
             }
             CompletableFuture.allOf(pendingPersistenceTasks.toArray(CompletableFuture[]::new)).join();
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
+            JobEntity completedJobEntity = jobPersistenceService.findJobById(jobId);
+            jobStatusBroadcastPublisher.publish(completedJobEntity);
+            projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
         } finally {
             jobStreamRegistryService.complete(jobId);
         }

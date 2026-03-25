@@ -15,6 +15,7 @@ export function formatAuditDate(isoDate: string): string {
 
 export interface JobStatusResponse {
   jobId: string;
+  projectId: string | null;
   jobStatus: string;
   brandName: string;
   errorMessage: string | null;
@@ -30,6 +31,13 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
   }
   const r = value as Record<string, unknown>;
   if (typeof r.jobId !== "string") {
+    return null;
+  }
+  if (
+    r.projectId !== undefined &&
+    r.projectId !== null &&
+    typeof r.projectId !== "string"
+  ) {
     return null;
   }
   if (typeof r.jobStatus !== "string") {
@@ -64,6 +72,10 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
   }
   return {
     jobId: r.jobId,
+    projectId:
+      r.projectId === undefined || r.projectId === null || typeof r.projectId !== "string"
+        ? null
+        : r.projectId,
     jobStatus: r.jobStatus,
     brandName: r.brandName,
     errorMessage:

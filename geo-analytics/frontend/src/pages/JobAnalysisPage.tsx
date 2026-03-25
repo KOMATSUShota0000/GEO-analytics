@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { useJobNotification } from "../hooks/useJobNotification";
@@ -53,10 +53,24 @@ function shouldDataBeReadyForPdf(
   return true;
 }
 
-function ProjectInfoBlock({ project }: { project: JobProjectInfo }): JSX.Element {
+function ProjectInfoBlock({
+  project,
+  jobIdForReturn,
+}: {
+  project: JobProjectInfo;
+  jobIdForReturn: string;
+}): JSX.Element {
   return (
     <div className="pdf-avoid-break mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-      <h3 className="text-sm font-semibold text-slate-800">プロジェクト</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-800">プロジェクト</h3>
+        <RouterLink
+          to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
+          className="pdf-no-print text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+        >
+          定期監査・通知設定
+        </RouterLink>
+      </div>
       <p className="mt-2 text-sm text-slate-600">
         <span className="font-medium text-slate-800">名称</span> {project.projectName}
       </p>
@@ -477,7 +491,7 @@ export function JobAnalysisPage(): JSX.Element {
               </table>
             </div>
           )}
-          {data?.project && <ProjectInfoBlock project={data.project} />}
+          {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
         </div>
       )}
       {resolvedStatus === "FAILED" && (jobStatus !== null || data !== null) && (
@@ -505,7 +519,7 @@ export function JobAnalysisPage(): JSX.Element {
               {jobStatus.pdfStatus ?? "未生成"}
             </p>
           )}
-          {data?.project && <ProjectInfoBlock project={data.project} />}
+          {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
         </div>
       )}
       {effectiveJobId && jobStatus && (

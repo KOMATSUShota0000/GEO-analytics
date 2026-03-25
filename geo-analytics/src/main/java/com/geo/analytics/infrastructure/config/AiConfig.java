@@ -13,11 +13,13 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import java.time.Duration;
 
 @Configuration
 public class AiConfig {
     public static final String GEMINI_STREAMING_STANDARD = "geminiStreamingStandard";
     public static final String GEMINI_STREAMING_PRO = "geminiStreamingPro";
+    public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
     @Value("${app.ai.gemini.api-key}")
     private String geminiApiKey;
     @Value("${app.ai.gemini.model-name:gemini-2.5-flash}")
@@ -29,6 +31,18 @@ public class AiConfig {
             .apiKey(geminiApiKey)
             .modelName(geminiModelName)
             .temperature(0.0)
+            .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL)
+    public ChatLanguageModel keywordSuggestionChatLanguageModel() {
+        return GoogleAiGeminiChatModel.builder()
+            .apiKey(geminiApiKey)
+            .modelName(geminiModelName)
+            .temperature(0.2)
+            .timeout(Duration.ofSeconds(180))
+            .maxOutputTokens(8192)
             .build();
     }
 

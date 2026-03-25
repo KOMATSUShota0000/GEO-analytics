@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record JobStatusResponse(
     UUID jobId,
+    UUID projectId,
     String jobStatus,
     String brandName,
     String errorMessage,
@@ -17,6 +18,7 @@ public record JobStatusResponse(
     public static JobStatusResponse from(JobEntity jobEntity) {
         return new JobStatusResponse(
             jobEntity.getId(),
+            jobEntity.getProjectId(),
             jobEntity.getJobStatus() != null ? jobEntity.getJobStatus().name() : "UNKNOWN",
             jobEntity.getBrandName(),
             jobEntity.getErrorMessage(),

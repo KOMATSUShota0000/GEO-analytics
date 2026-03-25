@@ -1,0 +1,5 @@
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS auto_audit_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS slack_webhook_url VARCHAR(2048),
+    ADD COLUMN IF NOT EXISTS notification_email VARCHAR(320),
+    ADD COLUMN IF NOT EXISTS last_audit_at TIMESTAMP;

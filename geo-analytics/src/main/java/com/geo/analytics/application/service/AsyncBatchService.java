@@ -24,18 +24,21 @@ public class AsyncBatchService {
     private final GeminiBatchClient geminiBatchClient;
     private final GeminiResultProcessor geminiResultProcessor;
     private final SimpMessagingTemplate simpMessagingTemplate;
+    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
 
     public AsyncBatchService(
             JobPersistenceService jobPersistenceService,
             GeminiBatchExecutorService geminiBatchExecutorService,
             GeminiBatchClient geminiBatchClient,
             GeminiResultProcessor geminiResultProcessor,
-            SimpMessagingTemplate simpMessagingTemplate) {
+            SimpMessagingTemplate simpMessagingTemplate,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
         this.jobPersistenceService = jobPersistenceService;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
         this.geminiResultProcessor = geminiResultProcessor;
         this.simpMessagingTemplate = simpMessagingTemplate;
+        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
@@ -108,6 +111,7 @@ public class AsyncBatchService {
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
                     jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
+                    projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobEntity.getId()));
                 } else {
                     String stateDescription = batchJobState == null ? "null" : batchJobState;
                     jobPersistenceService.updateJobStatus(

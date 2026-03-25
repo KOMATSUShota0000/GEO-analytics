@@ -15,6 +15,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -96,6 +97,25 @@ public class GlobalExceptionHandler {
             HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
         problemDetail.setTitle("AI Response Parse Failure");
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+            .body(problemDetail);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
+        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        String detail = exception.getReason() != null ? exception.getReason() : status.getReasonPhrase();
+        if (status.is5xxServerError()) {
+            logger.error("Response status exception status={} detail={}", status.value(), detail, exception);
+        } else {
+            logger.warn("Response status exception status={} detail={}", status.value(), detail);
+        }
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
+        problemDetail.setTitle(status.getReasonPhrase());
+        return ResponseEntity.status(status)
             .contentType(MediaType.APPLICATION_PROBLEM_JSON)
             .body(problemDetail);
     }

@@ -6,6 +6,7 @@ import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,57 @@ public final class ConsultantOutputSchema {
         generationConfig.put("responseMimeType", "application/json");
         generationConfig.put("responseSchema", batchRootSchemaMap(subscriptionPlan));
         return generationConfig;
+    }
+
+    public static ResponseFormat keywordSuggestionResponseFormat() {
+        return ResponseFormat.builder()
+            .type(ResponseFormatType.JSON)
+            .jsonSchema(JsonSchema.builder()
+                .name("keyword_suggestion")
+                .rootElement(keywordSuggestionRootObjectSchema())
+                .build())
+            .build();
+    }
+
+    public static Map<String, Object> keywordSuggestionGenerationConfig() {
+        Map<String, Object> generationConfig = new LinkedHashMap<>();
+        generationConfig.put("responseMimeType", "application/json");
+        generationConfig.put("responseSchema", keywordSuggestionSchema());
+        return generationConfig;
+    }
+
+    private static JsonObjectSchema keywordCategoryItemSchema() {
+        return JsonObjectSchema.builder()
+            .addStringProperty("category_name")
+            .addProperty("keywords", JsonArraySchema.builder().items(new JsonStringSchema()).build())
+            .required("category_name", "keywords")
+            .additionalProperties(false)
+            .build();
+    }
+
+    private static JsonObjectSchema keywordSuggestionRootObjectSchema() {
+        return JsonObjectSchema.builder()
+            .addProperty("categories", JsonArraySchema.builder().items(keywordCategoryItemSchema()).build())
+            .required("categories")
+            .additionalProperties(false)
+            .build();
+    }
+
+    private static Map<String, Object> keywordSuggestionSchema() {
+        Map<String, Object> keywordItems = Map.of("type", "STRING");
+        Map<String, Object> keywordsArray = new LinkedHashMap<>();
+        keywordsArray.put("type", "ARRAY");
+        keywordsArray.put("items", keywordItems);
+        Map<String, Object> categoryProps = new LinkedHashMap<>();
+        categoryProps.put("category_name", Map.of("type", "STRING"));
+        categoryProps.put("keywords", keywordsArray);
+        Map<String, Object> categoryItem = strictObjectProps(categoryProps, List.of("category_name", "keywords"));
+        Map<String, Object> categoriesArray = new LinkedHashMap<>();
+        categoriesArray.put("type", "ARRAY");
+        categoriesArray.put("items", categoryItem);
+        Map<String, Object> rootProps = new LinkedHashMap<>();
+        rootProps.put("categories", categoriesArray);
+        return strictObjectProps(rootProps, List.of("categories"));
     }
 
     private static JsonObjectSchema prioritizedTaskItemSchema() {

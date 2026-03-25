@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogTitle,
   Link,
+  Snackbar,
   Stack,
   TextField,
   ThemeProvider,
@@ -22,6 +23,7 @@ import {
 import type { MouseEvent } from "react";
 import { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { KeywordSuggestionWizard } from "../components/KeywordSuggestionWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
 import { normalizeJobStatusResponse } from "../types/analysis";
 
@@ -40,6 +42,10 @@ export default function JobCreationPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [analysisMode, setAnalysisMode] = useState<"realtime" | "deep">("realtime");
   const [upsellOpen, setUpsellOpen] = useState(false);
+  const [draftJobId, setDraftJobId] = useState<string | null>(null);
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+  const [wizardPreparing, setWizardPreparing] = useState(false);
+  const [kwRegSnackbar, setKwRegSnackbar] = useState<string | null>(null);
 
   const handleAnalysisModeChange = (
     _event: MouseEvent<HTMLElement>,
@@ -70,14 +76,15 @@ export default function JobCreationPage(): JSX.Element {
     setKeywords((prev) => prev.filter((k) => k !== value));
   };
 
-  const createJob = async () => {
+  const ensureProjectForWizard = async (): Promise<boolean> => {
     setError(null);
     const brand = brandName.trim();
     if (!brand) {
-      setError("ブランド名を入力してください。");
-      return;
+      setError("AI提案を使うにはブランド名を入力してください。");
+      return false;
     }
-    setSubmitting(true);
+    if (draftJobId !== null && draftProjectId !== null) return true;
+    setWizardPreparing(true);
     try {
       const createRes = await fetch("/api/v1/jobs", {
         method: "POST",
@@ -90,10 +97,53 @@ export default function JobCreationPage(): JSX.Element {
       }
       const raw: unknown = await createRes.json();
       const created = normalizeJobStatusResponse(raw);
-      if (created === null) {
+      if (created === null || created.projectId === null) {
         throw new Error("ジョブ作成レスポンスの形式が不正です");
       }
-      const jobId = created.jobId;
+      setDraftJobId(created.jobId);
+      setDraftProjectId(created.projectId);
+      return true;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      return false;
+    } finally {
+      setWizardPreparing(false);
+    }
+  };
+
+  const createJob = async () => {
+    setError(null);
+    const brand = brandName.trim();
+    if (!brand) {
+      setError("ブランド名を入力してください。");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      let jobId = draftJobId;
+      if (jobId === null) {
+        const createRes = await fetch("/api/v1/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandName: brand }),
+        });
+        if (!createRes.ok) {
+          const text = await createRes.text();
+          throw new Error(text || `HTTP ${createRes.status}`);
+        }
+        const raw: unknown = await createRes.json();
+        const created = normalizeJobStatusResponse(raw);
+        if (created === null) {
+          throw new Error("ジョブ作成レスポンスの形式が不正です");
+        }
+        jobId = created.jobId;
+        setDraftJobId(created.jobId);
+        if (created.projectId !== null) setDraftProjectId(created.projectId);
+      }
+      if (jobId === null) {
+        throw new Error("ジョブIDがありません");
+      }
       if (keywords.length > 0) {
         const queriesRes = await fetch(`/api/v1/jobs/${jobId}/queries`, {
           method: "POST",
@@ -263,6 +313,28 @@ export default function JobCreationPage(): JSX.Element {
               </Stack>
             )}
           </Box>
+          <Box sx={{ mt: 2 }}>
+            <KeywordSuggestionWizard
+              projectId={draftProjectId}
+              ensureProjectReady={ensureProjectForWizard}
+              isSubmitting={submitting || wizardPreparing}
+              onRegistered={(r) =>
+                setKwRegSnackbar(
+                  `プロジェクトへ登録しました（新規${r.registered_count}件・スキップ${r.skipped_count}件）`,
+                )
+              }
+              onKeywordsSelected={(selectedKeywords) => {
+                setKeywords((prev) => {
+                  const next = [...prev];
+                  for (const k of selectedKeywords) {
+                    const t = k.trim();
+                    if (t && !next.includes(t)) next.push(t);
+                  }
+                  return next;
+                });
+              }}
+            />
+          </Box>
           {submitting && (
             <Box sx={{ mb: 1 }}>
               <LoadingCharacter />
@@ -292,6 +364,21 @@ export default function JobCreationPage(): JSX.Element {
             {submitting ? "作成中…" : "ジョブを作成"}
           </Button>
         </Stack>
+        <Snackbar
+          open={kwRegSnackbar !== null}
+          autoHideDuration={6000}
+          onClose={() => setKwRegSnackbar(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
+          <Alert
+            onClose={() => setKwRegSnackbar(null)}
+            severity="success"
+            variant="filled"
+            sx={{ width: "100%" }}
+          >
+            {kwRegSnackbar}
+          </Alert>
+        </Snackbar>
         <Dialog open={upsellOpen} onClose={() => setUpsellOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle fontWeight={700}>Proプラン限定機能</DialogTitle>
           <DialogContent>

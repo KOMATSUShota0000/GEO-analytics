@@ -42,6 +42,14 @@ public class ProjectEntity {
     private LocalDateTime createdAt;
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+    @Column(name = "auto_audit_enabled", nullable = false)
+    private boolean autoAuditEnabled = false;
+    @Column(name = "slack_webhook_url", length = 2048)
+    private String slackWebhookUrl;
+    @Column(name = "notification_email", length = 320)
+    private String notificationEmail;
+    @Column(name = "last_audit_at")
+    private LocalDateTime lastAuditAt;
     public ProjectEntity() {
     }
     public UUID getId() {
@@ -97,6 +105,30 @@ public class ProjectEntity {
     }
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+    public boolean isAutoAuditEnabled() {
+        return autoAuditEnabled;
+    }
+    public void setAutoAuditEnabled(boolean autoAuditEnabled) {
+        this.autoAuditEnabled = autoAuditEnabled;
+    }
+    public String getSlackWebhookUrl() {
+        return slackWebhookUrl;
+    }
+    public void setSlackWebhookUrl(String slackWebhookUrl) {
+        this.slackWebhookUrl = slackWebhookUrl;
+    }
+    public String getNotificationEmail() {
+        return notificationEmail;
+    }
+    public void setNotificationEmail(String notificationEmail) {
+        this.notificationEmail = notificationEmail;
+    }
+    public LocalDateTime getLastAuditAt() {
+        return lastAuditAt;
+    }
+    public void setLastAuditAt(LocalDateTime lastAuditAt) {
+        this.lastAuditAt = lastAuditAt;
     }
     @PrePersist
     protected void onCreate() {
