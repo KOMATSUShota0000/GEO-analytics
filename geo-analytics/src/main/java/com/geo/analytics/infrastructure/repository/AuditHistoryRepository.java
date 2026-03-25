@@ -7,4 +7,5 @@ import java.util.UUID;
 public interface AuditHistoryRepository extends JpaRepository<AuditHistoryEntity, UUID> {
     List<AuditHistoryEntity> findByJobId(UUID jobId);
     Optional<AuditHistoryEntity> findByJobIdAndQuery(UUID jobId, String query);
+    List<AuditHistoryEntity> findByProject_IdOrderByAuditDateAsc(UUID projectId);
 }

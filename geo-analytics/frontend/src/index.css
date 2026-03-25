@@ -1,6 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+:root {
+  --brand-color: #4f46e5;
+  --chart-competitor-1: #94a3b8;
+  --chart-competitor-2: #cbd5e1;
+}
+.report-print-root, .report-print-root * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
 
 @media print {
   .pdf-no-print {

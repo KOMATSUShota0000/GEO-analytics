@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AnalysisCharts } from "../components/AnalysisCharts";
 import { useJobNotification } from "../hooks/useJobNotification";
 import { useJobStreaming } from "../hooks/useJobStreaming";
 import {
+  competitorLabelsFromProject,
   formatAuditDate,
   liveMetricsFromParsed,
+  normalizeAnalyticsSummary,
+  parseJobAnalysisDetail,
+  resolveChartShareData,
+  resolveChartTrendData,
+  type AnalyticsSummaryNormalized,
   type JobAnalysisDetail,
   type JobProjectInfo,
   type ResultDetail,
@@ -96,6 +103,7 @@ function CompletedScoreCell({ value }: { value: string | number }): JSX.Element 
 
 export function JobAnalysisPage(): JSX.Element {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { jobId: jobIdFromRoute } = useParams<{ jobId: string }>();
   const [jobIdInput, setJobIdInput] = useState(jobIdFromRoute ?? "");
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
@@ -103,6 +111,7 @@ export function JobAnalysisPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
+  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
   const effectiveJobIdRef = useRef(effectiveJobId);
@@ -115,17 +124,38 @@ export function JobAnalysisPage(): JSX.Element {
     refetchJobFromRest,
   } = useJobNotification(effectiveJobId);
 
-  const refetchAnalysis = useCallback(async (jobIdStr: string) => {
+  const refetchAnalysis = useCallback(async (jobIdStr: string): Promise<JobAnalysisDetail | null> => {
     const id = jobIdStr.trim();
     if (id.length === 0) {
-      return;
+      return null;
     }
     const res = await fetch(`/api/v1/jobs/${id}/analysis`);
     if (!res.ok) {
+      return null;
+    }
+    const body: unknown = await res.json();
+    const p = parseJobAnalysisDetail(body);
+    setData(p);
+    return p;
+  }, []);
+
+  const fetchProjectAnalytics = useCallback(async (projectId: string) => {
+    const pid = projectId.trim();
+    if (pid.length === 0) {
       return;
     }
-    const json = (await res.json()) as JobAnalysisDetail;
-    setData(json);
+    try {
+      const res = await fetch(`/api/v1/projects/${pid}/analytics`);
+      if (!res.ok) {
+        setApiCharts(undefined);
+        return;
+      }
+      const body: unknown = await res.json();
+      const normalized = normalizeAnalyticsSummary(body);
+      setApiCharts(normalized ?? undefined);
+    } catch {
+      setApiCharts(undefined);
+    }
   }, []);
 
   const handleStreamSettled = useCallback(async () => {
@@ -134,8 +164,12 @@ export function JobAnalysisPage(): JSX.Element {
       return;
     }
     await refetchJobFromRest();
-    await refetchAnalysis(id);
-  }, [refetchJobFromRest, refetchAnalysis]);
+    const latest = await refetchAnalysis(id);
+    const projectId = latest?.project?.projectId?.trim();
+    if (projectId !== undefined && projectId.length > 0) {
+      await fetchProjectAnalytics(projectId);
+    }
+  }, [refetchJobFromRest, refetchAnalysis, fetchProjectAnalytics]);
 
   const {
     isStreaming,
@@ -157,6 +191,34 @@ export function JobAnalysisPage(): JSX.Element {
     data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
   const isPdfGeneratingUi =
     pdfRequestInFlight || (jobStatus?.pdfStatus != null && jobStatus.pdfStatus === PDF_GENERATING);
+  const isPdfMode = searchParams.get("pdf") === "1";
+  const brandForCharts = displayBrand ?? "自社";
+  const competitorPair = useMemo(
+    () => competitorLabelsFromProject(data?.project ?? null),
+    [data?.project],
+  );
+  const chartTrendData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.trend;
+    }
+    return resolveChartTrendData(resultRows, parsedByQueryId, isStreaming);
+  }, [apiCharts, resultRows, parsedByQueryId, isStreaming]);
+  const chartShareData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.share;
+    }
+    return resolveChartShareData(
+      brandForCharts,
+      competitorPair,
+      resultRows,
+      parsedByQueryId,
+      isStreaming,
+    );
+  }, [apiCharts, brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming]);
+  const showCharts =
+    effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
+  const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
+  const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
 
   const requestPdfReport = useCallback(async () => {
     if (!effectiveJobId.trim()) {
@@ -193,6 +255,18 @@ export function JobAnalysisPage(): JSX.Element {
   }, [effectiveJobId]);
 
   useEffect(() => {
+    setApiCharts(undefined);
+  }, [effectiveJobId]);
+
+  useEffect(() => {
+    const pid = data?.project?.projectId?.trim();
+    if (pid === undefined || pid.length === 0) {
+      return;
+    }
+    void fetchProjectAnalytics(pid);
+  }, [data?.project?.projectId, fetchProjectAnalytics]);
+
+  useEffect(() => {
     const pdfStatus = jobStatus?.pdfStatus;
     if (pdfStatus === PDF_COMPLETED || pdfStatus === PDF_FAILED) {
       setPdfRequestInFlight(false);
@@ -225,10 +299,16 @@ export function JobAnalysisPage(): JSX.Element {
           const text = await response.text();
           throw new Error(text || `HTTP ${response.status}`);
         }
-        return response.json() as Promise<JobAnalysisDetail>;
+        return response.json() as Promise<unknown>;
       })
-      .then((json) => {
-        setData(json);
+      .then((body: unknown) => {
+        const p = parseJobAnalysisDetail(body);
+        if (p === null) {
+          setLoadError("解析データの形式が不正です");
+          setData(null);
+        } else {
+          setData(p);
+        }
       })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -260,6 +340,15 @@ export function JobAnalysisPage(): JSX.Element {
       setIsReadyForPdf(false);
     };
   }, [effectiveJobId, loading, loadError, data]);
+
+  useEffect(() => {
+    if (!isReadyForPdf || !isPdfMode) {
+      setPdfDelayedReady(false);
+      return;
+    }
+    const t = window.setTimeout(() => setPdfDelayedReady(true), 100);
+    return () => window.clearTimeout(t);
+  }, [isReadyForPdf, isPdfMode]);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
@@ -439,6 +528,16 @@ export function JobAnalysisPage(): JSX.Element {
           </button>
         </div>
       )}
+      {showCharts &&
+        (isProcessingDisplay ||
+          (data !== null && isCompletedJobStatus(data.jobStatus))) && (
+          <AnalysisCharts
+            isPdfMode={isPdfMode}
+            trendData={chartTrendData}
+            shareData={chartShareData}
+            brandLabel={brandForCharts}
+          />
+        )}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="pdf-avoid-break border-b border-slate-200 bg-slate-50 px-4 py-3">
@@ -499,7 +598,7 @@ export function JobAnalysisPage(): JSX.Element {
           </div>
         </div>
       )}
-      {isReadyForPdf && <div id="pdf-ready-flag" aria-hidden="true" />}
+      {showPdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
     </div>
   );
 }

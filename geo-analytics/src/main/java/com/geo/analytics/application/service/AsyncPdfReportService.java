@@ -2,7 +2,11 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
 import com.geo.analytics.application.port.PdfReportPort;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
+import com.geo.analytics.infrastructure.repository.ProjectRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import org.slf4j.Logger;
@@ -29,6 +33,7 @@ public class AsyncPdfReportService {
     private static final Executor PDF_RENDER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final PdfReportPort pdfReportPort;
     private final JobPersistenceService jobPersistenceService;
+    private final ProjectRepository projectRepository;
     private final PdfStorageConfig pdfStorageConfig;
     private final String internalToken;
     private final String defaultBrandColor;
@@ -36,12 +41,14 @@ public class AsyncPdfReportService {
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
             JobPersistenceService jobPersistenceService,
+            ProjectRepository projectRepository,
             PdfStorageConfig pdfStorageConfig,
             @Value("${app.pdf.internal-token}") String internalToken,
             @Value("${app.pdf.default-brand-color}") String defaultBrandColor,
             @Value("${app.pdf.default-logo-url}") String defaultLogoUrl) {
         this.pdfReportPort = pdfReportPort;
         this.jobPersistenceService = jobPersistenceService;
+        this.projectRepository = projectRepository;
         this.pdfStorageConfig = pdfStorageConfig;
         this.internalToken = internalToken;
         this.defaultBrandColor = defaultBrandColor;
@@ -56,10 +63,21 @@ public class AsyncPdfReportService {
                 markPdfFailedAndPublishSafely(jobId);
                 return;
             }
-            PdfWhiteLabelInjection injection = new PdfWhiteLabelInjection(
-                defaultBrandColor,
-                defaultLogoUrl,
-                jobEntity.getBrandName());
+            UUID workspaceId = jobEntity.getWorkspaceId() != null
+                ? jobEntity.getWorkspaceId()
+                : DefaultTenantIds.WORKSPACE_ID;
+            ProjectEntity projectEntity = TenantContext.executeWithTenant(
+                workspaceId,
+                () -> projectRepository.findById(jobEntity.getProjectId()).orElse(null));
+            String brandColor = pickFirstNonBlank(
+                jobEntity.getBrandColor(),
+                projectEntity != null ? projectEntity.getBrandColor() : null,
+                defaultBrandColor);
+            String logoUrl = pickFirstNonBlank(
+                jobEntity.getLogoUrl(),
+                projectEntity != null ? projectEntity.getLogoUrl() : null,
+                defaultLogoUrl);
+            PdfWhiteLabelInjection injection = new PdfWhiteLabelInjection(brandColor, logoUrl, jobEntity.getBrandName());
             byte[] pdfBytes = CompletableFuture.supplyAsync(
                 () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection),
                 PDF_RENDER_EXECUTOR)
@@ -102,6 +120,15 @@ public class AsyncPdfReportService {
         } catch (Exception publishException) {
             log.error("PDF failure state update failed jobId={}", jobId, publishException);
         }
+    }
+    private static String pickFirstNonBlank(String a, String b, String fallback) {
+        if (a != null && !a.isBlank()) {
+            return a;
+        }
+        if (b != null && !b.isBlank()) {
+            return b;
+        }
+        return fallback != null ? fallback : "";
     }
     private static String truncateStackTrace(Throwable throwable) {
         StringWriter stringWriter = new StringWriter();

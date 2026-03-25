@@ -175,6 +175,9 @@ public class JobPersistenceService {
             jobEntity.setBrandName(brandName);
             jobEntity.setWorkspaceId(workspaceId);
             jobEntity.setProjectId(projectEntity.getId());
+            String pbc = projectEntity.getBrandColor();
+            jobEntity.setBrandColor(pbc != null && !pbc.isBlank() ? pbc : "#4F46E5");
+            jobEntity.setLogoUrl(projectEntity.getLogoUrl());
             return jobRepository.save(jobEntity);
         }));
     }

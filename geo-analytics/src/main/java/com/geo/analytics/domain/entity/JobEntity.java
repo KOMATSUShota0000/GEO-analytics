@@ -35,7 +35,10 @@ public class JobEntity {
     private SubscriptionPlan subscriptionPlan;
     @Column(name = "brand_name", nullable = false)
     private String brandName;
-
+    @Column(name = "brand_color", nullable = false, length = 64)
+    private String brandColor = "#4F46E5";
+    @Column(name = "logo_url", length = 2048)
+    private String logoUrl;
     @Column(name = "gemini_job_name")
     private String geminiJobName;
 
@@ -96,7 +99,18 @@ public class JobEntity {
     public void setBrandName(String brandName) {
         this.brandName = brandName;
     }
-
+    public String getBrandColor() {
+        return brandColor;
+    }
+    public void setBrandColor(String brandColor) {
+        this.brandColor = brandColor;
+    }
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+    public void setLogoUrl(String logoUrl) {
+        this.logoUrl = logoUrl;
+    }
     public String getGeminiJobName() {
         return geminiJobName;
     }
@@ -151,6 +165,9 @@ public class JobEntity {
         updatedAt = LocalDateTime.now();
         if (jobStatus == null) {
             jobStatus = JobStatus.CREATED;
+        }
+        if (brandColor == null || brandColor.isBlank()) {
+            brandColor = "#4F46E5";
         }
     }
 

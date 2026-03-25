@@ -29,6 +29,10 @@ public class ProjectEntity {
     private String name;
     @Column(name = "target_url", nullable = false)
     private String targetUrl;
+    @Column(name = "brand_color", nullable = false, length = 64)
+    private String brandColor = "#4F46E5";
+    @Column(name = "logo_url", length = 2048)
+    private String logoUrl;
     @ElementCollection
     @CollectionTable(name = "project_competitors", joinColumns = @JoinColumn(name = "project_id"))
     @Column(name = "competitor_url")
@@ -64,6 +68,18 @@ public class ProjectEntity {
     public void setTargetUrl(String targetUrl) {
         this.targetUrl = targetUrl;
     }
+    public String getBrandColor() {
+        return brandColor;
+    }
+    public void setBrandColor(String brandColor) {
+        this.brandColor = brandColor;
+    }
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+    public void setLogoUrl(String logoUrl) {
+        this.logoUrl = logoUrl;
+    }
     public List<String> getCompetitorUrls() {
         return competitorUrls;
     }
@@ -87,6 +103,9 @@ public class ProjectEntity {
         LocalDateTime now = LocalDateTime.now();
         createdAt = now;
         updatedAt = now;
+        if (brandColor == null || brandColor.isBlank()) {
+            brandColor = "#4F46E5";
+        }
     }
     @PreUpdate
     protected void onUpdate() {

@@ -1,6 +1,8 @@
 package com.geo.analytics.infrastructure.crawler;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
 import com.geo.analytics.application.port.PdfReportPort;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
@@ -9,8 +11,6 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Margin;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import java.net.URLEncoder;
@@ -20,7 +20,7 @@ import java.util.concurrent.Semaphore;
 @Component
 public class PlaywrightPdfAdapter implements PdfReportPort {
     private static final int MAX_CONCURRENT_PDF = 3;
-    private static final int PDF_READY_SELECTOR_TIMEOUT_MS = 30_000;
+    private static final int PDF_FLAG_TIMEOUT_MS = 20_000;
     private static final double PDF_CONTEXT_DEFAULT_TIMEOUT_MS = 120_000d;
     private static final double PDF_CONTEXT_NAVIGATION_TIMEOUT_MS = 90_000d;
     private static final String WHITE_LABEL_INJECTION_SCRIPT = """
@@ -51,31 +51,20 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     }
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
-        String pageUrl = pdfBaseUrl + "/job/" + jobId;
+        String pageUrl = pdfBaseUrl + "/job/" + jobId + "?pdf=1";
         try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
-                    Page page = pageLease.page();
-                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
-                    page.waitForSelector(
-                        "#pdf-ready-flag",
-                        new Page.WaitForSelectorOptions()
-                            .setState(WaitForSelectorState.ATTACHED)
-                            .setTimeout(PDF_READY_SELECTOR_TIMEOUT_MS));
-                    Margin margin = new Margin()
-                        .setTop("15mm")
-                        .setBottom("15mm")
-                        .setLeft("15mm")
-                        .setRight("15mm");
-                    return page.pdf(
-                        new Page.PdfOptions()
-                            .setFormat("A4")
-                            .setPrintBackground(true)
-                            .setMargin(margin));
+                    return capturePdf(
+                        pageLease.page(),
+                        pageUrl,
+                        new PdfWhiteLabelInjection("#4F46E5", "", ""));
                 }
             }
+        } catch (JsonProcessingException jsonProcessingException) {
+            throw new IllegalStateException(jsonProcessingException);
         }
     }
     @Override
@@ -87,33 +76,46 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
-                    Page page = pageLease.page();
-                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
-                    page.waitForSelector(
-                        "#pdf-ready-flag",
-                        new Page.WaitForSelectorOptions()
-                            .setState(WaitForSelectorState.ATTACHED)
-                            .setTimeout(PDF_READY_SELECTOR_TIMEOUT_MS));
-                    String whiteLabelJson;
-                    try {
-                        whiteLabelJson = objectMapper.writeValueAsString(whiteLabel);
-                    } catch (JsonProcessingException jsonProcessingException) {
-                        throw new IllegalStateException(jsonProcessingException);
-                    }
-                    page.evaluate(WHITE_LABEL_INJECTION_SCRIPT, whiteLabelJson);
-                    Margin margin = new Margin()
-                        .setTop("15mm")
-                        .setBottom("15mm")
-                        .setLeft("15mm")
-                        .setRight("15mm");
-                    return page.pdf(
-                        new Page.PdfOptions()
-                            .setFormat("A4")
-                            .setPrintBackground(true)
-                            .setMargin(margin));
+                    return capturePdf(pageLease.page(), pageUrl, whiteLabel);
                 }
             }
+        } catch (JsonProcessingException jsonProcessingException) {
+            throw new IllegalStateException(jsonProcessingException);
         }
+    }
+    private byte[] capturePdf(Page page, String pageUrl, PdfWhiteLabelInjection whiteLabel)
+            throws JsonProcessingException {
+        page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+        page.setViewportSize(794, 1123);
+        page.addStyleTag(
+            new Page.AddStyleTagOptions().setContent(cssRootAndPage(whiteLabel.brandColor())));
+        page.evaluate(WHITE_LABEL_INJECTION_SCRIPT, objectMapper.writeValueAsString(whiteLabel));
+        page.waitForSelector(
+            "#pdf-ready-flag",
+            new Page.WaitForSelectorOptions()
+                .setState(WaitForSelectorState.ATTACHED)
+                .setTimeout(PDF_FLAG_TIMEOUT_MS));
+        return page.pdf(
+            new Page.PdfOptions()
+                .setFormat("A4")
+                .setPrintBackground(true)
+                .setDisplayHeaderFooter(false)
+                .setMargin(new Margin().setTop("0").setBottom("0").setLeft("0").setRight("0")));
+    }
+    private static String cssRootAndPage(String brandColor) {
+        return ":root{--brand-color:"
+            + sanitizeCssColorHex(brandColor)
+            + ";}@page{size:A4 portrait;margin:0;}";
+    }
+    private static String sanitizeCssColorHex(String raw) {
+        if (raw == null) {
+            return "#4F46E5";
+        }
+        String t = raw.strip();
+        if (t.matches("#[0-9A-Fa-f]{6}") || t.matches("#[0-9A-Fa-f]{3}")) {
+            return t;
+        }
+        return "#4F46E5";
     }
     private static final class SemaphoreLease implements AutoCloseable {
         private final Semaphore semaphore;

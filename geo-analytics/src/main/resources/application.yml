@@ -16,11 +16,13 @@ spring:
     show-sql: false
   jackson:
     default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
 app:
   crawler:
     cache-ttl: 24h
     redis-enabled: false
-    redis-host: "${REDIS_HOST:localhost}"
+    redis-host: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
   ai:
     realtime-threshold: 10
     gemini:
