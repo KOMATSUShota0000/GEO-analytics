@@ -1,5 +1,4 @@
 package com.geo.analytics.infrastructure.crawler;
-
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
 import com.geo.analytics.application.port.PdfReportPort;
 import com.microsoft.playwright.Browser;
@@ -7,25 +6,23 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
-import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.Margin;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
-
 @Component
 public class PlaywrightPdfAdapter implements PdfReportPort {
     private static final int MAX_CONCURRENT_PDF = 3;
-
+    private static final int PDF_READY_SELECTOR_TIMEOUT_MS = 30_000;
+    private static final double PDF_CONTEXT_DEFAULT_TIMEOUT_MS = 120_000d;
+    private static final double PDF_CONTEXT_NAVIGATION_TIMEOUT_MS = 90_000d;
     private static final String WHITE_LABEL_INJECTION_SCRIPT = """
         jsonString => {
           const payload = JSON.parse(jsonString);
@@ -40,13 +37,9 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
           root.style.setProperty('--brand-name', payload.brandName != null ? String(payload.brandName) : '');
         }
         """;
-
     private final Semaphore pdfSemaphore = new Semaphore(MAX_CONCURRENT_PDF);
     private final String pdfBaseUrl;
     private final ObjectMapper objectMapper;
-    private Playwright playwright;
-    private Browser browser;
-
     public PlaywrightPdfAdapter(
             @Value("${app.pdf.base-url}") String pdfBaseUrl,
             ObjectMapper objectMapper) {
@@ -56,35 +49,21 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
         this.pdfBaseUrl = pdfBaseUrl.replaceAll("/+$", "");
         this.objectMapper = objectMapper;
     }
-
-    @PostConstruct
-    void launchBrowser() {
-        playwright = Playwright.create();
-        browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
-    }
-
-    @PreDestroy
-    void shutdownBrowser() {
-        if (browser != null) {
-            browser.close();
-        }
-        if (playwright != null) {
-            playwright.close();
-        }
-    }
-
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
         String pageUrl = pdfBaseUrl + "/job/" + jobId;
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore)) {
+        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+                Playwright playwright = Playwright.create();
+                Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
                     Page page = pageLease.page();
-                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE));
-                    page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(60_000));
+                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
                     page.waitForSelector(
                         "#pdf-ready-flag",
-                        new Page.WaitForSelectorOptions().setState(WaitForSelectorState.ATTACHED));
+                        new Page.WaitForSelectorOptions()
+                            .setState(WaitForSelectorState.ATTACHED)
+                            .setTimeout(PDF_READY_SELECTOR_TIMEOUT_MS));
                     Margin margin = new Margin()
                         .setTop("15mm")
                         .setBottom("15mm")
@@ -99,20 +78,22 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             }
         }
     }
-
     @Override
     public byte[] renderPrintRoutePdf(UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel) {
         String encodedToken = URLEncoder.encode(internalToken, StandardCharsets.UTF_8);
         String pageUrl = pdfBaseUrl + "/reports/print/" + jobId + "?internal_token=" + encodedToken;
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore)) {
+        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+                Playwright playwright = Playwright.create();
+                Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
                     Page page = pageLease.page();
-                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE));
-                    page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(60_000));
+                    page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
                     page.waitForSelector(
                         "#pdf-ready-flag",
-                        new Page.WaitForSelectorOptions().setState(WaitForSelectorState.ATTACHED));
+                        new Page.WaitForSelectorOptions()
+                            .setState(WaitForSelectorState.ATTACHED)
+                            .setTimeout(PDF_READY_SELECTOR_TIMEOUT_MS));
                     String whiteLabelJson;
                     try {
                         whiteLabelJson = objectMapper.writeValueAsString(whiteLabel);
@@ -134,14 +115,11 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             }
         }
     }
-
     private static final class SemaphoreLease implements AutoCloseable {
         private final Semaphore semaphore;
-
         private SemaphoreLease(Semaphore semaphore) {
             this.semaphore = semaphore;
         }
-
         static SemaphoreLease acquire(Semaphore semaphore) {
             try {
                 semaphore.acquire();
@@ -151,41 +129,34 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             }
             return new SemaphoreLease(semaphore);
         }
-
         @Override
         public void close() {
             semaphore.release();
         }
     }
-
     private static final class BrowserContextLease implements AutoCloseable {
         private final BrowserContext browserContext;
-
         BrowserContextLease(Browser browser) {
             this.browserContext = browser.newContext();
+            this.browserContext.setDefaultTimeout(PDF_CONTEXT_DEFAULT_TIMEOUT_MS);
+            this.browserContext.setDefaultNavigationTimeout(PDF_CONTEXT_NAVIGATION_TIMEOUT_MS);
         }
-
         BrowserContext context() {
             return browserContext;
         }
-
         @Override
         public void close() {
             browserContext.close();
         }
     }
-
     private static final class PageLease implements AutoCloseable {
         private final Page page;
-
         PageLease(Page page) {
             this.page = page;
         }
-
         Page page() {
             return page;
         }
-
         @Override
         public void close() {
             page.close();

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import type { JobAnalysisDetail } from "../types/analysis";
-import type { ResultSummary } from "./JobAnalysisPage";
+import {
+  formatAuditDate,
+  type JobAnalysisDetail,
+  type JobProjectInfo,
+  type ResultDetail,
+} from "../types/analysis";
 
 const TOKEN_FALLBACK = "dev-internal-token";
 
@@ -14,9 +18,6 @@ function shouldDataBeReadyForPdf(
   loading: boolean,
   loadError: string | null,
   data: JobAnalysisDetail | null,
-  resultsLoading: boolean,
-  resultsError: string | null,
-  resultSummaries: ResultSummary[] | null,
 ): boolean {
   if (!effectiveJobId) {
     return false;
@@ -25,9 +26,34 @@ function shouldDataBeReadyForPdf(
     return false;
   }
   if (isCompletedJobStatus(data.jobStatus)) {
-    return !resultsLoading && !resultsError && resultSummaries !== null;
+    return Array.isArray(data.results);
   }
   return true;
+}
+
+function ProjectInfoPrint({ project }: { project: JobProjectInfo }): JSX.Element {
+  return (
+    <div className="pdf-avoid-break mt-3 text-sm text-slate-600">
+      <p>
+        <span className="font-medium text-slate-800">プロジェクト</span> {project.projectName}
+      </p>
+      <p className="mt-1 break-all">
+        <span className="font-medium text-slate-800">対象URL</span> {project.targetUrl}
+      </p>
+      {project.competitorUrls.length > 0 && (
+        <div className="mt-1">
+          <span className="font-medium text-slate-800">競合URL</span>
+          <ul className="ml-4 list-disc">
+            {project.competitorUrls.map((url) => (
+              <li key={url} className="break-all">
+                {url}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ReportPrintPage(): JSX.Element {
@@ -36,15 +62,15 @@ export default function ReportPrintPage(): JSX.Element {
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resultSummaries, setResultSummaries] = useState<ResultSummary[] | null>(null);
-  const [resultsLoading, setResultsLoading] = useState(false);
-  const [resultsError, setResultsError] = useState<string | null>(null);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
 
   const effectiveJobId = jobIdFromRoute?.trim() ?? "";
   const expectedToken =
     import.meta.env.VITE_PDF_INTERNAL_TOKEN ?? TOKEN_FALLBACK;
   const tokenOk = searchParams.get("internal_token") === expectedToken;
+
+  const resultRows: ResultDetail[] =
+    data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
 
   useEffect(() => {
     if (!tokenOk || !effectiveJobId) {
@@ -77,46 +103,7 @@ export default function ReportPrintPage(): JSX.Element {
   }, [effectiveJobId, tokenOk]);
 
   useEffect(() => {
-    if (!tokenOk || !effectiveJobId || !data || !isCompletedJobStatus(data.jobStatus)) {
-      setResultSummaries(null);
-      setResultsError(null);
-      setResultsLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setResultsLoading(true);
-    setResultsError(null);
-    fetch(`/api/v1/jobs/${effectiveJobId}/results`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `HTTP ${response.status}`);
-        }
-        return response.json() as Promise<ResultSummary[]>;
-      })
-      .then((rows) => {
-        setResultSummaries(rows);
-      })
-      .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        const message = err instanceof Error ? err.message : String(err);
-        setResultsError(message);
-        setResultSummaries(null);
-      })
-      .finally(() => setResultsLoading(false));
-    return () => controller.abort();
-  }, [effectiveJobId, data?.jobStatus, tokenOk, data]);
-
-  useEffect(() => {
-    const ready = shouldDataBeReadyForPdf(
-      effectiveJobId,
-      loading,
-      loadError,
-      data,
-      resultsLoading,
-      resultsError,
-      resultSummaries,
-    );
+    const ready = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
     if (!ready) {
       setIsReadyForPdf(false);
       return;
@@ -134,15 +121,7 @@ export default function ReportPrintPage(): JSX.Element {
       cancelAnimationFrame(outer);
       setIsReadyForPdf(false);
     };
-  }, [
-    effectiveJobId,
-    loading,
-    loadError,
-    data,
-    resultsLoading,
-    resultsError,
-    resultSummaries,
-  ]);
+  }, [effectiveJobId, loading, loadError, data]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;
@@ -185,6 +164,7 @@ export default function ReportPrintPage(): JSX.Element {
               </span>
             </p>
           )}
+          {data?.project && <ProjectInfoPrint project={data.project} />}
         </div>
       </div>
       {loading && effectiveJobId && <p className="text-slate-600">読み込み中です…</p>}
@@ -207,16 +187,7 @@ export default function ReportPrintPage(): JSX.Element {
           </pre>
         </div>
       )}
-      {data && isCompletedJobStatus(data.jobStatus) && resultsLoading && (
-        <p className="mb-4 text-slate-600">解析結果を読み込み中です…</p>
-      )}
-      {data && isCompletedJobStatus(data.jobStatus) && resultsError && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
-          <strong className="font-semibold">解析結果の取得に失敗しました</strong>
-          <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{resultsError}</pre>
-        </div>
-      )}
-      {data && isCompletedJobStatus(data.jobStatus) && resultSummaries !== null && !resultsLoading && (
+      {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="pdf-avoid-break border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-800">解析結果一覧</h2>
@@ -226,25 +197,29 @@ export default function ReportPrintPage(): JSX.Element {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">SoMスコア</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
                 </tr>
               </thead>
               <tbody>
-                {resultSummaries.length === 0 ? (
+                {resultRows.length === 0 ? (
                   <tr className="pdf-avoid-break">
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                       完了しましたが、保存された解析結果はまだありません。
                     </td>
                   </tr>
                 ) : (
-                  resultSummaries.map((row, index) => (
+                  resultRows.map((row) => (
                     <tr
-                      key={`${row.query}-${index}`}
+                      key={row.resultId}
                       className="pdf-avoid-break border-b border-slate-100 last:border-0"
                     >
                       <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
+                        {formatAuditDate(row.auditDate)}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
                         {row.somScore}
                       </td>

@@ -2,6 +2,7 @@ package com.geo.analytics.web.controller;
 
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.service.SyncVerificationService;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,8 +21,11 @@ public class SyncVerificationController {
     @GetMapping
     public ResponseEntity<SyncVerificationResult> verify(
             @RequestParam String brandName,
-            @RequestParam String query) {
-        SyncVerificationResult syncVerificationResult = syncVerificationService.verify(brandName, query);
+            @RequestParam String query,
+            @RequestParam(required = false) SubscriptionPlan plan) {
+        SubscriptionPlan resolvedPlan = plan != null ? plan : SubscriptionPlan.STANDARD;
+        SyncVerificationResult syncVerificationResult =
+            syncVerificationService.verify(brandName, query, resolvedPlan);
         return ResponseEntity.ok(syncVerificationResult);
     }
 }

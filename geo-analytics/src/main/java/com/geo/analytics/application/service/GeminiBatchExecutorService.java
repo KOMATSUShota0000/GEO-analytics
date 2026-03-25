@@ -4,6 +4,7 @@ import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -45,8 +47,10 @@ public class GeminiBatchExecutorService {
             List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
                 .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
                 .toList();
+            SubscriptionPlan subscriptionPlan =
+                Objects.requireNonNullElse(jobEntity.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
             jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
-                jobEntity.getBrandName(), batchQueryLines);
+                jobEntity.getBrandName(), batchQueryLines, subscriptionPlan);
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
             GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata);
             jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(

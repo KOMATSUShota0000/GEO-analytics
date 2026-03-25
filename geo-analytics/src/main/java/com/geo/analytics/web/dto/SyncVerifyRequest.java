@@ -1,5 +1,6 @@
 package com.geo.analytics.web.dto;
 
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -10,5 +11,7 @@ public record SyncVerifyRequest(
 
     @NotBlank(message = "query must not be blank")
     @Size(max = 2000, message = "query must not exceed 2000 characters")
-    String query
+    String query,
+
+    SubscriptionPlan plan
 ) {}

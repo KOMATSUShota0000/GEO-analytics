@@ -1,7 +1,8 @@
 package com.geo.analytics.web.dto;
 
-import com.geo.analytics.domain.entity.ResultEntity;
-import java.time.LocalDateTime;
+import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record ResultDetailResponse(
@@ -10,18 +11,21 @@ public record ResultDetailResponse(
     Double somScore,
     Boolean brandMentioned,
     Integer mentionRank,
+    Integer overallScore,
     String rawResponse,
-    LocalDateTime createdAt
+    LocalDate auditDate,
+    Instant createdAt
 ) {
-    public static ResultDetailResponse from(ResultEntity resultEntity) {
+    public static ResultDetailResponse from(AuditHistoryEntity auditHistoryEntity) {
         return new ResultDetailResponse(
-            resultEntity.getId(),
-            resultEntity.getQuery(),
-            resultEntity.getSomScore(),
-            resultEntity.getBrandMentioned(),
-            resultEntity.getMentionRank(),
-            resultEntity.getRawResponse(),
-            resultEntity.getCreatedAt()
-        );
+            auditHistoryEntity.getId(),
+            auditHistoryEntity.getQuery(),
+            auditHistoryEntity.getSomScore(),
+            auditHistoryEntity.getBrandMentioned(),
+            auditHistoryEntity.getMentionRank(),
+            auditHistoryEntity.getOverallScore(),
+            auditHistoryEntity.getRawResponse(),
+            auditHistoryEntity.getAuditDate(),
+            auditHistoryEntity.getCreatedAt());
     }
 }

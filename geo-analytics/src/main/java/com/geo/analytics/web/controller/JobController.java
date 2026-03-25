@@ -1,16 +1,24 @@
 package com.geo.analytics.web.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
+import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.JobSyncTestService;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
+import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
+import com.geo.analytics.web.dto.JobAnalysisDetailResponse;
 import com.geo.analytics.web.dto.JobStatusResponse;
+import com.geo.analytics.web.dto.ResultDetailResponse;
 import com.geo.analytics.web.dto.ResultSummaryResponse;
+import com.geo.analytics.web.dto.StreamErrorPayload;
+import com.geo.analytics.web.dto.VerifyStreamEvent;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +29,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.io.IOException;
 import java.net.URI;
@@ -45,18 +54,24 @@ public class JobController {
     private final JobSyncTestService jobSyncTestService;
     private final AsyncPdfReportService asyncPdfReportService;
     private final PdfStorageConfig pdfStorageConfig;
+    private final JobStreamRegistryService jobStreamRegistryService;
+    private final ObjectMapper objectMapper;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
             JobQuerySubmissionService jobQuerySubmissionService,
             JobSyncTestService jobSyncTestService,
             AsyncPdfReportService asyncPdfReportService,
-            PdfStorageConfig pdfStorageConfig) {
+            PdfStorageConfig pdfStorageConfig,
+            JobStreamRegistryService jobStreamRegistryService,
+            ObjectMapper objectMapper) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
         this.asyncPdfReportService = asyncPdfReportService;
         this.pdfStorageConfig = pdfStorageConfig;
+        this.jobStreamRegistryService = jobStreamRegistryService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping
@@ -75,6 +90,57 @@ public class JobController {
     public ResponseEntity<JobStatusResponse> getJobStatus(@PathVariable UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
         return ResponseEntity.ok(JobStatusResponse.from(jobEntity));
+    }
+
+    @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamJob(@PathVariable UUID jobId) {
+        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        JobStatus jobStatus = jobEntity.getJobStatus();
+        if (jobStatus == JobStatus.COMPLETED) {
+            return createEphemeralSseEmitter(new VerifyStreamEvent("done", "", null));
+        }
+        if (jobStatus == JobStatus.FAILED) {
+            String errorText = jobEntity.getErrorMessage() != null ? jobEntity.getErrorMessage() : "FAILED";
+            return createEphemeralErrorSseEmitter(errorText);
+        }
+        if (jobStatus == JobStatus.FILE_UPLOADED
+            || jobStatus == JobStatus.SUBMITTED
+            || jobStatus == JobStatus.RUNNING) {
+            return createEphemeralSseEmitter(new VerifyStreamEvent("done", "", null));
+        }
+        return jobStreamRegistryService.register(jobId);
+    }
+
+    private SseEmitter createEphemeralSseEmitter(VerifyStreamEvent verifyStreamEvent) {
+        SseEmitter sseEmitter = new SseEmitter(30_000L);
+        try {
+            String jsonPayload = objectMapper.writeValueAsString(verifyStreamEvent);
+            sseEmitter.send(SseEmitter.event().name("chunk").data(jsonPayload));
+            sseEmitter.complete();
+        } catch (Exception exception) {
+            log.debug("ephemeral sse chunk failed", exception);
+            try {
+                sseEmitter.complete();
+            } catch (Exception ignored) {
+            }
+        }
+        return sseEmitter;
+    }
+
+    private SseEmitter createEphemeralErrorSseEmitter(String message) {
+        SseEmitter sseEmitter = new SseEmitter(30_000L);
+        try {
+            String jsonPayload = objectMapper.writeValueAsString(new StreamErrorPayload(message));
+            sseEmitter.send(SseEmitter.event().name("error").data(jsonPayload));
+            sseEmitter.complete();
+        } catch (Exception exception) {
+            log.debug("ephemeral sse error failed", exception);
+            try {
+                sseEmitter.complete();
+            } catch (Exception ignored) {
+            }
+        }
+        return sseEmitter;
     }
 
     @PostMapping("/{jobId}/test-sync")
@@ -97,6 +163,15 @@ public class JobController {
             @RequestBody @Valid AddQueriesRequest addQueriesRequest) {
         jobQuerySubmissionService.submitQueries(jobId, addQueriesRequest.queries(), addQueriesRequest.plan());
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{jobId}/analysis")
+    public ResponseEntity<JobAnalysisDetailResponse> getJobAnalysis(@PathVariable UUID jobId) {
+        JobAnalysisAggregate aggregate = jobPersistenceService.findJobAnalysisAggregate(jobId);
+        List<ResultDetailResponse> resultDetails = aggregate.auditHistories().stream()
+            .map(ResultDetailResponse::from)
+            .toList();
+        return ResponseEntity.ok(JobAnalysisDetailResponse.from(aggregate.job(), aggregate.project(), resultDetails));
     }
 
     @GetMapping("/{jobId}/results")

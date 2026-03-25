@@ -1,202 +1,289 @@
 package com.geo.analytics.application.service;
-
+import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.PdfJobStatusValues;
+import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.entity.ResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
+import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
-import com.geo.analytics.infrastructure.repository.ResultRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-
 @Service
 @Transactional(readOnly = true)
 public class JobPersistenceService {
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
-    private final ResultRepository resultRepository;
+    private final AuditHistoryRepository auditHistoryRepository;
+    private final ProjectRepository projectRepository;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
-
+    private final ProjectManagementService projectManagementService;
+    private final JdbcTemplate jdbcTemplate;
+    private final TransactionTemplate jobCreateTransactionTemplate;
     public JobPersistenceService(
             JobRepository jobRepository,
             QueryRepository queryRepository,
-            ResultRepository resultRepository,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher) {
+            AuditHistoryRepository auditHistoryRepository,
+            ProjectRepository projectRepository,
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            ProjectManagementService projectManagementService,
+            JdbcTemplate jdbcTemplate,
+            PlatformTransactionManager platformTransactionManager) {
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
-        this.resultRepository = resultRepository;
+        this.auditHistoryRepository = auditHistoryRepository;
+        this.projectRepository = projectRepository;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
+        this.projectManagementService = projectManagementService;
+        this.jdbcTemplate = jdbcTemplate;
+        this.jobCreateTransactionTemplate = new TransactionTemplate(platformTransactionManager);
+        this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
-
+    private UUID readWorkspaceIdForJob(UUID jobId) {
+        List<UUID> rows = jdbcTemplate.query(
+            "SELECT workspace_id FROM jobs WHERE id = ?",
+            ps -> ps.setObject(1, jobId),
+            (rs, rowNum) -> rs.getObject(1, UUID.class));
+        if (rows.isEmpty() || rows.get(0) == null) {
+            return DefaultTenantIds.WORKSPACE_ID;
+        }
+        return rows.get(0);
+    }
+    private UUID readWorkspaceIdForQuery(UUID queryId) {
+        List<UUID> rows = jdbcTemplate.query(
+            "SELECT j.workspace_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
+            ps -> ps.setObject(1, queryId),
+            (rs, rowNum) -> rs.getObject(1, UUID.class));
+        if (rows.isEmpty() || rows.get(0) == null) {
+            return DefaultTenantIds.WORKSPACE_ID;
+        }
+        return rows.get(0);
+    }
     public JobEntity findJobById(UUID jobId) {
-        return jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
+            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId)));
     }
-
     public Optional<JobEntity> findJobByIdOptional(UUID jobId) {
-        return jobRepository.findById(jobId);
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId));
     }
-
     public List<JobEntity> findJobsByStatus(JobStatus jobStatus) {
-        return jobRepository.findByJobStatus(jobStatus);
+        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> jobRepository.findByJobStatus(jobStatus));
     }
-
     public List<QueryEntity> findUnprocessedQueriesByJobId(UUID jobId) {
-        return queryRepository.findByJobIdAndProcessedFalse(jobId);
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobIdAndProcessedFalse(jobId));
     }
-
     public List<QueryEntity> findQueriesByJobId(UUID jobId) {
-        return queryRepository.findByJobId(jobId);
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
     }
-
     public Optional<QueryEntity> findQueryById(UUID queryId) {
-        return queryRepository.findById(queryId);
+        UUID tenantId = readWorkspaceIdForQuery(queryId);
+        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
     }
-
-    public List<ResultEntity> findResultsByJobId(UUID jobId) {
-        return resultRepository.findByJobId(jobId);
+    public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
     }
-
-    @Transactional
-    public void upsertResultAndMarkQueryProcessed(ResultEntity incoming, UUID queryId) {
-        Optional<ResultEntity> existingOptional =
-            resultRepository.findByJobIdAndQuery(incoming.getJobId(), incoming.getQuery());
-        if (existingOptional.isPresent()) {
-            ResultEntity existing = existingOptional.get();
-            existing.setRawResponse(incoming.getRawResponse());
-            existing.setSomScore(incoming.getSomScore());
-            existing.setBrandMentioned(incoming.getBrandMentioned());
-            existing.setMentionRank(incoming.getMentionRank());
-            resultRepository.save(existing);
-        } else {
-            resultRepository.save(incoming);
-        }
-        queryRepository.findById(queryId).ifPresent(queryEntity -> {
-            queryEntity.setProcessed(true);
-            queryRepository.save(queryEntity);
+    public JobAnalysisAggregate findJobAnalysisAggregate(UUID jobId) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            ProjectEntity projectEntity = null;
+            if (jobEntity.getProjectId() != null) {
+                projectEntity = projectRepository.findById(jobEntity.getProjectId()).orElse(null);
+            }
+            List<AuditHistoryEntity> auditHistories = auditHistoryRepository.findByJobId(jobId);
+            return new JobAnalysisAggregate(jobEntity, projectEntity, auditHistories);
         });
     }
-
     @Transactional
+    public void upsertAuditHistoryForJobQuery(
+            UUID jobId,
+            UUID queryId,
+            String queryText,
+            String rawResponse,
+            double somScore,
+            boolean brandMentioned,
+            Integer mentionRank,
+            Integer overallScore) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            UUID workspaceId = jobEntity.getWorkspaceId() != null ? jobEntity.getWorkspaceId() : DefaultTenantIds.WORKSPACE_ID;
+            UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
+            ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
+            Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
+            if (existingOptional.isPresent()) {
+                AuditHistoryEntity existing = existingOptional.get();
+                existing.setRawResponse(rawResponse);
+                existing.setSomScore(somScore);
+                existing.setBrandMentioned(brandMentioned);
+                existing.setMentionRank(mentionRank);
+                existing.setOverallScore(overallScore);
+                existing.setAuditDate(LocalDate.now());
+                existing.setWorkspaceId(workspaceId);
+                auditHistoryRepository.save(existing);
+            } else {
+                AuditHistoryEntity auditHistoryEntity = new AuditHistoryEntity();
+                auditHistoryEntity.setJobId(jobId);
+                auditHistoryEntity.setWorkspaceId(workspaceId);
+                auditHistoryEntity.setProject(projectEntity);
+                auditHistoryEntity.setQuery(queryText);
+                auditHistoryEntity.setRawResponse(rawResponse);
+                auditHistoryEntity.setSomScore(somScore);
+                auditHistoryEntity.setBrandMentioned(brandMentioned);
+                auditHistoryEntity.setMentionRank(mentionRank);
+                auditHistoryEntity.setOverallScore(overallScore);
+                auditHistoryEntity.setAuditDate(LocalDate.now());
+                auditHistoryRepository.save(auditHistoryEntity);
+            }
+            queryRepository.findById(queryId).ifPresent(queryEntity -> {
+                queryEntity.setProcessed(true);
+                queryRepository.save(queryEntity);
+            });
+        });
+    }
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public JobEntity createJob(String brandName) {
-        JobEntity jobEntity = new JobEntity();
-        jobEntity.setBrandName(brandName);
-        return jobRepository.save(jobEntity);
+        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(brandName);
+        UUID workspaceId = projectEntity.getWorkspaceId();
+        return TenantContext.executeWithTenant(workspaceId, () -> jobCreateTransactionTemplate.execute(status -> {
+            JobEntity jobEntity = new JobEntity();
+            jobEntity.setBrandName(brandName);
+            jobEntity.setWorkspaceId(workspaceId);
+            jobEntity.setProjectId(projectEntity.getId());
+            return jobRepository.save(jobEntity);
+        }));
     }
-
     @Transactional
-    public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts) {
-        registerQueriesWithTransition(jobId, queryTexts, JobStatus.FILE_UPLOADED);
+    public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
+        registerQueriesWithTransition(jobId, queryTexts, JobStatus.FILE_UPLOADED, subscriptionPlan);
     }
-
     @Transactional
-    public void registerQueriesAndTransitionToRealtimeProcessing(UUID jobId, List<String> queryTexts) {
-        registerQueriesWithTransition(jobId, queryTexts, JobStatus.REALTIME_PROCESSING);
+    public void registerQueriesAndTransitionToRealtimeProcessing(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
+        registerQueriesWithTransition(jobId, queryTexts, JobStatus.REALTIME_PROCESSING, subscriptionPlan);
     }
-
-    private void registerQueriesWithTransition(UUID jobId, List<String> queryTexts, JobStatus nextStatus) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        if (jobEntity.getJobStatus() != JobStatus.CREATED) {
-            throw new IllegalStateException(
-                "Queries can only be added to a CREATED job. Current status: " + jobEntity.getJobStatus());
-        }
-        queryTexts.forEach(queryText -> {
-            QueryEntity queryEntity = new QueryEntity();
-            queryEntity.setJobId(jobId);
-            queryEntity.setQueryText(queryText);
-            queryRepository.save(queryEntity);
+    private void registerQueriesWithTransition(
+            UUID jobId,
+            List<String> queryTexts,
+            JobStatus nextStatus,
+            SubscriptionPlan subscriptionPlan) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            if (jobEntity.getJobStatus() != JobStatus.CREATED) {
+                throw new IllegalStateException(
+                    "Queries can only be added to a CREATED job. Current status: " + jobEntity.getJobStatus());
+            }
+            queryTexts.forEach(queryText -> {
+                QueryEntity queryEntity = new QueryEntity();
+                queryEntity.setJobId(jobId);
+                queryEntity.setQueryText(queryText);
+                queryRepository.save(queryEntity);
+            });
+            jobEntity.setSubscriptionPlan(subscriptionPlan);
+            jobEntity.setJobStatus(nextStatus);
+            jobRepository.save(jobEntity);
+            jobStatusBroadcastPublisher.publish(jobEntity);
         });
-        jobEntity.setJobStatus(nextStatus);
-        jobRepository.save(jobEntity);
-        jobStatusBroadcastPublisher.publish(jobEntity);
     }
-
     @Transactional
     public void updateJobStatus(UUID jobId, JobStatus newJobStatus, String errorMessage) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        jobEntity.setJobStatus(newJobStatus);
-        jobEntity.setErrorMessage(errorMessage);
-        jobRepository.save(jobEntity);
-    }
-
-    @Transactional
-    public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        jobEntity.setJobStatus(JobStatus.RUNNING);
-        jobEntity.setGeminiJobName(geminiJobName);
-        jobRepository.save(jobEntity);
-    }
-
-    @Transactional
-    public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        jobEntity.setJobStatus(JobStatus.SUBMITTED);
-        jobEntity.setGeminiJobName(geminiJobName);
-        jobRepository.save(jobEntity);
-    }
-
-    @Transactional
-    public void saveResultAndMarkQueryAsProcessed(ResultEntity resultEntity, UUID queryId) {
-        resultRepository.save(resultEntity);
-        queryRepository.findById(queryId).ifPresent(queryEntity -> {
-            queryEntity.setProcessed(true);
-            queryRepository.save(queryEntity);
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setJobStatus(newJobStatus);
+            jobEntity.setErrorMessage(errorMessage);
+            jobRepository.save(jobEntity);
         });
     }
-
     @Transactional
-    public void saveAllResultsAndMarkQueriesAsProcessed(
-            List<ResultEntity> resultEntities, List<UUID> processedQueryIds) {
-        resultRepository.saveAll(resultEntities);
-        List<QueryEntity> processedQueryEntities = queryRepository.findAllById(processedQueryIds);
-        processedQueryEntities.forEach(queryEntity -> queryEntity.setProcessed(true));
-        queryRepository.saveAll(processedQueryEntities);
+    public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setJobStatus(JobStatus.RUNNING);
+            jobEntity.setGeminiJobName(geminiJobName);
+            jobRepository.save(jobEntity);
+        });
     }
-
+    @Transactional
+    public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setJobStatus(JobStatus.SUBMITTED);
+            jobEntity.setGeminiJobName(geminiJobName);
+            jobRepository.save(jobEntity);
+        });
+    }
     @Transactional
     public JobEntity markPdfGeneratingAndPublish(UUID jobId) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        if (resultRepository.findByJobId(jobId).isEmpty()) {
-            throw new IllegalArgumentException("解析結果が存在しないためPDFを生成できません");
-        }
-        jobEntity.setPdfStatus(PdfJobStatusValues.GENERATING);
-        jobEntity.setPdfFilePath(null);
-        JobEntity saved = jobRepository.save(jobEntity);
-        jobStatusBroadcastPublisher.publish(saved);
-        return saved;
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            if (auditHistoryRepository.findByJobId(jobId).isEmpty()) {
+                throw new IllegalArgumentException("解析結果が存在しないためPDFを生成できません");
+            }
+            jobEntity.setPdfStatus(PdfJobStatusValues.GENERATING);
+            jobEntity.setPdfFilePath(null);
+            JobEntity saved = jobRepository.save(jobEntity);
+            jobStatusBroadcastPublisher.publish(saved);
+            return saved;
+        });
     }
-
     @Transactional
     public JobEntity markPdfCompletedAndPublish(UUID jobId, String absolutePath) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
-        jobEntity.setPdfFilePath(absolutePath);
-        JobEntity saved = jobRepository.save(jobEntity);
-        jobStatusBroadcastPublisher.publish(saved);
-        return saved;
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
+            jobEntity.setPdfFilePath(absolutePath);
+            JobEntity saved = jobRepository.save(jobEntity);
+            jobStatusBroadcastPublisher.publish(saved);
+            return saved;
+        });
     }
-
     @Transactional
     public JobEntity markPdfFailedAndPublish(UUID jobId) {
-        JobEntity jobEntity = jobRepository.findById(jobId)
-            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-        jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
-        jobEntity.setPdfFilePath(null);
-        JobEntity saved = jobRepository.save(jobEntity);
-        jobStatusBroadcastPublisher.publish(saved);
-        return saved;
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
+            jobEntity.setPdfFilePath(null);
+            JobEntity saved = jobRepository.save(jobEntity);
+            jobStatusBroadcastPublisher.publish(saved);
+            return saved;
+        });
     }
 }

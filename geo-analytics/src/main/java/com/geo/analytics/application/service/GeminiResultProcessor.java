@@ -1,11 +1,9 @@
 package com.geo.analytics.application.service;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ResultEntity;
 import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
@@ -15,17 +13,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
-
 @Service
 public class GeminiResultProcessor {
     private static final Logger log = LoggerFactory.getLogger(GeminiResultProcessor.class);
     private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-
     private final JobPersistenceService jobPersistenceService;
     private final ObjectMapper objectMapper;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-
     public GeminiResultProcessor(
             JobPersistenceService jobPersistenceService,
             ObjectMapper objectMapper,
@@ -36,7 +31,6 @@ public class GeminiResultProcessor {
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
     }
-
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
         for (String outputLine : outputJsonlContent.split("\n")) {
@@ -55,17 +49,16 @@ public class GeminiResultProcessor {
                 double somScore = SomScoreRules.computeFromCitationRank(
                     parsedSomScoreData.mentionRank(),
                     parsedSomScoreData.brandMentioned());
-                jobPersistenceService.findQueryById(queryId).ifPresent(queryEntity -> {
-                    ResultEntity resultEntity = new ResultEntity();
-                    resultEntity.setJobId(jobEntity.getId());
-                    resultEntity.setQuery(queryEntity.getQueryText());
-                    resultEntity.setRawResponse(jsonbOperations.serialize(parsedSomScoreData));
-                    resultEntity.setSomScore(somScore);
-                    resultEntity.setBrandMentioned(
-                        Boolean.TRUE.equals(parsedSomScoreData.brandMentioned()));
-                    resultEntity.setMentionRank(parsedSomScoreData.mentionRank());
-                    jobPersistenceService.upsertResultAndMarkQueryProcessed(resultEntity, queryId);
-                });
+                jobPersistenceService.findQueryById(queryId).ifPresent(queryEntity ->
+                    jobPersistenceService.upsertAuditHistoryForJobQuery(
+                        jobEntity.getId(),
+                        queryId,
+                        queryEntity.getQueryText(),
+                        jsonbOperations.serialize(parsedSomScoreData),
+                        somScore,
+                        Boolean.TRUE.equals(parsedSomScoreData.brandMentioned()),
+                        parsedSomScoreData.mentionRank(),
+                        parsedSomScoreData.overallScore()));
             } catch (JsonProcessingException
                 | IllegalArgumentException
                 | JsonbSerializationException
@@ -81,7 +74,6 @@ public class GeminiResultProcessor {
             }
         }
     }
-
     private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
         JsonNode responseNode = outputRecord.response();
         if (responseNode == null || responseNode.isNull()) {

@@ -1,3 +1,18 @@
+export function formatAuditDate(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) {
+    return isoDate;
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString("ja-JP", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export interface JobStatusResponse {
   jobId: string;
   jobStatus: string;
@@ -61,13 +76,64 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
   };
 }
 
+export interface JobProjectInfo {
+  projectId: string;
+  projectName: string;
+  targetUrl: string;
+  competitorUrls: string[];
+}
+
+export interface VerifyStreamChunkPayload {
+  kind: "delta" | "done" | "error";
+  text: string;
+  queryId?: string;
+}
+
+export interface SseStreamErrorBody {
+  message: string;
+}
+
+export interface LiveResultMetrics {
+  somScore: number | null;
+  overallScore: number | null;
+  brandMentioned: boolean | null;
+  mentionRank: number | null;
+}
+
+export function liveMetricsFromParsed(parsed: unknown): LiveResultMetrics {
+  const empty: LiveResultMetrics = {
+    somScore: null,
+    overallScore: null,
+    brandMentioned: null,
+    mentionRank: null,
+  };
+  if (parsed === null || typeof parsed !== "object") {
+    return empty;
+  }
+  const r = parsed as Record<string, unknown>;
+  const overallScore = typeof r.overallScore === "number" ? r.overallScore : null;
+  const confidenceScore = typeof r.confidenceScore === "number" ? r.confidenceScore : null;
+  const somScore = confidenceScore ?? overallScore;
+  let brandMentioned: boolean | null = null;
+  if (typeof r.brandMentioned === "boolean") {
+    brandMentioned = r.brandMentioned;
+  }
+  let mentionRank: number | null = null;
+  if (typeof r.mentionRank === "number" && !Number.isNaN(r.mentionRank)) {
+    mentionRank = r.mentionRank;
+  }
+  return { somScore, overallScore, brandMentioned, mentionRank };
+}
+
 export interface ResultDetail {
   resultId: string;
   query: string;
   somScore: number;
   brandMentioned: boolean;
   mentionRank: number | null;
+  overallScore: number | null;
   rawResponse: string;
+  auditDate: string;
   createdAt: string;
 }
 
@@ -76,5 +142,6 @@ export interface JobAnalysisDetail {
   jobStatus: string;
   brandName: string;
   errorMessage: string | null;
+  project: JobProjectInfo | null;
   results: ResultDetail[];
 }

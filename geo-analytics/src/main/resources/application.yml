@@ -9,7 +9,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: validate
     properties:
       "[hibernate.dialect]": "org.hibernate.dialect.PostgreSQLDialect"
       "[hibernate.format_sql]": false
@@ -17,6 +17,10 @@ spring:
   jackson:
     default-property-inclusion: non_null
 app:
+  crawler:
+    cache-ttl: 24h
+    redis-enabled: false
+    redis-host: "${REDIS_HOST:localhost}"
   ai:
     realtime-threshold: 10
     gemini:

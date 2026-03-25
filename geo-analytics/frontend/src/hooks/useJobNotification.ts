@@ -52,6 +52,7 @@ export interface UseJobNotificationResult {
   connectionState: JobNotificationConnectionState;
   lastError: string | null;
   isLoading: boolean;
+  refetchJobFromRest: () => Promise<void>;
 }
 
 export function useJobNotification(jobId: string): UseJobNotificationResult {
@@ -71,6 +72,35 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       shouldApplyJobStatusUpdate(prev, next) ? next : prev,
     );
   }, []);
+
+  const refetchJobFromRest = useCallback(async () => {
+    const trimmedJobId = jobId.trim();
+    if (trimmedJobId.length === 0) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/v1/jobs/${trimmedJobId}`);
+      const responseText = await res.text();
+      if (!res.ok) {
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(responseText) as unknown;
+      } catch {
+        return;
+      }
+      const normalized = normalizeJobStatusResponse(parsed);
+      if (normalized === null) {
+        return;
+      }
+      setJobStatus((prev) =>
+        shouldApplyJobStatusUpdate(prev, normalized) ? normalized : prev,
+      );
+    } catch {
+      return;
+    }
+  }, [jobId]);
 
   useEffect(() => {
     const trimmedJobId = jobId.trim();
@@ -220,5 +250,5 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
     };
   }, [jobId, handleMessage]);
 
-  return { jobStatus, connectionState, lastError, isLoading };
+  return { jobStatus, connectionState, lastError, isLoading, refetchJobFromRest };
 }

@@ -9,20 +9,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@stomp/stompjs": "^7.0.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.15.10",
     "@mui/material": "^5.15.10",
+    "@stomp/stompjs": "^7.0.0",
+    "partial-json": "^0.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
     "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
-    "@types/sockjs-client": "^1.5.4",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
+    "@types/sockjs-client": "^1.5.4",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",

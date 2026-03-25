@@ -1,7 +1,18 @@
 package com.geo.analytics.domain.entity;
 
 import com.geo.analytics.domain.enums.JobStatus;
-import jakarta.persistence.*;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.TenantId;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -11,11 +22,17 @@ public class JobEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-
+    @TenantId
+    @Column(name = "workspace_id")
+    private UUID workspaceId;
+    @Column(name = "project_id")
+    private UUID projectId;
     @Enumerated(EnumType.STRING)
     @Column(name = "job_status", nullable = false, length = 20)
     private JobStatus jobStatus;
-
+    @Enumerated(EnumType.STRING)
+    @Column(name = "subscription_plan", length = 16)
+    private SubscriptionPlan subscriptionPlan;
     @Column(name = "brand_name", nullable = false)
     private String brandName;
 
@@ -47,7 +64,18 @@ public class JobEntity {
     public void setId(UUID id) {
         this.id = id;
     }
-
+    public UUID getWorkspaceId() {
+        return workspaceId;
+    }
+    public void setWorkspaceId(UUID workspaceId) {
+        this.workspaceId = workspaceId;
+    }
+    public UUID getProjectId() {
+        return projectId;
+    }
+    public void setProjectId(UUID projectId) {
+        this.projectId = projectId;
+    }
     public JobStatus getJobStatus() {
         return jobStatus;
     }
@@ -55,7 +83,12 @@ public class JobEntity {
     public void setJobStatus(JobStatus jobStatus) {
         this.jobStatus = jobStatus;
     }
-
+    public SubscriptionPlan getSubscriptionPlan() {
+        return subscriptionPlan;
+    }
+    public void setSubscriptionPlan(SubscriptionPlan subscriptionPlan) {
+        this.subscriptionPlan = subscriptionPlan;
+    }
     public String getBrandName() {
         return brandName;
     }

@@ -10,6 +10,7 @@ import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import com.geo.analytics.infrastructure.ai.dto.InputConfig;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJobListResponse;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileUploadResponse;
 import org.slf4j.Logger;
@@ -109,7 +110,10 @@ public class GeminiBatchClient {
         }
     }
 
-    public Path writeBatchRequestJsonlToTempFile(String brandName, List<BatchQueryLine> queryLines) {
+    public Path writeBatchRequestJsonlToTempFile(
+            String brandName,
+            List<BatchQueryLine> queryLines,
+            SubscriptionPlan subscriptionPlan) {
         if (queryLines == null || queryLines.isEmpty()) {
             throw new GeminiBatchApiException("batch query lines are empty");
         }
@@ -122,7 +126,8 @@ public class GeminiBatchClient {
                 StandardOpenOption.TRUNCATE_EXISTING)) {
                 try (SequenceWriter sequenceWriter = objectMapper.writer().writeValues(outputStream)) {
                     for (BatchQueryLine batchQueryLine : queryLines) {
-                        sequenceWriter.write(buildBatchJsonlLineRootMap(brandName, batchQueryLine));
+                        sequenceWriter.write(
+                            buildBatchJsonlLineRootMap(brandName, batchQueryLine, subscriptionPlan));
                         outputStream.write('\n');
                     }
                 }
@@ -430,30 +435,25 @@ public class GeminiBatchClient {
         return JOB_STATE_SUCCEEDED.equals(trimmedState) || BATCH_STATE_SUCCEEDED.equals(trimmedState);
     }
 
-    private Map<String, Object> buildBatchJsonlLineRootMap(String brandName, BatchQueryLine batchQueryLine) {
+    private Map<String, Object> buildBatchJsonlLineRootMap(
+            String brandName,
+            BatchQueryLine batchQueryLine,
+            SubscriptionPlan subscriptionPlan) {
         Map<String, Object> textPart = new LinkedHashMap<>();
-        textPart.put("text", buildBrandVisibilityPrompt(brandName, batchQueryLine.queryText()));
+        textPart.put(
+            "text",
+            ConsultantPrompts.systemText(subscriptionPlan)
+                + "\n\n"
+                + ConsultantPrompts.userTextBrandQueryOnly(brandName, batchQueryLine.queryText()));
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("parts", List.of(textPart));
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("contents", List.of(content));
-        Map<String, Object> generationConfig = new LinkedHashMap<>();
-        generationConfig.put("responseMimeType", "application/json");
-        request.put("generationConfig", generationConfig);
+        request.put("generationConfig", ConsultantOutputSchema.batchGenerationConfig(subscriptionPlan));
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("key", batchQueryLine.queryId().toString());
         root.put("request", request);
         return root;
-    }
-
-    private String buildBrandVisibilityPrompt(String brandName, String userQuery) {
-        return """
-            You are an AI brand visibility analyzer.
-            Brand under evaluation: %s
-            User query: %s
-            Respond ONLY with valid JSON matching this exact schema with no additional text:
-            {"response":"<natural language answer to the query>","brandMentioned":<true|false>,"mentionRank":<integer 1-10 if mentioned, null if not>,"confidenceScore":<float 0.0-1.0>}
-            """.formatted(brandName, userQuery);
     }
 
     private String appendApiKeyToGenerativeLanguageUrlIfAbsent(String url) {

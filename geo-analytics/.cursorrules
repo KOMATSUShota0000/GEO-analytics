@@ -10,35 +10,34 @@ PDF Engine: Playwright Java
 
 【アーキテクチャ厳守事項】
 1. データベース設計:
-将来的なOracle23aiへの移行をゼロコストにするため、PostgreSQLのJSONB関数(->>等)は使用禁止。生レスポンスはJSONBカラムに保存するが、集計に必要なSoMスコア等は保存時にJava側(Jackson等)でパースし、独立した数値カラムに保存すること。標準SQLで集計可能にすること。
+将来的なOracle23aiへの移行をゼロコストにするため、PostgreSQLのJSONB関数(->>等)は使用禁止。生レスポンスはJSONBに保存するが、集計に必要な数値データはJava側でパースし、独立した数値カラムに保存すること。
+💡 マルチテナント: WorkspaceEntityを除く全てのEntityは @TenantId を備え、データの分離を保証。保存・取得時は必ず TenantContext を経由し、他テナントへの漏洩を完全に防ぐこと。
+💡 タイムゾーン: DB保存用の日時は原則 Instant または OffsetDateTime (UTC) を使用し、アプリ内でのタイムゾーン不整合を防止すること。
 
-2. AI通信の二系統分離と外部API耐性:
-同期レイヤーはLangChain4jを使用し即時検証を行う。
-非同期レイヤー(GeminiBatchAPI等)はステートマシン(CREATED, FILE_UPLOADED, RUNNING, COMPLETED, FAILED)で厳格に状態管理し、定期ポーリングで実行すること。
-外部APIリクエストおよびレスポンスのペイロード構築において、Map<String, Object>やJsonNodeによる動的な組み立てを厳格に禁止する。必ず専用のRecordクラスを作成し、型安全を担保すること。
-外部APIのレスポンスDTOには必ず@JsonIgnoreProperties(ignoreUnknown=true)を付与し、ステータス判定はAPI特有のプレフィックス(例:BATCH_STATE_)を考慮した堅牢な実装にすること。
+2. AI通信とストリーミング:
+同期レイヤーはLangChain4j、ストリーミング（SSE）時は StreamingChatLanguageModel を使用。
+💡 SSE送信の鉄則: HttpMessageNotWritableExceptionを回避するため、SseEmitter.send() に渡すデータは必ず ObjectMapper で JSON 文字列に変換すること。
+💡 イベント命名: SseEmitter.event().name("chunk").data(json) のように、イベント名を明示して送信すること（chunk, error, done, heartbeat等）。
+💡 安全な終了: completeWithError は使用禁止。エラー時もJSON形式でエラー内容を送信した後、通常の complete() で閉じること。
+外部APIリクエスト/レスポンスは必ず専用のRecord DTOを作成。@JsonIgnoreProperties(ignoreUnknown=true)を必須とし、入力値には Jakarta Validation (@NotBlank等) を適用すること。
 
 3. クローラーとPDF生成:
-Jsoupは使用せずPlaywright Javaを採用し、完全なDOM抽出とSSRライクなPDF生成(ReactのCSS Variablesを継承したホワイトラベル対応)を行うこと。
-PDF生成時はpage.waitForLoadState('networkidle')に加え、必ずReact側で描画完了を示す特定のDOMセレクタ(例: #pdf-ready-flag や data-render-status="complete")が出現するまでpage.waitForSelectorで待機すること。その後、page.emulateMedia({media:'print'})で印刷スタイルを適用すること。
+💡 クロール優先順位: 原則Playwrightを使用。タイムアウトや負荷時のフォールバックとしてのみ Jsoup を許可する。
+💡 PDF待機戦略: networkidle 待機はハングの原因となるため避け、React側の描画完了フラグ（例: #pdf-ready-flag）の出現を page.waitForSelector で待機すること。
+💡 リソース管理: BrowserインスタンスはシングルトンBeanとして管理し、Page/Contextのみ try-with-resources で確実にクローズすること。
 
 【フロントエンド】
-Reactのコンポーネントはすべて関数コンポーネントで記述すること。
-TypeScriptの型定義ではanyの使用を厳格に禁止する。
-バックエンドのDTO構造と完全に一致するインターフェースを定義してからUI実装を行うこと。
+Reactコンポーネントはすべて関数コンポーネント。TypeScriptでのany使用は厳格に禁止。
+💡 ストリームパース: partial-json を使用し、未完成なJSONを安全にパースしてリアルタイムレンダリングすること。
+💡 同期ロジック: SSE完了後は必ずAPIを再フェッチし、表示データを「確定データ」で最終同期すること。
 
 【バックエンド】
-Java21のRecordを活用してDTOを作成すること。
-アーキテクチャはControllerとServiceとRepositoryの層を厳格に分離すること。
-Java21のVirtual Threadsを優先的に使用すること。
-並列処理時、Playwrightなどのメモリを大量消費するリソースはSemaphore等で同時実行数を制御すること。また、大量の外部APIコール時はThread.sleep等による適切なスロットリングを行い、Quota制限を回避すること。
-
-【データベース】
-生レスポンスはJSONBに保存するがパースや演算は必ずJava側で行うこと。
-PostgreSQLのJSONB操作は、特定のユーティリティクラスを経由すること。
+Java21のRecordを活用。Controller/Service/Repository層を厳格に分離。
+Java21のVirtual Threadsを優先使用。
+💡 コンテキスト伝播: 仮想スレッド使用時、TenantContext 等の情報が正しく伝播・クリアされるよう、executeWithTenant ラッパーを徹底すること。
+💡 並列制御: Playwright等の重いリソースはSemaphoreで同時実行数を制御すること。
 
 【出力要件】
-コード内にコメントは一切記述しないこと。
-不要な空白や改行を入れないこと。
-エッジケース(例外系)を常に考慮し、堅牢なクラス設計にすること。例外発生時のDBへのerror_message保存は、スタックトレースを最大20,000文字で切り詰めるユーティリティ(ExceptionStackTraceText等)を必ず経由させること。
-変数名は省略せず、ビジネスロジックが伝わる名前にすること。
+コード内にコメントは一切記述しないこと。不要な空白や改行を排除した、密度が高く読みやすいコードを出力すること。
+💡 堅牢な例外処理: 例外発生時は ExceptionStackTraceText を経由し、スタックトレースを最大20,000文字で切り詰めて保存すること。ログ出力は必ず SLF4J (@Slf4j) を使用し、sysout や printStackTrace は禁止。
+命名規則: 変数・メソッド名は camelCase、DBテーブル・カラム名および JSON のキー名は snake_case とし、@Table/@Column/@JsonProperty 等で明示すること。
