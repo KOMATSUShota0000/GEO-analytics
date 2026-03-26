@@ -1,3 +1,4 @@
+import { apiFetch } from "../api/apiFetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -30,6 +31,25 @@ const PROCESSING_STATUSES = new Set([
 const PDF_COMPLETED = "COMPLETED";
 const PDF_GENERATING = "GENERATING";
 const PDF_FAILED = "FAILED";
+
+function parseDownloadFilename(contentDisposition: string | null): string {
+  if (contentDisposition == null || contentDisposition.length === 0) {
+    return "report.pdf";
+  }
+  const utf8 = /filename\*=(?:UTF-8'')?([^;\s]+)/i.exec(contentDisposition);
+  if (utf8) {
+    return decodeURIComponent(utf8[1].trim().replace(/^"+|"+$/g, ""));
+  }
+  const quoted = /filename="([^"]+)"/i.exec(contentDisposition);
+  if (quoted) {
+    return quoted[1];
+  }
+  const plain = /filename=([^;\s]+)/i.exec(contentDisposition);
+  if (plain) {
+    return plain[1].trim().replace(/^"+|"+$/g, "");
+  }
+  return "report.pdf";
+}
 
 function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
@@ -127,6 +147,7 @@ export function JobAnalysisPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
+  const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
   const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
@@ -145,7 +166,7 @@ export function JobAnalysisPage(): JSX.Element {
     if (id.length === 0) {
       return null;
     }
-    const res = await fetch(`/api/v1/jobs/${id}/analysis`);
+    const res = await apiFetch(`/api/v1/jobs/${id}/analysis`);
     if (!res.ok) {
       return null;
     }
@@ -161,7 +182,7 @@ export function JobAnalysisPage(): JSX.Element {
       return;
     }
     try {
-      const res = await fetch(`/api/v1/projects/${pid}/analytics`);
+      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`);
       if (!res.ok) {
         setApiCharts(undefined);
         return;
@@ -268,7 +289,7 @@ export function JobAnalysisPage(): JSX.Element {
     }
     setPdfRequestInFlight(true);
     try {
-      const res = await fetch(`/api/v1/jobs/${effectiveJobId}/pdf/request`, {
+      const res = await apiFetch(`/api/v1/jobs/${effectiveJobId}/pdf/request`, {
         method: "POST",
       });
       if (!res.ok) {
@@ -279,6 +300,37 @@ export function JobAnalysisPage(): JSX.Element {
     } catch (e: unknown) {
       setPdfRequestInFlight(false);
       console.error("pdf request error", e);
+    }
+  }, [effectiveJobId]);
+
+  const downloadPdfWithAuth = useCallback(async () => {
+    const id = effectiveJobId.trim();
+    if (id.length === 0) {
+      return;
+    }
+    setPdfDownloadInFlight(true);
+    try {
+      const res = await apiFetch(`/api/v1/jobs/${id}/pdf/download`);
+      if (!res.ok) {
+        const t = await res.text();
+        console.error("pdf download failed", res.status, t);
+        return;
+      }
+      const blob = await res.blob();
+      const name = parseDownloadFilename(res.headers.get("Content-Disposition"));
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = name;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: unknown) {
+      console.error("pdf download error", e);
+    } finally {
+      setPdfDownloadInFlight(false);
     }
   }, [effectiveJobId]);
 
@@ -294,6 +346,7 @@ export function JobAnalysisPage(): JSX.Element {
 
   useEffect(() => {
     setPdfRequestInFlight(false);
+    setPdfDownloadInFlight(false);
   }, [effectiveJobId]);
 
   useEffect(() => {
@@ -335,7 +388,7 @@ export function JobAnalysisPage(): JSX.Element {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
-    fetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
+    apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           const text = await response.text();
@@ -525,13 +578,18 @@ export function JobAnalysisPage(): JSX.Element {
       {effectiveJobId && jobStatus && (
         <div className="pdf-no-print mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           {jobStatus.pdfStatus === PDF_COMPLETED && (
-            <a
-              href={`/api/v1/jobs/${effectiveJobId}/pdf/download`}
-              className="inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
-              download
+            <button
+              type="button"
+              onClick={() => void downloadPdfWithAuth()}
+              disabled={pdfDownloadInFlight}
+              className={
+                pdfDownloadInFlight
+                  ? "inline-flex cursor-not-allowed rounded-lg bg-sky-400 px-4 py-2 text-sm font-semibold text-white opacity-70 shadow-sm"
+                  : "inline-flex cursor-pointer rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+              }
             >
               PDFをダウンロード
-            </a>
+            </button>
           )}
           {isPdfGeneratingUi && (
             <span className="inline-flex items-center gap-2 text-sm text-slate-600">

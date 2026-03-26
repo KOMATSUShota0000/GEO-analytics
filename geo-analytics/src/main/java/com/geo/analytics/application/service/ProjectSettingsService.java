@@ -61,14 +61,14 @@ public class ProjectSettingsService {
     }
 
     private Optional<UUID> readWorkspaceId(UUID projectId) {
-        List<UUID> rows = jdbcTemplate.query(
-            "SELECT workspace_id FROM projects WHERE id = ?",
+        List<String> rows = jdbcTemplate.query(
+            "SELECT tenant_id FROM projects WHERE id = ?",
             ps -> ps.setObject(1, projectId),
-            (rs, rowNum) -> rs.getObject(1, UUID.class));
-        if (rows.isEmpty() || rows.get(0) == null) {
+            (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
             return Optional.empty();
         }
-        return Optional.of(rows.get(0));
+        return Optional.of(UUID.fromString(rows.get(0)));
     }
 
     private ProjectSettingsResponse toResponse(ProjectEntity projectEntity) {

@@ -1,6 +1,7 @@
 import { Client, IMessage } from "@stomp/stompjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SockJS from "sockjs-client";
+import { apiFetch } from "../api/apiFetch";
 import {
   normalizeJobStatusResponse,
   type JobStatusResponse,
@@ -79,7 +80,7 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       return;
     }
     try {
-      const res = await fetch(`/api/v1/jobs/${trimmedJobId}`);
+      const res = await apiFetch(`/api/v1/jobs/${trimmedJobId}`);
       const responseText = await res.text();
       if (!res.ok) {
         return;
@@ -129,7 +130,7 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
 
     void (async (): Promise<void> => {
       try {
-        const res = await fetch(`/api/v1/jobs/${trimmedJobId}`, {
+        const res = await apiFetch(`/api/v1/jobs/${trimmedJobId}`, {
           signal: abortController.signal,
         });
         if (cancelled) {

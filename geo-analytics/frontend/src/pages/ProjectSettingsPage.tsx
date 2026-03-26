@@ -16,6 +16,7 @@ import {
 import { ArrowLeft, PlusCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { apiFetch } from "../api/apiFetch";
 
 const theme = createTheme();
 const SLACK_PREFIX = "https://hooks.slack.com/";
@@ -88,7 +89,7 @@ export default function ProjectSettingsPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/settings`);
+      const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/settings`);
       if (!res.ok) {
         throw new Error(await res.text());
       }
@@ -127,7 +128,7 @@ export default function ProjectSettingsPage(): JSX.Element {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

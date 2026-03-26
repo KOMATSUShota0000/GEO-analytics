@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { apiFetch } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   competitorLabelsFromProject,
@@ -100,7 +101,7 @@ export default function ReportPrintPage(): JSX.Element {
       return;
     }
     try {
-      const res = await fetch(`/api/v1/projects/${pid}/analytics`, { signal });
+      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`, { signal });
       if (!res.ok) {
         if (!signal.aborted) {
           setApiCharts(undefined);
@@ -127,7 +128,7 @@ export default function ReportPrintPage(): JSX.Element {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
-    fetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
+    apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           const text = await response.text();

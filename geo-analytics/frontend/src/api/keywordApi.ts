@@ -5,6 +5,7 @@ import type {
   KeywordSuggestionResponse,
   SelectedKeywordPayload,
 } from "../types/keyword";
+import { apiFetch } from "./apiFetch";
 
 function extractErrorMessage(text: string): string {
   if (!text) return "リクエストに失敗しました";
@@ -27,7 +28,7 @@ export async function suggestKeywords(
   targetDescription: string,
 ): Promise<KeywordSuggestionResponse> {
   const body: KeywordSuggestionRequest = { url: url.trim(), target_description: targetDescription.trim() };
-  const res = await fetch("/api/v1/keywords/suggest", {
+  const res = await apiFetch("/api/v1/keywords/suggest", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -48,7 +49,7 @@ export async function registerProjectKeywords(
   keywords: SelectedKeywordPayload[],
 ): Promise<KeywordRegistrationResult> {
   const body: KeywordRegistrationRequestPayload = { project_id: projectId, keywords };
-  const res = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/keywords/batch`, {
+  const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/keywords/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

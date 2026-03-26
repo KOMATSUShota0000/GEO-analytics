@@ -58,6 +58,7 @@ public class AsyncSgeMeasurementService {
                 SgeMentionResult sgeMentionResult = sgeMeasurementPort.checkSgeMention(queryText, brandName);
                 SgeResultEntity sgeResultEntity = new SgeResultEntity();
                 sgeResultEntity.setJobId(jobId);
+                sgeResultEntity.setWorkspaceId(job.getWorkspaceId());
                 sgeResultEntity.setQueryId(queryEntity.getId());
                 sgeResultEntity.setQuery(queryText);
                 sgeResultEntity.setSgeRawResponse(sgeMentionResult.rawResponseJson());

@@ -39,7 +39,7 @@ public class ProjectManagementService {
                 entityManager.flush();
                 return workspaceEntity;
             });
-            return projectRepository.findByWorkspaceIdAndName(workspaceId, brandName).orElseGet(() -> {
+            return projectRepository.findByTenantIdAndName(workspaceId.toString(), brandName).orElseGet(() -> {
                 ProjectEntity projectEntity = new ProjectEntity();
                 projectEntity.setWorkspaceId(workspaceId);
                 projectEntity.setName(brandName);

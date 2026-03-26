@@ -58,24 +58,24 @@ public class JobPersistenceService {
         this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
-        List<UUID> rows = jdbcTemplate.query(
-            "SELECT workspace_id FROM jobs WHERE id = ?",
+        List<String> rows = jdbcTemplate.query(
+            "SELECT tenant_id FROM jobs WHERE id = ?",
             ps -> ps.setObject(1, jobId),
-            (rs, rowNum) -> rs.getObject(1, UUID.class));
-        if (rows.isEmpty() || rows.get(0) == null) {
+            (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
             return DefaultTenantIds.WORKSPACE_ID;
         }
-        return rows.get(0);
+        return UUID.fromString(rows.get(0));
     }
     private UUID readWorkspaceIdForQuery(UUID queryId) {
-        List<UUID> rows = jdbcTemplate.query(
-            "SELECT j.workspace_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
+        List<String> rows = jdbcTemplate.query(
+            "SELECT j.tenant_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
             ps -> ps.setObject(1, queryId),
-            (rs, rowNum) -> rs.getObject(1, UUID.class));
-        if (rows.isEmpty() || rows.get(0) == null) {
+            (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
             return DefaultTenantIds.WORKSPACE_ID;
         }
-        return rows.get(0);
+        return UUID.fromString(rows.get(0));
     }
     public JobEntity findJobById(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
@@ -217,6 +217,7 @@ public class JobPersistenceService {
             queryTexts.forEach(queryText -> {
                 QueryEntity queryEntity = new QueryEntity();
                 queryEntity.setJobId(jobId);
+                queryEntity.setWorkspaceId(jobEntity.getWorkspaceId());
                 queryEntity.setQueryText(queryText);
                 queryRepository.save(queryEntity);
             });

@@ -10,25 +10,21 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.annotations.TenantId;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 @Entity
 @Table(name = "audit_histories", indexes = {
-    @Index(name = "idx_audit_histories_workspace_project_date", columnList = "workspace_id, project_id, audit_date"),
+    @Index(name = "idx_audit_histories_tenant_project_date", columnList = "tenant_id, project_id, audit_date"),
     @Index(name = "idx_audit_histories_job_id", columnList = "job_id")
 })
-public class AuditHistoryEntity {
+public class AuditHistoryEntity extends BaseTenantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     @Column(name = "job_id", nullable = false)
     private UUID jobId;
-    @TenantId
-    @Column(name = "workspace_id", nullable = false)
-    private UUID workspaceId;
     @ManyToOne(optional = false)
     @JoinColumn(name = "project_id", nullable = false)
     private ProjectEntity project;
@@ -70,12 +66,6 @@ public class AuditHistoryEntity {
     }
     public void setJobId(UUID jobId) {
         this.jobId = jobId;
-    }
-    public UUID getWorkspaceId() {
-        return workspaceId;
-    }
-    public void setWorkspaceId(UUID workspaceId) {
-        this.workspaceId = workspaceId;
     }
     public ProjectEntity getProject() {
         return project;

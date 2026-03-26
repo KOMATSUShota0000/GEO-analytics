@@ -1,4 +1,5 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { DEFAULT_WORKSPACE_TENANT_ID, DEV_BASIC_AUTHORIZATION } from "../api/apiFetch";
 import { Allow, MalformedJSON, PartialJSON, parse } from "partial-json";
 import { useCallback, useRef, useState } from "react";
 import type { VerifyStreamChunkPayload } from "../types/analysis";
@@ -94,6 +95,11 @@ export function useJobStreaming(
       try {
         await fetchEventSource(`/api/v1/jobs/${trimmed}/stream`, {
           signal: abortController.signal,
+          credentials: "include",
+          headers: {
+            "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+            Authorization: DEV_BASIC_AUTHORIZATION,
+          },
           openWhenHidden: true,
           async onopen(response) {
             if (!response.ok) {

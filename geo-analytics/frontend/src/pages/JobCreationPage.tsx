@@ -25,6 +25,7 @@ import { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { KeywordSuggestionWizard } from "../components/KeywordSuggestionWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
+import { apiFetch } from "../api/apiFetch";
 import { normalizeJobStatusResponse } from "../types/analysis";
 
 const theme = createTheme();
@@ -86,7 +87,7 @@ export default function JobCreationPage(): JSX.Element {
     if (draftJobId !== null && draftProjectId !== null) return true;
     setWizardPreparing(true);
     try {
-      const createRes = await fetch("/api/v1/jobs", {
+      const createRes = await apiFetch("/api/v1/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandName: brand }),
@@ -123,7 +124,7 @@ export default function JobCreationPage(): JSX.Element {
     try {
       let jobId = draftJobId;
       if (jobId === null) {
-        const createRes = await fetch("/api/v1/jobs", {
+        const createRes = await apiFetch("/api/v1/jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ brandName: brand }),
@@ -145,7 +146,7 @@ export default function JobCreationPage(): JSX.Element {
         throw new Error("ジョブIDがありません");
       }
       if (keywords.length > 0) {
-        const queriesRes = await fetch(`/api/v1/jobs/${jobId}/queries`, {
+        const queriesRes = await apiFetch(`/api/v1/jobs/${jobId}/queries`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ queries: keywords, plan: "STANDARD" }),

@@ -11,20 +11,16 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.Size;
-import org.hibernate.annotations.TenantId;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 @Entity
 @Table(name = "projects")
-public class ProjectEntity {
+public class ProjectEntity extends BaseTenantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-    @TenantId
-    @Column(name = "workspace_id", nullable = false)
-    private UUID workspaceId;
     @Column(name = "name", nullable = false)
     private String name;
     @Column(name = "target_url", nullable = false)
@@ -57,12 +53,6 @@ public class ProjectEntity {
     }
     public void setId(UUID id) {
         this.id = id;
-    }
-    public UUID getWorkspaceId() {
-        return workspaceId;
-    }
-    public void setWorkspaceId(UUID workspaceId) {
-        this.workspaceId = workspaceId;
     }
     public String getName() {
         return name;
