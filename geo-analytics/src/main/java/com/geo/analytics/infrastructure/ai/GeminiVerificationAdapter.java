@@ -10,6 +10,8 @@ import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.AiMessage;
@@ -25,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClientResponseException;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -35,23 +38,35 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class GeminiVerificationAdapter implements AiVerificationPort {
     private static final Logger log = LoggerFactory.getLogger(GeminiVerificationAdapter.class);
-    private final ChatLanguageModel chatLanguageModel;
+    private final ChatLanguageModel geminiGbvsChatModel;
     private final SomScoreParser somScoreParser;
     private final JobStreamRegistryService jobStreamRegistryService;
     private final GoogleAiGeminiStreamingChatModel geminiStreamingStandard;
     private final GoogleAiGeminiStreamingChatModel geminiStreamingPro;
+    private final EntityNormalizer entityNormalizer;
+    private final JapaneseNlpService japaneseNlpService;
+    private final DeepSeekAdapter deepSeekAdapter;
+    private final StrictSchemaValidator strictSchemaValidator;
 
     public GeminiVerificationAdapter(
-            ChatLanguageModel chatLanguageModel,
+            @Qualifier(AiConfig.GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
             JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(AiConfig.GEMINI_STREAMING_STANDARD) GoogleAiGeminiStreamingChatModel geminiStreamingStandard,
-            @Qualifier(AiConfig.GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro) {
-        this.chatLanguageModel = chatLanguageModel;
+            @Qualifier(AiConfig.GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro,
+            EntityNormalizer entityNormalizer,
+            JapaneseNlpService japaneseNlpService,
+            DeepSeekAdapter deepSeekAdapter,
+            StrictSchemaValidator strictSchemaValidator) {
+        this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.geminiStreamingStandard = geminiStreamingStandard;
         this.geminiStreamingPro = geminiStreamingPro;
+        this.entityNormalizer = entityNormalizer;
+        this.japaneseNlpService = japaneseNlpService;
+        this.deepSeekAdapter = deepSeekAdapter;
+        this.strictSchemaValidator = strictSchemaValidator;
     }
 
     @Override
@@ -68,12 +83,49 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
         return subscriptionPlan == SubscriptionPlan.PRO ? geminiStreamingPro : geminiStreamingStandard;
     }
 
+    private record PreparedHandoff(String userMessage, boolean structured) {}
+
+    private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
+        var crawled = verificationRequest.crawledContent();
+        if (crawled == null || crawled.isBlank()) {
+            return new PreparedHandoff(
+                ConsultantPrompts.userTextBrandQueryOnly(verificationRequest.brandName(), verificationRequest.query()),
+                false);
+        }
+        try {
+            var rawJson = deepSeekAdapter
+                .extractStructuredJsonMono(crawled, verificationRequest.url(), verificationRequest.brandName())
+                .block(Duration.ofMinutes(3));
+            var canonical = strictSchemaValidator.validateToCanonicalJson(rawJson);
+            var trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
+            return new PreparedHandoff(
+                ConsultantPrompts.userTextStructuredHandoff(
+                    verificationRequest.brandName(),
+                    verificationRequest.query(),
+                    canonical,
+                    trust),
+                true);
+        } catch (StructuredExtractValidationException e) {
+            log.error("structured_extract_validation_failed detail={}", e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            log.error("deepseek_structured_pipeline_failed", e);
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private List<ChatMessage> chatMessagesForPlan(SubscriptionPlan plan, PreparedHandoff handoff) {
+        var system = handoff.structured()
+            ? ConsultantPrompts.systemTextGbvsStructured(plan)
+            : ConsultantPrompts.systemText(plan);
+        return List.of(SystemMessage.from(system), UserMessage.from(handoff.userMessage()));
+    }
+
     private VerificationResponse verifyWithoutJobStream(VerificationRequest verificationRequest, SubscriptionPlan plan) {
         try {
-            String rawAiResponseJson = chatLanguageModel.chat(ChatRequest.builder()
-                .messages(
-                    SystemMessage.from(ConsultantPrompts.systemText(plan)),
-                    UserMessage.from(buildUserContent(verificationRequest)))
+            var handoff = prepareHandoff(verificationRequest);
+            String rawAiResponseJson = geminiGbvsChatModel.chat(ChatRequest.builder()
+                .messages(chatMessagesForPlan(plan, handoff))
                 .responseFormat(ConsultantOutputSchema.responseFormat(plan))
                 .build()).aiMessage().text();
             return buildVerificationResponse(rawAiResponseJson, plan, verificationRequest);
@@ -90,11 +142,10 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
         UUID queryId = verificationRequest.queryId();
         CompletableFuture<VerificationResponse> verificationResponseCompletableFuture = new CompletableFuture<>();
         AtomicReference<String> aggregatedTextReference = new AtomicReference<>("");
+        PreparedHandoff handoff = prepareHandoff(verificationRequest);
         try {
             GoogleAiGeminiStreamingChatModel streamingChatModel = streamingModelForPlan(plan);
-            List<ChatMessage> chatMessages = List.of(
-                SystemMessage.from(ConsultantPrompts.systemText(plan)),
-                UserMessage.from(buildUserContent(verificationRequest)));
+            List<ChatMessage> chatMessages = chatMessagesForPlan(plan, handoff);
             streamingChatModel.generate(chatMessages, new StreamingResponseHandler<AiMessage>() {
                 @Override
                 public void onNext(String token) {
@@ -163,11 +214,21 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
             ? verificationRequest.registeredCompetitorBrands()
             : List.of();
         boolean isProPlan = subscriptionPlan == SubscriptionPlan.PRO;
-        String resolved = EntityNormalizer.resolve(rawName, main, comps, isProPlan);
+        String nlpSource = full.response() != null && !full.response().isBlank()
+            ? full.response()
+            : rawAiResponseJson;
+        String needle = main != null && !main.isBlank() ? main : rawName;
+        int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
+        int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
+        double stuffingDensity = japaneseNlpService.wordDensity(nlpSource, needle);
+        String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         boolean isProAnalysis = isProPlan;
-        SomRawMetrics rawMetrics = new SomRawMetrics(tc, rp, si, isProAnalysis);
-        double som = SomScoreCalculator.calculate(rawMetrics);
-        boolean brand = tc > 0 || rp > 0;
+        SomRawMetrics rawMetrics = new SomRawMetrics(
+            tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength);
+        var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
+        var gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
+        var som = gbvs.scorePercent();
+        boolean brand = nounCount > 0 || rp > 0;
         int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
         return new VerificationResponse(
             rawAiResponseJson,
@@ -175,10 +236,12 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
             brand,
             rp,
             overall,
-            tc,
+            nounCount,
             rp,
             si,
-            resolved);
+            resolved,
+            gbvs.visibilityStage(),
+            GeoVisibilityCalculatorService.CALCULATION_VERSION);
     }
 
     private static String formatGeminiErrorDetail(Throwable throwable) {
@@ -200,25 +263,5 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
             depth++;
         }
         return stringBuilder.toString();
-    }
-
-    private static String buildUserContent(VerificationRequest verificationRequest) {
-        String brandName = verificationRequest.brandName();
-        String userQuery = verificationRequest.query();
-        String crawledContent = verificationRequest.crawledContent();
-        if (crawledContent != null && !crawledContent.isBlank()) {
-            String sourceUrl = verificationRequest.url() != null ? verificationRequest.url() : "";
-            String hash = verificationRequest.contentHash() != null ? verificationRequest.contentHash() : "";
-            return """
-                Brand under evaluation: %s
-                User query: %s
-                Based on the following extracted web page text, assess how the brand is represented for this query.
-                Source URL: %s
-                Content SHA-256: %s
-                Extracted page text:
-                %s
-                """.formatted(brandName, userQuery, sourceUrl, hash, crawledContent);
-        }
-        return ConsultantPrompts.userTextBrandQueryOnly(brandName, userQuery);
     }
 }

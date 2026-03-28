@@ -14,14 +14,15 @@ public record VerificationRequest(
     UUID jobId,
     UUID queryId,
     String canonicalMainBrand,
-    List<String> registeredCompetitorBrands
+    List<String> registeredCompetitorBrands,
+    Double domainTrustScore
 ) {
     public VerificationRequest(String brandName, String query) {
-        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null);
+        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null, null);
     }
 
     public VerificationRequest(String brandName, String query, String url, String crawledContent, String contentHash) {
-        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null);
+        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null, null);
     }
 
     public VerificationRequest {

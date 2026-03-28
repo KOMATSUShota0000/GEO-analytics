@@ -17,14 +17,17 @@ public class SyncVerificationService {
     private final AiVerificationPort aiVerificationPort;
     private final SomScoreParser somScoreParser;
     private final WebCrawlerPort webCrawlerPort;
+    private final DomainTrustService domainTrustService;
 
     public SyncVerificationService(
             AiVerificationPort aiVerificationPort,
             SomScoreParser somScoreParser,
-            WebCrawlerPort webCrawlerPort) {
+            WebCrawlerPort webCrawlerPort,
+            DomainTrustService domainTrustService) {
         this.aiVerificationPort = aiVerificationPort;
         this.somScoreParser = somScoreParser;
         this.webCrawlerPort = webCrawlerPort;
+        this.domainTrustService = domainTrustService;
     }
 
     public SyncVerificationResult verify(String brandName, String query, SubscriptionPlan subscriptionPlan) {
@@ -48,7 +51,7 @@ public class SyncVerificationService {
             UUID queryId,
             String canonicalMainBrand,
             List<String> registeredCompetitorBrands) {
-        VerificationRequest verificationRequest = new VerificationRequest(
+        VerificationRequest verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
             brandName,
             query,
             null,
@@ -58,7 +61,8 @@ public class SyncVerificationService {
             jobId,
             queryId,
             canonicalMainBrand,
-            registeredCompetitorBrands);
+            registeredCompetitorBrands,
+            null));
         VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
         ConsultantOutputData consultantOutputData =
             somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
@@ -72,7 +76,9 @@ public class SyncVerificationService {
             verificationResponse.rankPosition(),
             verificationResponse.sentimentIntensity(),
             consultantOutputData.response(),
-            verificationResponse.resolvedEntityLabel());
+            verificationResponse.resolvedEntityLabel(),
+            verificationResponse.visibilityStage(),
+            verificationResponse.calculationVersion());
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -103,7 +109,7 @@ public class SyncVerificationService {
             String canonicalMainBrand,
             List<String> registeredCompetitorBrands) {
         CrawledPageData crawledPageData = webCrawlerPort.extractContent(url);
-        VerificationRequest verificationRequest = new VerificationRequest(
+        VerificationRequest verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
             brandName,
             query,
             crawledPageData.url(),
@@ -113,7 +119,8 @@ public class SyncVerificationService {
             jobId,
             queryId,
             canonicalMainBrand,
-            registeredCompetitorBrands);
+            registeredCompetitorBrands,
+            null));
         VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
         ConsultantOutputData consultantOutputData =
             somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
@@ -127,6 +134,8 @@ public class SyncVerificationService {
             verificationResponse.rankPosition(),
             verificationResponse.sentimentIntensity(),
             consultantOutputData.response(),
-            verificationResponse.resolvedEntityLabel());
+            verificationResponse.resolvedEntityLabel(),
+            verificationResponse.visibilityStage(),
+            verificationResponse.calculationVersion());
     }
 }

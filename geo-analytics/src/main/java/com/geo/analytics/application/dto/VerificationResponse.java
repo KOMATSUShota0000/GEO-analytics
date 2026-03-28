@@ -9,5 +9,7 @@ public record VerificationResponse(
     int tokenCount,
     int rankPosition,
     double sentimentIntensity,
-    String resolvedEntityLabel
+    String resolvedEntityLabel,
+    Integer visibilityStage,
+    String calculationVersion
 ) {}

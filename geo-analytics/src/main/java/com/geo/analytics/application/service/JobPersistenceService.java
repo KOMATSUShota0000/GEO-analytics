@@ -1,5 +1,6 @@
 package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
+import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
@@ -131,7 +132,9 @@ public class JobPersistenceService {
             String resolvedEntityLabel,
             int tokenCount,
             int rankPosition,
-            double sentimentIntensity) {
+            double sentimentIntensity,
+            Integer visibilityStage,
+            String calculationVersion) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -139,6 +142,7 @@ public class JobPersistenceService {
             UUID workspaceId = jobEntity.getWorkspaceId() != null ? jobEntity.getWorkspaceId() : DefaultTenantIds.WORKSPACE_ID;
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
+            var negativeAlert = sentimentIntensity < -0.5;
             Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
             if (existingOptional.isPresent()) {
                 AuditHistoryEntity existing = existingOptional.get();
@@ -151,6 +155,9 @@ public class JobPersistenceService {
                 existing.setTokenCount(tokenCount);
                 existing.setRankPosition(rankPosition);
                 existing.setSentimentIntensity(sentimentIntensity);
+                existing.setVisibilityStage(visibilityStage);
+                existing.setCalculationVersion(calculationVersion);
+                existing.setNegativeAlert(negativeAlert);
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
                 auditHistoryRepository.save(existing);
@@ -169,6 +176,9 @@ public class JobPersistenceService {
                 auditHistoryEntity.setTokenCount(tokenCount);
                 auditHistoryEntity.setRankPosition(rankPosition);
                 auditHistoryEntity.setSentimentIntensity(sentimentIntensity);
+                auditHistoryEntity.setVisibilityStage(visibilityStage);
+                auditHistoryEntity.setCalculationVersion(calculationVersion);
+                auditHistoryEntity.setNegativeAlert(negativeAlert);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryRepository.save(auditHistoryEntity);
             }
@@ -261,19 +271,21 @@ public class JobPersistenceService {
         });
     }
     @Transactional
-    public JobEntity markPdfGeneratingAndPublish(UUID jobId) {
+    public PdfGenerationStartResult tryMarkPdfGeneratingAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         return TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (auditHistoryRepository.findByJobId(jobId).isEmpty()) {
-                throw new IllegalArgumentException("解析結果が存在しないためPDFを生成できません");
+                return new PdfGenerationStartResult(
+                    false,
+                    "解析結果がまだありません。ジョブ完了後に再度お試しください。");
             }
             jobEntity.setPdfStatus(PdfJobStatusValues.GENERATING);
             jobEntity.setPdfFilePath(null);
             JobEntity saved = jobRepository.save(jobEntity);
             jobStatusBroadcastPublisher.publish(saved);
-            return saved;
+            return new PdfGenerationStartResult(true, null);
         });
     }
     @Transactional
@@ -301,5 +313,20 @@ public class JobPersistenceService {
             jobStatusBroadcastPublisher.publish(saved);
             return saved;
         });
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = false)
+    public void markPdfFailedBestEffort(UUID jobId) {
+        try {
+            UUID tenantId = readWorkspaceIdForJob(jobId);
+            TenantContext.executeWithTenant(tenantId, () -> {
+                jobRepository.findById(jobId).ifPresent(jobEntity -> {
+                    jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
+                    jobEntity.setPdfFilePath(null);
+                    JobEntity saved = jobRepository.save(jobEntity);
+                    jobStatusBroadcastPublisher.publish(saved);
+                });
+            });
+        } catch (Exception exception) {
+        }
     }
 }

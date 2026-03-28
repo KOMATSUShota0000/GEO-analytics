@@ -52,7 +52,8 @@ public class KeywordSuggestionService {
         try {
             rawJson = keywordSuggestionChatLanguageModel.chat(ChatRequest.builder()
                 .messages(
-                    SystemMessage.from(ConsultantPrompts.KEYWORD_SUGGESTION_PROMPT),
+                    SystemMessage.from(ConsultantPrompts.buildKeywordSuggestionPrompt(
+                        keywordSuggestionRequest.registeredKeywords())),
                     UserMessage.from(userMessage))
                 .responseFormat(ConsultantOutputSchema.keywordSuggestionResponseFormat())
                 .build()).aiMessage().text();

@@ -77,7 +77,9 @@ public class JobSyncTestService {
             syncVerificationResult.resolvedEntityLabel(),
             syncVerificationResult.tokenCount(),
             syncVerificationResult.rankPosition(),
-            syncVerificationResult.sentimentIntensity());
+            syncVerificationResult.sentimentIntensity(),
+            syncVerificationResult.visibilityStage(),
+            syncVerificationResult.calculationVersion());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         JobEntity updatedJobEntity = jobPersistenceService.findJobById(jobId);
         jobStatusBroadcastPublisher.publish(updatedJobEntity);

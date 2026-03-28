@@ -1,0 +1,2 @@
+ALTER TABLE audit_histories
+    ADD COLUMN IF NOT EXISTS negative_alert BOOLEAN NOT NULL DEFAULT FALSE;

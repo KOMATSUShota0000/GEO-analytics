@@ -11,6 +11,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
+import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobAnalysisDetailResponse;
@@ -185,10 +186,12 @@ public class JobController {
     }
 
     @PostMapping("/{jobId}/pdf/request")
-    public ResponseEntity<Void> requestPdfGeneration(@PathVariable UUID jobId) {
-        jobPersistenceService.markPdfGeneratingAndPublish(jobId);
-        asyncPdfReportService.generatePdfReport(jobId);
-        return ResponseEntity.accepted().build();
+    public ResponseEntity<PdfGenerationStartResult> requestPdfGeneration(@PathVariable UUID jobId) {
+        var result = jobPersistenceService.tryMarkPdfGeneratingAndPublish(jobId);
+        if (result.accepted()) {
+            asyncPdfReportService.generatePdfReport(jobId);
+        }
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/{jobId}/pdf/download")

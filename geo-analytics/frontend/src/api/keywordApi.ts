@@ -26,8 +26,15 @@ function extractErrorMessage(text: string): string {
 export async function suggestKeywords(
   url: string,
   targetDescription: string,
+  registeredKeywords?: string[],
 ): Promise<KeywordSuggestionResponse> {
-  const body: KeywordSuggestionRequest = { url: url.trim(), target_description: targetDescription.trim() };
+  const body: KeywordSuggestionRequest = {
+    url: url.trim(),
+    target_description: targetDescription.trim(),
+    ...(registeredKeywords !== undefined && registeredKeywords.length > 0
+      ? { registered_keywords: registeredKeywords }
+      : {}),
+  };
   const res = await apiFetch("/api/v1/keywords/suggest", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

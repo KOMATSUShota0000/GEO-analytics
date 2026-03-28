@@ -10,5 +10,7 @@ public record SyncVerificationResult(
     int rankPosition,
     double sentimentIntensity,
     String naturalLanguageResponse,
-    String resolvedEntityLabel
+    String resolvedEntityLabel,
+    Integer visibilityStage,
+    String calculationVersion
 ) {}

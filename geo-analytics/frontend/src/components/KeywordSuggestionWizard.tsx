@@ -9,6 +9,7 @@ export type KeywordSuggestionWizardProps = {
   onKeywordsSelected: (selectedKeywords: string[]) => void | Promise<void>;
   onRegistered?: (result: KeywordRegistrationResult) => void;
   isSubmitting: boolean;
+  registeredKeywords?: readonly string[];
 };
 
 type Phase = "input" | "loading" | "review" | "error";
@@ -30,6 +31,7 @@ export function KeywordSuggestionWizard({
   onKeywordsSelected,
   onRegistered,
   isSubmitting,
+  registeredKeywords = [],
 }: KeywordSuggestionWizardProps): JSX.Element {
   const [phase, setPhase] = useState<Phase>("input");
   const [url, setUrl] = useState("");
@@ -96,7 +98,7 @@ export function KeywordSuggestionWizard({
     setPhase("loading");
     setErrorMessage("");
     try {
-      const data = await suggestKeywords(url, targetDescription);
+      const data = await suggestKeywords(url, targetDescription, [...registeredKeywords]);
       setResponse(data);
       const init = new Set<string>();
       const catMap = new Map<string, string>();
@@ -115,7 +117,7 @@ export function KeywordSuggestionWizard({
       setErrorMessage(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
-  }, [canSuggest, ensureProjectReady, url, targetDescription]);
+  }, [canSuggest, ensureProjectReady, url, targetDescription, registeredKeywords]);
   const handleRegister = useCallback(async () => {
     if (busy || selectedCount === 0) return;
     setRegisterPending(true);

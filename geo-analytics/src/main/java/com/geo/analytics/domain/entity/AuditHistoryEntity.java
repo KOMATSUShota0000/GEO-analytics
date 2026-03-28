@@ -49,6 +49,12 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     private Integer rankPosition;
     @Column(name = "sentiment_intensity", nullable = false)
     private Double sentimentIntensity;
+    @Column(name = "visibility_stage")
+    private Integer visibilityStage;
+    @Column(name = "calculation_version", length = 32)
+    private String calculationVersion;
+    @Column(name = "negative_alert", nullable = false)
+    private Boolean negativeAlert = false;
     @Column(name = "audit_date", nullable = false)
     private LocalDate auditDate;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -132,6 +138,24 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setSentimentIntensity(Double sentimentIntensity) {
         this.sentimentIntensity = sentimentIntensity;
+    }
+    public Integer getVisibilityStage() {
+        return visibilityStage;
+    }
+    public void setVisibilityStage(Integer visibilityStage) {
+        this.visibilityStage = visibilityStage;
+    }
+    public String getCalculationVersion() {
+        return calculationVersion;
+    }
+    public void setCalculationVersion(String calculationVersion) {
+        this.calculationVersion = calculationVersion;
+    }
+    public Boolean getNegativeAlert() {
+        return negativeAlert;
+    }
+    public void setNegativeAlert(Boolean negativeAlert) {
+        this.negativeAlert = negativeAlert;
     }
     public LocalDate getAuditDate() {
         return auditDate;

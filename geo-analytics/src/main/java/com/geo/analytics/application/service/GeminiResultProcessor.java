@@ -9,6 +9,8 @@ import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
@@ -21,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -33,17 +36,23 @@ public class GeminiResultProcessor {
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
     private final ProjectRepository projectRepository;
+    private final EntityNormalizer entityNormalizer;
+    private final JapaneseNlpService japaneseNlpService;
     public GeminiResultProcessor(
             JobPersistenceService jobPersistenceService,
             ObjectMapper objectMapper,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
-            ProjectRepository projectRepository) {
+            ProjectRepository projectRepository,
+            EntityNormalizer entityNormalizer,
+            JapaneseNlpService japaneseNlpService) {
         this.jobPersistenceService = jobPersistenceService;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
         this.projectRepository = projectRepository;
+        this.entityNormalizer = entityNormalizer;
+        this.japaneseNlpService = japaneseNlpService;
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
@@ -51,6 +60,7 @@ public class GeminiResultProcessor {
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         boolean isProPlan = plan == SubscriptionPlan.PRO;
         String mainBrand = jobEntity.getBrandName();
+        var parsedLines = new ArrayList<BatchParsedLine>();
         for (String outputLine : outputJsonlContent.split("\n")) {
             if (outputLine.isBlank()) {
                 continue;
@@ -70,26 +80,18 @@ public class GeminiResultProcessor {
                 double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
                 String ext = consultantOutputData.extractedBrandMention();
                 String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
-                String resolved = EntityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
+                String nlpSource = consultantOutputData.response() != null && !consultantOutputData.response().isBlank()
+                    ? consultantOutputData.response()
+                    : aiResponseText;
+                String needle = mainBrand != null && !mainBrand.isBlank() ? mainBrand : rawName;
+                int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
+                int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
+                double stuffingDensity = japaneseNlpService.wordDensity(nlpSource, needle);
+                String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
                 boolean isProAnalysis = isProPlan;
-                SomRawMetrics rawMetrics = new SomRawMetrics(tc, rp, si, isProAnalysis);
-                double somScore = SomScoreCalculator.calculate(rawMetrics);
-                boolean brand = tc > 0 || rp > 0;
-                int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
-                jobPersistenceService.findQueryById(queryId).ifPresent(queryEntity ->
-                    jobPersistenceService.upsertAuditHistoryForJobQuery(
-                        jobEntity.getId(),
-                        queryId,
-                        queryEntity.getQueryText(),
-                        jsonbOperations.serialize(consultantOutputData),
-                        somScore,
-                        brand,
-                        rp,
-                        overall,
-                        resolved,
-                        tc,
-                        rp,
-                        si));
+                SomRawMetrics rawMetrics = new SomRawMetrics(
+                    tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength);
+                parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
                 | JsonbSerializationException
@@ -104,6 +106,36 @@ public class GeminiResultProcessor {
                     exception);
             }
         }
+        var lAvg = parsedLines.stream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
+        for (var line : parsedLines) {
+            var gbvs = SomScoreCalculator.compute(line.rawMetrics(), lAvg);
+            var somScore = gbvs.scorePercent();
+            var m = line.rawMetrics();
+            boolean brand = m.nounCount() > 0 || m.rankPosition() > 0;
+            int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
+            jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
+                jobPersistenceService.upsertAuditHistoryForJobQuery(
+                    jobEntity.getId(),
+                    line.queryId(),
+                    queryEntity.getQueryText(),
+                    jsonbOperations.serialize(line.consultantOutputData()),
+                    somScore,
+                    brand,
+                    m.rankPosition(),
+                    overall,
+                    line.resolved(),
+                    m.nounCount(),
+                    m.rankPosition(),
+                    m.sentimentIntensity(),
+                    gbvs.visibilityStage(),
+                    GeoVisibilityCalculatorService.CALCULATION_VERSION));
+        }
+    }
+    private record BatchParsedLine(
+        UUID queryId,
+        ConsultantOutputData consultantOutputData,
+        SomRawMetrics rawMetrics,
+        String resolved) {
     }
     private List<String> loadCompetitorHosts(JobEntity jobEntity) {
         UUID projectId = jobEntity.getProjectId();

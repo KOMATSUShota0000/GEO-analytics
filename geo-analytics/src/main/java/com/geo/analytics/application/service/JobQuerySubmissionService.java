@@ -171,7 +171,9 @@ public class JobQuerySubmissionService {
                                 syncVerificationResult.resolvedEntityLabel(),
                                 syncVerificationResult.tokenCount(),
                                 syncVerificationResult.rankPosition(),
-                                syncVerificationResult.sentimentIntensity());
+                                syncVerificationResult.sentimentIntensity(),
+                                syncVerificationResult.visibilityStage(),
+                                syncVerificationResult.calculationVersion());
                         } catch (Exception exception) {
                             log.error(
                                 "async audit persist failed jobId={} queryId={}",

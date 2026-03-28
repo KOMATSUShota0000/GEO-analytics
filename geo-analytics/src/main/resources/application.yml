@@ -35,7 +35,10 @@ app:
     realtime-threshold: 10
     gemini:
       api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
-      model-name: "gemini-2.5-flash"
+      model-name: "${GEMINI_MODEL_NAME:gemini-2.5-flash}"
+    deepseek:
+      api-key: "${DEEPSEEK_API_KEY:}"
+      base-url: "https://api.deepseek.com"
   serpapi:
     api-key: "${SERPAPI_API_KEY:}"
   pdf:

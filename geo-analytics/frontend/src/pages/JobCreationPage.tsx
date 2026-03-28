@@ -318,6 +318,7 @@ export default function JobCreationPage(): JSX.Element {
             <KeywordSuggestionWizard
               projectId={draftProjectId}
               ensureProjectReady={ensureProjectForWizard}
+              registeredKeywords={keywords}
               isSubmitting={submitting || wizardPreparing}
               onRegistered={(r) =>
                 setKwRegSnackbar(

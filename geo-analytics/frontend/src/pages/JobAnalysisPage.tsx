@@ -32,6 +32,11 @@ const PDF_COMPLETED = "COMPLETED";
 const PDF_GENERATING = "GENERATING";
 const PDF_FAILED = "FAILED";
 
+type PdfRequestResponse = {
+  accepted: boolean;
+  message: string | null;
+};
+
 function parseDownloadFilename(contentDisposition: string | null): string {
   if (contentDisposition == null || contentDisposition.length === 0) {
     return "report.pdf";
@@ -147,6 +152,7 @@ export function JobAnalysisPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
+  const [pdfRequestNotice, setPdfRequestNotice] = useState<string | null>(null);
   const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
   const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
 
@@ -288,14 +294,34 @@ export function JobAnalysisPage(): JSX.Element {
       return;
     }
     setPdfRequestInFlight(true);
+    setPdfRequestNotice(null);
     try {
       const res = await apiFetch(`/api/v1/jobs/${effectiveJobId}/pdf/request`, {
         method: "POST",
       });
+      let body: PdfRequestResponse | null = null;
+      try {
+        body = (await res.json()) as PdfRequestResponse;
+      } catch {
+        body = null;
+      }
       if (!res.ok) {
         setPdfRequestInFlight(false);
-        const t = await res.text();
-        console.error("pdf request failed", res.status, t);
+        if (body?.message != null && body.message.length > 0) {
+          setPdfRequestNotice(body.message);
+        }
+        console.error("pdf request failed", res.status);
+        return;
+      }
+      if (body === null || typeof body.accepted !== "boolean") {
+        setPdfRequestInFlight(false);
+        setPdfRequestNotice("PDFリクエストの応答が不正です");
+        return;
+      }
+      if (!body.accepted) {
+        setPdfRequestInFlight(false);
+        setPdfRequestNotice(body?.message ?? "PDFレポートを開始できませんでした");
+        return;
       }
     } catch (e: unknown) {
       setPdfRequestInFlight(false);
@@ -347,6 +373,7 @@ export function JobAnalysisPage(): JSX.Element {
   useEffect(() => {
     setPdfRequestInFlight(false);
     setPdfDownloadInFlight(false);
+    setPdfRequestNotice(null);
   }, [effectiveJobId]);
 
   useEffect(() => {
@@ -577,6 +604,11 @@ export function JobAnalysisPage(): JSX.Element {
       )}
       {effectiveJobId && jobStatus && (
         <div className="pdf-no-print mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          {pdfRequestNotice !== null && pdfRequestNotice.length > 0 && (
+            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {pdfRequestNotice}
+            </div>
+          )}
           {jobStatus.pdfStatus === PDF_COMPLETED && (
             <button
               type="button"
@@ -658,15 +690,17 @@ export function JobAnalysisPage(): JSX.Element {
                 <tr className="border-b border-slate-200 bg-slate-50/80">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">SoMスコア</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GBVS</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
                 </tr>
               </thead>
               <tbody>
                 {resultRows.length === 0 ? (
                   <tr className="pdf-avoid-break">
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       完了しましたが、保存された解析結果はまだありません。
                     </td>
                   </tr>
@@ -683,7 +717,28 @@ export function JobAnalysisPage(): JSX.Element {
                         <CompletedScoreCell value={formatAuditDate(row.auditDate)} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
-                        <CompletedScoreCell value={row.somScore} />
+                        <CompletedScoreCell
+                          value={row.gbvsNormalizedScore ?? row.somScore}
+                        />
+                      </td>
+                      <td
+                        className="max-w-[14rem] px-4 py-3 align-top text-slate-800"
+                        title={
+                          row.visibilityStageNarrative != null && row.visibilityStageNarrative !== ""
+                            ? row.visibilityStageNarrative
+                            : undefined
+                        }
+                      >
+                        {row.visibilityStage != null && row.visibilityStage > 0 ? (
+                          <span className="block text-xs leading-snug">
+                            <span className="font-semibold text-slate-900">S{row.visibilityStage}</span>
+                            {row.visibilityStageBand != null && row.visibilityStageBand !== "" ? (
+                              <span className="mt-0.5 block text-slate-600">{row.visibilityStageBand}</span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-4 py-3 align-top">
                         {row.brandMentioned ? (
@@ -698,6 +753,15 @@ export function JobAnalysisPage(): JSX.Element {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell value={row.mentionRank === null ? "—" : String(row.mentionRank)} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top">
+                        {row.negativeAlert === true ? (
+                          <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800">
+                            要注意
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
                   ))

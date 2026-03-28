@@ -38,7 +38,6 @@ import java.util.Map;
 public class GeminiBatchClient {
     private static final Logger logger = LoggerFactory.getLogger(GeminiBatchClient.class);
     private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com";
-    private static final String GEMINI_MODEL_ID = "gemini-2.5-flash";
     private static final String JOB_STATE_SUCCEEDED = "JOB_STATE_SUCCEEDED";
     private static final String JOB_STATE_FAILED = "JOB_STATE_FAILED";
     private static final String JOB_STATE_CANCELLED = "JOB_STATE_CANCELLED";
@@ -159,10 +158,10 @@ public class GeminiBatchClient {
         BatchGenerateContentRequest batchCreateRequestBody = new BatchGenerateContentRequest(
             new BatchConfig("geo-analytics-batch", new InputConfig(fileName)));
         String batchCreateUrl = GEMINI_API_BASE_URL
-            + "/v1beta/models/" + GEMINI_MODEL_ID
+            + "/v1beta/models/" + LlmModelNames.GEMINI_31_PRO
             + ":batchGenerateContent?key=" + geminiApiKey;
         logger.info("createBatchJob - sending POST to /v1beta/models/{}:batchGenerateContent",
-            GEMINI_MODEL_ID);
+            LlmModelNames.GEMINI_31_PRO);
         try {
             GeminiBatchJob createdBatchJob = restClient.post()
                 .uri(URI.create(batchCreateUrl))

@@ -15,6 +15,6 @@ public record SomScoreData(
         int tc = tokenCount != null ? tokenCount : 0;
         int rp = rankPosition != null ? rankPosition : 0;
         double si = sentimentIntensity != null ? sentimentIntensity : 0.0;
-        return new SomRawMetrics(tc, rp, si, subscriptionPlan == SubscriptionPlan.PRO);
+        return new SomRawMetrics(tc, rp, si, subscriptionPlan == SubscriptionPlan.PRO, 0, 0.0, 0);
     }
 }
