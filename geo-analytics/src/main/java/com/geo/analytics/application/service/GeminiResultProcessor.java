@@ -38,6 +38,8 @@ public class GeminiResultProcessor {
     private final ProjectRepository projectRepository;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
+    private final GapAnalysisService gapAnalysisService;
+    private final StrategyInsightService strategyInsightService;
     public GeminiResultProcessor(
             JobPersistenceService jobPersistenceService,
             ObjectMapper objectMapper,
@@ -45,7 +47,9 @@ public class GeminiResultProcessor {
             JsonbOperations jsonbOperations,
             ProjectRepository projectRepository,
             EntityNormalizer entityNormalizer,
-            JapaneseNlpService japaneseNlpService) {
+            JapaneseNlpService japaneseNlpService,
+            GapAnalysisService gapAnalysisService,
+            StrategyInsightService strategyInsightService) {
         this.jobPersistenceService = jobPersistenceService;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
@@ -53,6 +57,8 @@ public class GeminiResultProcessor {
         this.projectRepository = projectRepository;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
+        this.gapAnalysisService = gapAnalysisService;
+        this.strategyInsightService = strategyInsightService;
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
@@ -107,8 +113,11 @@ public class GeminiResultProcessor {
             }
         }
         var lAvg = parsedLines.stream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
-        for (var line : parsedLines) {
-            var gbvs = SomScoreCalculator.compute(line.rawMetrics(), lAvg);
+        var metricsList = parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
+        var gbvsList = SomScoreCalculator.computeBatch(metricsList, lAvg);
+        for (int idx = 0; idx < parsedLines.size(); idx++) {
+            var line = parsedLines.get(idx);
+            var gbvs = gbvsList.get(idx);
             var somScore = gbvs.scorePercent();
             var m = line.rawMetrics();
             boolean brand = m.nounCount() > 0 || m.rankPosition() > 0;
@@ -128,8 +137,16 @@ public class GeminiResultProcessor {
                     m.rankPosition(),
                     m.sentimentIntensity(),
                     gbvs.visibilityStage(),
-                    GeoVisibilityCalculatorService.CALCULATION_VERSION));
+                    GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                    gbvs.modifiedZScore()));
         }
+        var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
+        var rollup = strategyInsightService.rollupJob(auditsAfter);
+        jobPersistenceService.updateJobStrategyRollup(
+            jobEntity.getId(),
+            rollup.diagnosticMessage(),
+            List.copyOf(rollup.recommendedActions()));
+        gapAnalysisService.scheduleForJob(jobEntity.getId());
     }
     private record BatchParsedLine(
         UUID queryId,

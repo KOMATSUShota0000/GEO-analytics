@@ -93,9 +93,10 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
                 false);
         }
         try {
-            var rawJson = deepSeekAdapter
-                .extractStructuredJsonMono(crawled, verificationRequest.url(), verificationRequest.brandName())
-                .block(Duration.ofMinutes(3));
+            var rawJson = deepSeekAdapter.extractStructuredJsonBlocking(
+                crawled,
+                verificationRequest.url(),
+                verificationRequest.brandName());
             var canonical = strictSchemaValidator.validateToCanonicalJson(rawJson);
             var trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
             return new PreparedHandoff(
@@ -241,6 +242,7 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
             si,
             resolved,
             gbvs.visibilityStage(),
+            gbvs.modifiedZScore(),
             GeoVisibilityCalculatorService.CALCULATION_VERSION);
     }
 

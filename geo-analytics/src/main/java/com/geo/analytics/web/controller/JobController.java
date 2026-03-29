@@ -3,12 +3,14 @@ package com.geo.analytics.web.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.JobPersistenceService;
+import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.JobSyncTestService;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
@@ -41,6 +43,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @RestController
@@ -57,6 +60,7 @@ public class JobController {
     private final PdfStorageConfig pdfStorageConfig;
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ObjectMapper objectMapper;
+    private final StrategyInsightService strategyInsightService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -65,7 +69,8 @@ public class JobController {
             AsyncPdfReportService asyncPdfReportService,
             PdfStorageConfig pdfStorageConfig,
             JobStreamRegistryService jobStreamRegistryService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            StrategyInsightService strategyInsightService) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -73,6 +78,7 @@ public class JobController {
         this.pdfStorageConfig = pdfStorageConfig;
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.objectMapper = objectMapper;
+        this.strategyInsightService = strategyInsightService;
     }
 
     @PostMapping
@@ -90,7 +96,8 @@ public class JobController {
     @GetMapping("/{jobId}")
     public ResponseEntity<JobStatusResponse> getJobStatus(@PathVariable UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-        return ResponseEntity.ok(JobStatusResponse.from(jobEntity));
+        var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
+        return ResponseEntity.ok(JobStatusResponse.from(jobEntity, rollup));
     }
 
     @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -148,7 +155,8 @@ public class JobController {
     public ResponseEntity<?> testSyncSingleQuery(@PathVariable UUID jobId) {
         try {
             JobEntity jobEntity = jobSyncTestService.runSingleUnprocessedQuerySyncTest(jobId);
-            return ResponseEntity.ok(JobStatusResponse.from(jobEntity));
+            var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
+            return ResponseEntity.ok(JobStatusResponse.from(jobEntity, rollup));
         } catch (IllegalStateException illegalStateException) {
             ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.BAD_REQUEST,
@@ -169,10 +177,31 @@ public class JobController {
     @GetMapping("/{jobId}/analysis")
     public ResponseEntity<JobAnalysisDetailResponse> getJobAnalysis(@PathVariable UUID jobId) {
         JobAnalysisAggregate aggregate = jobPersistenceService.findJobAnalysisAggregate(jobId);
-        List<ResultDetailResponse> resultDetails = aggregate.auditHistories().stream()
-            .map(ResultDetailResponse::from)
+        var audits = aggregate.auditHistories();
+        var medZ = strategyInsightService.medianModifiedZ(audits);
+        var medSt = strategyInsightService.medianVisibilityStage(audits);
+        var rollup = strategyInsightService.rollupJob(audits);
+        var jobEnt = aggregate.job();
+        String jobDiag = jobEnt.getJobDiagnosticMessage();
+        if (jobDiag == null || jobDiag.isBlank()) {
+            jobDiag = rollup.diagnosticMessage();
+        }
+        var storedActs = jobEnt.getJobRecommendedActions();
+        List<String> jobActs = storedActs != null && !storedActs.isEmpty()
+            ? List.copyOf(storedActs)
+            : List.copyOf(rollup.recommendedActions());
+        SubscriptionPlan plan = Objects.requireNonNullElse(jobEnt.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+        List<ResultDetailResponse> resultDetails = audits.stream()
+            .map(a -> ResultDetailResponse.from(a, strategyInsightService, medZ, plan))
             .toList();
-        return ResponseEntity.ok(JobAnalysisDetailResponse.from(aggregate.job(), aggregate.project(), resultDetails));
+        return ResponseEntity.ok(JobAnalysisDetailResponse.from(
+            jobEnt,
+            aggregate.project(),
+            resultDetails,
+            jobDiag,
+            jobActs,
+            medZ,
+            medSt));
     }
 
     @GetMapping("/{jobId}/results")

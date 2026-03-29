@@ -35,6 +35,15 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
           }
           root.style.setProperty('--logo-url', logoCss);
           root.style.setProperty('--brand-name', payload.brandName != null ? String(payload.brandName) : '');
+          if (payload.pdfContextJson != null && String(payload.pdfContextJson).length > 0) {
+            try {
+              window.__GEO_PDF_CONTEXT__ = JSON.parse(payload.pdfContextJson);
+            } catch (e) {
+              window.__GEO_PDF_CONTEXT__ = null;
+            }
+          } else {
+            window.__GEO_PDF_CONTEXT__ = null;
+          }
         }
         """;
     private final Semaphore pdfSemaphore = new Semaphore(MAX_CONCURRENT_PDF);
@@ -60,7 +69,7 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
                     return capturePdf(
                         pageLease.page(),
                         pageUrl,
-                        new PdfWhiteLabelInjection("#4F46E5", "", ""));
+                        new PdfWhiteLabelInjection("#4F46E5", "", "", ""));
                 }
             }
         } catch (JsonProcessingException jsonProcessingException) {

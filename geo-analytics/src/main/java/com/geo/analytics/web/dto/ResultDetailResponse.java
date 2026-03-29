@@ -1,9 +1,12 @@
 package com.geo.analytics.web.dto;
 
+import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 public record ResultDetailResponse(
@@ -23,13 +26,32 @@ public record ResultDetailResponse(
     String visibilityStageNarrative,
     String calculationVersion,
     Boolean negativeAlert,
+    Double modifiedZScore,
+    String diagnosticMessage,
+    List<String> recommendedActions,
+    Boolean significantDeviation,
     String rawResponse,
     LocalDate auditDate,
     Instant createdAt
 ) {
-    public static ResultDetailResponse from(AuditHistoryEntity auditHistoryEntity) {
+    public static ResultDetailResponse from(
+            AuditHistoryEntity auditHistoryEntity,
+            StrategyInsightService strategyInsightService,
+            Double jobMedianModifiedZ,
+            SubscriptionPlan subscriptionPlan) {
+        var plan = subscriptionPlan != null ? subscriptionPlan : SubscriptionPlan.STANDARD;
         var som = auditHistoryEntity.getSomScore();
         var stageDef = VisibilityStageMapper.define(auditHistoryEntity.getVisibilityStage());
+        var insight = strategyInsightService.resolveForAudit(auditHistoryEntity);
+        var mz = auditHistoryEntity.getModifiedZScore() != null
+            ? auditHistoryEntity.getModifiedZScore()
+            : insight.representativeModifiedZ();
+        Boolean sig = Boolean.FALSE;
+        if (plan == SubscriptionPlan.PRO
+            && jobMedianModifiedZ != null
+            && auditHistoryEntity.getModifiedZScore() != null) {
+            sig = Math.abs(auditHistoryEntity.getModifiedZScore() - jobMedianModifiedZ) >= 1.0;
+        }
         return new ResultDetailResponse(
             auditHistoryEntity.getId(),
             auditHistoryEntity.getQuery(),
@@ -47,6 +69,10 @@ public record ResultDetailResponse(
             stageDef.narrative(),
             auditHistoryEntity.getCalculationVersion(),
             Boolean.TRUE.equals(auditHistoryEntity.getNegativeAlert()),
+            mz,
+            insight.diagnosticMessage(),
+            List.copyOf(insight.recommendedActions()),
+            sig,
             auditHistoryEntity.getRawResponse(),
             auditHistoryEntity.getAuditDate(),
             auditHistoryEntity.getCreatedAt());

@@ -1,30 +1,44 @@
 あなたはシニアソリューションアーキテクト兼リードエンジニアです。
 生成AI時代のブランド監査ツール「GEOアナリティクス」の開発を行います。
+技術スタックのポテンシャルを最大限に引き出し、**利益率86.4%とデータ隔離100%**を両立するコードを出力してください 。
 以下の技術スタックとアーキテクチャ厳守事項を必ず守り、拡張性と保守性を両立した設計を行ってください。
 
 【技術スタック】
-Backend: Java21, SpringBoot3.2, LangChain4j
-Database: PostgreSQL17
-Frontend: React, TypeScript
-PDF Engine: Playwright Java
+Backend: Java 21, Spring Boot 3.4.3, LangChain4j 0.36.2（ほか WebFlux・Spring Security・JPA・WebSocket 等）
+Database: PostgreSQL（ドライバ利用。.cursorrules 上の「17」は運用イメージ／接続先バージョンに依存）
+Frontend: React 18, TypeScript, Vite, Tailwind CSS, MUI（Emotion）, Recharts, STOMP + SockJS
+PDF Engine: Playwright Java 1.48.0
 
 【アーキテクチャ厳守事項】
-1. データベース設計:
+
+【1.マルチテナントとコンテキスト隔離】
+脱ThreadLocal: 仮想スレッド環境でのメモリ爆発とデータ汚染を防ぐため、ThreadLocalは厳禁 。テナントIDの伝搬には必ず ScopedValue を使用せよ 。
+隔離の実装: 全Entityに @TenantId を備え、ScopedValue.where(TENANT_ID,id).run(()->...) の形式でコンテキストを確実にクリアすること 。
+DB不整合防止: 日時は常に Instant または OffsetDateTime(UTC) を使用すること。
+
+[2. データベース設計]:
 将来的なOracle23aiへの移行をゼロコストにするため、PostgreSQLのJSONB関数(->>等)は使用禁止。生レスポンスはJSONBに保存するが、集計に必要な数値データはJava側でパースし、独立した数値カラムに保存すること。
 💡 マルチテナント: WorkspaceEntityを除く全てのEntityは @TenantId を備え、データの分離を保証。保存・取得時は必ず TenantContext を経由し、他テナントへの漏洩を完全に防ぐこと。
 💡 タイムゾーン: DB保存用の日時は原則 Instant または OffsetDateTime (UTC) を使用し、アプリ内でのタイムゾーン不整合を防止すること。
 
-2. AI通信とストリーミング:
-同期レイヤーはLangChain4j、ストリーミング（SSE）時は StreamingChatLanguageModel を使用。
-💡 SSE送信の鉄則: HttpMessageNotWritableExceptionを回避するため、SseEmitter.send() に渡すデータは必ず ObjectMapper で JSON 文字列に変換すること。
-💡 イベント命名: SseEmitter.event().name("chunk").data(json) のように、イベント名を明示して送信すること（chunk, error, done, heartbeat等）。
-💡 安全な終了: completeWithError は使用禁止。エラー時もJSON形式でエラー内容を送信した後、通常の complete() で閉じること。
-外部APIリクエスト/レスポンスは必ず専用のRecord DTOを作成。@JsonIgnoreProperties(ignoreUnknown=true)を必須とし、入力値には Jakarta Validation (@NotBlank等) を適用すること。
+【3. AI通信とストリーミング】
+同期レイヤーはLangChain4j、ストリーミング（SSE）時は StreamingChatLanguageModel を使用せよ。
+冪等性（Idempotency）の徹底: 二重課金とコスト爆発を防ぐため、外部API（特にGemini/Batch API）への全POSTリクエストに Idempotency-Key（UUID）を付与せよ 。ジョブ投入時はDBの行ロック（SELECT FOR UPDATE）を用い、Exactly-once（正確に1回）の実行をアプリケーション層で担保せよ 。
+リトライ戦略の適正化: タイムアウト時は単純なリトライを避け、Exponential Backoff（指数関数的バックオフ）に Jitter（乱数による分散）を加えたロジックを実装し、Thundering Herd（一斉殺到）問題を回避せよ 。
+仮想スレッドとコンテキスト管理: SSE送信や非同期タスク実行時、ThreadLocal は使用禁止 。テナントID等の伝搬には ScopedValue を使用し、ScopedValue.where(TENANT_ID, id).run(() -> ...) の形式でスコープ外での自動破棄と隔離を徹底せよ 。
+SSE送信の鉄則: HttpMessageNotWritableException を回避するため、SseEmitter.send() に渡すデータは必ず ObjectMapper で JSON 文字列に変換せよ。
+イベント命名と安全な終了: SseEmitter.event().name("chunk").data(json) のようにイベント名を明示（chunk, error, done, heartbeat）せよ。completeWithError は使用禁止とし、エラー時もJSON形式で内容を送信した後に通常の complete() で閉じること。
+DTOの厳格化: 外部APIリクエスト/レスポンスは専用の Record DTO を作成せよ。@JsonIgnoreProperties(ignoreUnknown=true) を必須とし、入力値には Jakarta Validation（@NotBlank 等）を適用せよ。
 
-3. クローラーとPDF生成:
-💡 クロール優先順位: 原則Playwrightを使用。タイムアウトや負荷時のフォールバックとしてのみ Jsoup を許可する。
-💡 PDF待機戦略: networkidle 待機はハングの原因となるため避け、React側の描画完了フラグ（例: #pdf-ready-flag）の出現を page.waitForSelector で待機すること。
-💡 リソース管理: BrowserインスタンスはシングルトンBeanとして管理し、Page/Contextのみ try-with-resources で確実にクローズすること。
+【4.仮想スレッドと排他制御】
+synchronized禁止: キャリアスレッドをピン留め（Pinning）してデッドロックさせる synchronized ブロックは一切使用せず、ReentrantLock で代替せよ 。
+並列制御: PlaywrightやSudachi等の重いリソースには Semaphore を適用し、物理メモリに基づいた同時実行数を制御せよ 。
+
+【5. クローラーと数理エンジンの精度】
+PDF待機: networkidle は使用せず、React側の #pdf-ready-flag 　出現を page.waitForSelector で待機せよ。
+Sudachi管理: 巨大な辞書（JapaneseDictionary）はシングルトンBeanとして共有し、ステートフルな JapaneseTokenizer のみをタスクごとに生成せよ 。
+統計的妥当性: サンプル数 $N < 30$ の場合は単純な $Z$-score を避け、中央値とIQRを用いたロバストスケーリング（Modified $Z$-score）を採用せよ 。
+法的遵守: robots.txt を遵守し、RAG出力時は著作権侵害を避けるため「要約」に留めること 。
 
 【フロントエンド】
 Reactコンポーネントはすべて関数コンポーネント。TypeScriptでのany使用は厳格に禁止。

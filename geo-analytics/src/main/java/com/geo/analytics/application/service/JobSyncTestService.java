@@ -79,7 +79,8 @@ public class JobSyncTestService {
             syncVerificationResult.rankPosition(),
             syncVerificationResult.sentimentIntensity(),
             syncVerificationResult.visibilityStage(),
-            syncVerificationResult.calculationVersion());
+            syncVerificationResult.calculationVersion(),
+            syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         JobEntity updatedJobEntity = jobPersistenceService.findJobById(jobId);
         jobStatusBroadcastPublisher.publish(updatedJobEntity);

@@ -4,15 +4,34 @@ import com.worksap.nlp.sudachi.Dictionary;
 import com.worksap.nlp.sudachi.Morpheme;
 import com.worksap.nlp.sudachi.MorphemeList;
 import com.worksap.nlp.sudachi.Tokenizer;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class JapaneseNlpService {
     private static final String NOUN = "名詞";
-    private final ThreadLocal<Tokenizer> tokenizerHolder;
+    private final Dictionary dictionary;
+    private final Semaphore sudachiSemaphore;
+    private final ArrayDeque<Tokenizer> tokenizerPool = new ArrayDeque<>();
+    private final ReentrantLock poolLock = new ReentrantLock();
 
     public JapaneseNlpService(Dictionary dictionary) {
-        this.tokenizerHolder = ThreadLocal.withInitial(dictionary::create);
+        this(dictionary, Math.clamp(Runtime.getRuntime().availableProcessors(), 2, 16));
+    }
+
+    public JapaneseNlpService(Dictionary dictionary, int maxConcurrentSudachi) {
+        this.dictionary = dictionary;
+        this.sudachiSemaphore = new Semaphore(Math.max(2, maxConcurrentSudachi));
+    }
+
+    public String normalizedForm(String text) {
+        return normalizedKey(text);
+    }
+
+    public String readingForm(String text) {
+        return readingKey(text);
     }
 
     public String normalizedKey(String text) {
@@ -92,7 +111,28 @@ public final class JapaneseNlpService {
     }
 
     private MorphemeList tokenize(String text) {
-        return tokenizerHolder.get().tokenize(Tokenizer.SplitMode.C, text.strip());
+        sudachiSemaphore.acquireUninterruptibly();
+        Tokenizer tokenizer = null;
+        poolLock.lock();
+        try {
+            tokenizer = tokenizerPool.pollFirst();
+        } finally {
+            poolLock.unlock();
+        }
+        if (tokenizer == null) {
+            tokenizer = dictionary.create();
+        }
+        try {
+            return tokenizer.tokenize(Tokenizer.SplitMode.C, text.strip());
+        } finally {
+            poolLock.lock();
+            try {
+                tokenizerPool.addFirst(tokenizer);
+            } finally {
+                poolLock.unlock();
+                sudachiSemaphore.release();
+            }
+        }
     }
 
     private static boolean matchesAt(MorphemeList haystack, MorphemeList needle, int start) {

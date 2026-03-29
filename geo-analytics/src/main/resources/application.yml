@@ -47,5 +47,6 @@ app:
     internal-token: "${APP_PDF_INTERNAL_TOKEN:dev-internal-token}"
     default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
     default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
+    max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
   notifications:
     mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"

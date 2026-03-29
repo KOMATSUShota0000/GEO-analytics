@@ -12,5 +12,6 @@ public record SyncVerificationResult(
     String naturalLanguageResponse,
     String resolvedEntityLabel,
     Integer visibilityStage,
+    Double modifiedZScore,
     String calculationVersion
 ) {}

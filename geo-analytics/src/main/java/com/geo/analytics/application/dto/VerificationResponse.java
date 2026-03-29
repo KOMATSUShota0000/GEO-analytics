@@ -11,5 +11,6 @@ public record VerificationResponse(
     double sentimentIntensity,
     String resolvedEntityLabel,
     Integer visibilityStage,
+    Double modifiedZScore,
     String calculationVersion
 ) {}

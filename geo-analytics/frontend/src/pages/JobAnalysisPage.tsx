@@ -60,6 +60,25 @@ function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
 }
 
+function rowShowsDetailedStrategy(
+  row: ResultDetail,
+  jobMedianModifiedZ: number | null | undefined,
+): boolean {
+  if (row.significantDeviation === true) {
+    return true;
+  }
+  if (row.significantDeviation === false) {
+    return false;
+  }
+  if (jobMedianModifiedZ == null || Number.isNaN(jobMedianModifiedZ)) {
+    return false;
+  }
+  if (row.modifiedZScore == null || Number.isNaN(row.modifiedZScore)) {
+    return false;
+  }
+  return Math.abs(row.modifiedZScore - jobMedianModifiedZ) >= 1.0;
+}
+
 function shouldDataBeReadyForPdf(
   effectiveJobId: string,
   loading: boolean,
@@ -227,6 +246,42 @@ export function JobAnalysisPage(): JSX.Element {
   const displayBrand = jobStatus?.brandName ?? data?.brandName ?? null;
   const resolvedStatus = displayJobStatus ?? "";
   const isCompletedDisplay = isCompletedJobStatus(resolvedStatus);
+  const displayJobRollupDiagnostic = useMemo(() => {
+    const a =
+      jobStatus?.diagnosticMessage != null && jobStatus.diagnosticMessage.trim().length > 0
+        ? jobStatus.diagnosticMessage
+        : null;
+    if (a !== null) {
+      return a;
+    }
+    const b =
+      data?.jobSummaryDiagnostic != null && data.jobSummaryDiagnostic.trim().length > 0
+        ? data.jobSummaryDiagnostic
+        : null;
+    return b;
+  }, [jobStatus?.diagnosticMessage, data?.jobSummaryDiagnostic]);
+  const displayJobRollupActions = useMemo(() => {
+    if (jobStatus?.recommendedActions != null && jobStatus.recommendedActions.length > 0) {
+      return jobStatus.recommendedActions;
+    }
+    return data?.jobSummaryRecommendedActions ?? [];
+  }, [jobStatus?.recommendedActions, data?.jobSummaryRecommendedActions]);
+  const displayJobRollupMedZ = useMemo(() => {
+    if (jobStatus?.jobMedianModifiedZ != null && !Number.isNaN(jobStatus.jobMedianModifiedZ)) {
+      return jobStatus.jobMedianModifiedZ;
+    }
+    if (data?.jobMedianModifiedZ != null && !Number.isNaN(data.jobMedianModifiedZ)) {
+      return data.jobMedianModifiedZ;
+    }
+    return null;
+  }, [jobStatus?.jobMedianModifiedZ, data?.jobMedianModifiedZ]);
+  const showJobStrategyBlock = useMemo(() => {
+    return (
+      (displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0) ||
+      displayJobRollupActions.length > 0 ||
+      displayJobRollupMedZ != null
+    );
+  }, [displayJobRollupDiagnostic, displayJobRollupActions, displayJobRollupMedZ]);
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
   const analysisLocked = isStreaming || isProcessingDisplay;
@@ -660,6 +715,26 @@ export function JobAnalysisPage(): JSX.Element {
           </button>
         </div>
       )}
+      {showJobStrategyBlock && (
+        <div className="pdf-avoid-break pdf-no-print mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+          {displayJobRollupMedZ != null && (
+            <p className="mt-1 text-xs text-sky-900/80">
+              中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
+            </p>
+          )}
+          {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
+            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
+          ) : null}
+          {displayJobRollupActions.length > 0 ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
+              {displayJobRollupActions.map((action, idx) => (
+                <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
       {showTierBlock && (
         <div className="pdf-avoid-break mb-6">
           <TierDiagnosisCard
@@ -690,8 +765,10 @@ export function JobAnalysisPage(): JSX.Element {
                 <tr className="border-b border-slate-200 bg-slate-50/80">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">改Z&apos;</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GBVS</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
+                  <th className="min-w-[12rem] px-4 py-3 font-semibold text-slate-700">戦略診断・推奨</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
@@ -700,7 +777,7 @@ export function JobAnalysisPage(): JSX.Element {
               <tbody>
                 {resultRows.length === 0 ? (
                   <tr className="pdf-avoid-break">
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                       完了しましたが、保存された解析結果はまだありません。
                     </td>
                   </tr>
@@ -715,6 +792,15 @@ export function JobAnalysisPage(): JSX.Element {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell value={formatAuditDate(row.auditDate)} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
+                        <CompletedScoreCell
+                          value={
+                            row.modifiedZScore != null && !Number.isNaN(row.modifiedZScore)
+                              ? row.modifiedZScore.toFixed(2)
+                              : "—"
+                          }
+                        />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell
@@ -738,6 +824,26 @@ export function JobAnalysisPage(): JSX.Element {
                           </span>
                         ) : (
                           "—"
+                        )}
+                      </td>
+                      <td className="max-w-sm px-4 py-3 align-top text-xs leading-snug text-slate-700">
+                        {rowShowsDetailedStrategy(row, data.jobMedianModifiedZ) ? (
+                          <>
+                            {row.diagnosticMessage != null && row.diagnosticMessage.length > 0 ? (
+                              <p className="mb-2 text-slate-800">{row.diagnosticMessage}</p>
+                            ) : null}
+                            {row.recommendedActions != null && row.recommendedActions.length > 0 ? (
+                              <ul className="list-disc space-y-0.5 pl-4">
+                                {row.recommendedActions.map((action, ai) => (
+                                  <li key={`${row.resultId}-${ai}`}>{action}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-500">偏差基準内</span>
                         )}
                       </td>
                       <td className="px-4 py-3 align-top">

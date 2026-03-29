@@ -12,12 +12,20 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("brand_color") String brandColor,
     @JsonProperty("logo_url") String logoUrl,
     JobProjectResponse project,
+    @JsonProperty("job_summary_diagnostic") String jobSummaryDiagnostic,
+    @JsonProperty("job_summary_recommended_actions") List<String> jobSummaryRecommendedActions,
+    @JsonProperty("job_median_modified_z") Double jobMedianModifiedZ,
+    @JsonProperty("job_median_visibility_stage") Integer jobMedianVisibilityStage,
     List<ResultDetailResponse> results
 ) {
     public static JobAnalysisDetailResponse from(
             JobEntity jobEntity,
             ProjectEntity projectEntity,
-            List<ResultDetailResponse> resultDetails) {
+            List<ResultDetailResponse> resultDetails,
+            String jobSummaryDiagnostic,
+            List<String> jobSummaryRecommendedActions,
+            Double jobMedianModifiedZ,
+            Integer jobMedianVisibilityStage) {
         JobProjectResponse projectResponse = projectEntity != null ? JobProjectResponse.from(projectEntity) : null;
         String bc = resolveBrandColor(jobEntity, projectEntity);
         String logo = resolveLogoUrl(jobEntity, projectEntity);
@@ -29,6 +37,10 @@ public record JobAnalysisDetailResponse(
             bc,
             logo,
             projectResponse,
+            jobSummaryDiagnostic,
+            jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of(),
+            jobMedianModifiedZ,
+            jobMedianVisibilityStage,
             resultDetails);
     }
     private static String resolveBrandColor(JobEntity jobEntity, ProjectEntity projectEntity) {

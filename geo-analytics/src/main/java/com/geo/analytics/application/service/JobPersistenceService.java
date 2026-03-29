@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -39,6 +40,7 @@ public class JobPersistenceService {
     private final ProjectManagementService projectManagementService;
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate jobCreateTransactionTemplate;
+    private final StrategyInsightService strategyInsightService;
     public JobPersistenceService(
             JobRepository jobRepository,
             QueryRepository queryRepository,
@@ -47,7 +49,8 @@ public class JobPersistenceService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectManagementService projectManagementService,
             JdbcTemplate jdbcTemplate,
-            PlatformTransactionManager platformTransactionManager) {
+            PlatformTransactionManager platformTransactionManager,
+            StrategyInsightService strategyInsightService) {
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
@@ -57,6 +60,7 @@ public class JobPersistenceService {
         this.jdbcTemplate = jdbcTemplate;
         this.jobCreateTransactionTemplate = new TransactionTemplate(platformTransactionManager);
         this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.strategyInsightService = strategyInsightService;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
         List<String> rows = jdbcTemplate.query(
@@ -72,6 +76,16 @@ public class JobPersistenceService {
         List<String> rows = jdbcTemplate.query(
             "SELECT j.tenant_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
             ps -> ps.setObject(1, queryId),
+            (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
+            return DefaultTenantIds.WORKSPACE_ID;
+        }
+        return UUID.fromString(rows.get(0));
+    }
+    private UUID readWorkspaceIdForAudit(UUID auditHistoryId) {
+        List<String> rows = jdbcTemplate.query(
+            "SELECT tenant_id FROM audit_histories WHERE id = ?",
+            ps -> ps.setObject(1, auditHistoryId),
             (rs, rowNum) -> rs.getString(1));
         if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
             return DefaultTenantIds.WORKSPACE_ID;
@@ -134,7 +148,8 @@ public class JobPersistenceService {
             int rankPosition,
             double sentimentIntensity,
             Integer visibilityStage,
-            String calculationVersion) {
+            String calculationVersion,
+            double modifiedZScore) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -143,6 +158,8 @@ public class JobPersistenceService {
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
             var negativeAlert = sentimentIntensity < -0.5;
+            var insight = strategyInsightService.fromModifiedZ(modifiedZScore);
+            var actions = new ArrayList<>(insight.recommendedActions());
             Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
             if (existingOptional.isPresent()) {
                 AuditHistoryEntity existing = existingOptional.get();
@@ -158,6 +175,9 @@ public class JobPersistenceService {
                 existing.setVisibilityStage(visibilityStage);
                 existing.setCalculationVersion(calculationVersion);
                 existing.setNegativeAlert(negativeAlert);
+                existing.setModifiedZScore(modifiedZScore);
+                existing.setDiagnosticMessage(insight.diagnosticMessage());
+                existing.setRecommendedActions(actions);
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
                 auditHistoryRepository.save(existing);
@@ -179,6 +199,9 @@ public class JobPersistenceService {
                 auditHistoryEntity.setVisibilityStage(visibilityStage);
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
                 auditHistoryEntity.setNegativeAlert(negativeAlert);
+                auditHistoryEntity.setModifiedZScore(modifiedZScore);
+                auditHistoryEntity.setDiagnosticMessage(insight.diagnosticMessage());
+                auditHistoryEntity.setRecommendedActions(actions);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryRepository.save(auditHistoryEntity);
             }
@@ -187,6 +210,20 @@ public class JobPersistenceService {
                 queryRepository.save(queryEntity);
             });
         });
+    }
+    @Transactional
+    public void updateAuditStrategyInsights(
+            UUID auditHistoryId,
+            String diagnosticMessage,
+            List<String> recommendedActions,
+            String calculationVersion) {
+        UUID tenantId = readWorkspaceIdForAudit(auditHistoryId);
+        TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findById(auditHistoryId).ifPresent(entity -> {
+            entity.setDiagnosticMessage(diagnosticMessage);
+            entity.setRecommendedActions(new ArrayList<>(recommendedActions));
+            entity.setCalculationVersion(calculationVersion);
+            auditHistoryRepository.save(entity);
+        }));
     }
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public JobEntity createJob(String brandName) {
@@ -328,5 +365,65 @@ public class JobPersistenceService {
             });
         } catch (Exception exception) {
         }
+    }
+    @Transactional
+    public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setJobDiagnosticMessage(diagnosticMessage);
+            jobEntity.setJobRecommendedActions(
+                recommendedActions != null ? new ArrayList<>(recommendedActions) : null);
+            jobRepository.save(jobEntity);
+        });
+    }
+    @Transactional
+    public Optional<UUID> claimGapBatchIdempotencyKeyForUpdate(UUID jobId) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            if (jobEntity.getSubscriptionPlan() != SubscriptionPlan.PRO) {
+                return Optional.empty();
+            }
+            String existingName = jobEntity.getGapAnalysisGeminiJobName();
+            if (existingName != null && !existingName.isBlank()) {
+                return Optional.empty();
+            }
+            if (jobEntity.getGapBatchIdempotencyKey() == null) {
+                jobEntity.setGapBatchIdempotencyKey(UUID.randomUUID());
+                jobRepository.save(jobEntity);
+            }
+            return Optional.of(jobEntity.getGapBatchIdempotencyKey());
+        });
+    }
+    @Transactional
+    public void saveGapAnalysisGeminiJobName(UUID jobId, String geminiJobName) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setGapAnalysisGeminiJobName(geminiJobName);
+            jobRepository.save(jobEntity);
+        });
+    }
+    @Transactional
+    public void markGapAnalysisCompleted(UUID jobId, boolean completed) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantContext.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setGapAnalysisCompleted(completed);
+            jobRepository.save(jobEntity);
+        });
+    }
+    public List<JobEntity> findJobsPendingGapAnalysisOutput() {
+        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+            () -> jobRepository.findByGapAnalysisGeminiJobNameIsNotNullAndGapAnalysisCompletedIsFalse());
+    }
+    public List<JobEntity> findProJobsAwaitingGapBatchCreation() {
+        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+            () -> jobRepository.findProJobsAwaitingGapBatchCreation(JobStatus.COMPLETED, SubscriptionPlan.PRO));
     }
 }

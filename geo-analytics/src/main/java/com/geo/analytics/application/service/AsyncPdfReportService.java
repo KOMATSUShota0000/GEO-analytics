@@ -1,4 +1,6 @@
 package com.geo.analytics.application.service;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.JobStompStatusPayload;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
 import com.geo.analytics.application.port.PdfReportPort;
@@ -21,11 +23,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 @Service
@@ -42,23 +46,33 @@ public class AsyncPdfReportService {
     private final String internalToken;
     private final String defaultBrandColor;
     private final String defaultLogoUrl;
+    private final StrategyInsightService strategyInsightService;
+    private final ObjectMapper objectMapper;
+    private final Semaphore pdfPlaywrightSemaphore;
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
             JobPersistenceService jobPersistenceService,
             ProjectRepository projectRepository,
             PdfStorageConfig pdfStorageConfig,
             SimpMessagingTemplate simpMessagingTemplate,
+            StrategyInsightService strategyInsightService,
+            ObjectMapper objectMapper,
             @Value("${app.pdf.internal-token}") String internalToken,
             @Value("${app.pdf.default-brand-color}") String defaultBrandColor,
-            @Value("${app.pdf.default-logo-url}") String defaultLogoUrl) {
+            @Value("${app.pdf.default-logo-url}") String defaultLogoUrl,
+            @Value("${app.pdf.max-concurrent}") int pdfMaxConcurrent) {
         this.pdfReportPort = pdfReportPort;
         this.jobPersistenceService = jobPersistenceService;
         this.projectRepository = projectRepository;
         this.pdfStorageConfig = pdfStorageConfig;
         this.simpMessagingTemplate = simpMessagingTemplate;
+        this.strategyInsightService = strategyInsightService;
+        this.objectMapper = objectMapper;
         this.internalToken = internalToken;
         this.defaultBrandColor = defaultBrandColor;
         this.defaultLogoUrl = defaultLogoUrl == null ? "" : defaultLogoUrl;
+        var permits = Math.max(1, pdfMaxConcurrent);
+        this.pdfPlaywrightSemaphore = new Semaphore(permits, true);
     }
     @Async
     public void generatePdfReport(UUID jobId) {
@@ -84,11 +98,44 @@ public class AsyncPdfReportService {
                     jobEntity.getLogoUrl(),
                     projectEntity != null ? projectEntity.getLogoUrl() : null,
                     defaultLogoUrl);
-                PdfWhiteLabelInjection injection = new PdfWhiteLabelInjection(brandColor, logoUrl, jobEntity.getBrandName());
-                byte[] pdfBytes = CompletableFuture.supplyAsync(
-                    () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection),
-                    PDF_RENDER_EXECUTOR)
-                    .get(PDF_RENDER_WALL_SECONDS, TimeUnit.SECONDS);
+                String pdfContextJson = "{}";
+                try {
+                    var rows = jobPersistenceService.findResultsByJobId(jobId);
+                    var rollup = strategyInsightService.rollupJob(rows);
+                    var medZ = strategyInsightService.medianModifiedZ(rows);
+                    var medSt = strategyInsightService.medianVisibilityStage(rows);
+                    var jd = jobEntity.getJobDiagnosticMessage();
+                    var jra = jobEntity.getJobRecommendedActions();
+                    String summaryDiag = jd != null && !jd.isBlank()
+                        ? jd
+                        : (rollup.diagnosticMessage() != null ? rollup.diagnosticMessage() : "");
+                    var summaryActs = jra != null && !jra.isEmpty()
+                        ? jra
+                        : rollup.recommendedActions();
+                    var payload = new LinkedHashMap<String, Object>();
+                    payload.put("jobSummaryDiagnostic", summaryDiag);
+                    payload.put("jobSummaryRecommendedActions", summaryActs);
+                    payload.put("jobMedianModifiedZ", medZ);
+                    payload.put("jobMedianVisibilityStage", medSt);
+                    pdfContextJson = objectMapper.writeValueAsString(payload);
+                } catch (JsonProcessingException jsonProcessingException) {
+                    log.warn("pdf_context_json_failed jobId={}", jobId, jsonProcessingException);
+                }
+                PdfWhiteLabelInjection injection = new PdfWhiteLabelInjection(
+                    brandColor,
+                    logoUrl,
+                    jobEntity.getBrandName(),
+                    pdfContextJson);
+                pdfPlaywrightSemaphore.acquireUninterruptibly();
+                byte[] pdfBytes;
+                try {
+                    pdfBytes = CompletableFuture.supplyAsync(
+                        () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection),
+                        PDF_RENDER_EXECUTOR)
+                        .get(PDF_RENDER_WALL_SECONDS, TimeUnit.SECONDS);
+                } finally {
+                    pdfPlaywrightSemaphore.release();
+                }
                 Path targetPath = pdfStorageConfig.getTempDirectory().resolve(jobId + ".pdf");
                 Files.write(targetPath, pdfBytes);
                 String absolutePath = targetPath.toAbsolutePath().normalize().toString();
@@ -135,15 +182,20 @@ public class AsyncPdfReportService {
         jobPersistenceService.markPdfFailedBestEffort(jobId);
         jobPersistenceService.findJobByIdOptional(jobId).ifPresent(job -> {
             if (PdfJobStatusValues.GENERATING.equals(job.getPdfStatus())) {
+                var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
+                var base = JobStompStatusPayload.from(job, rollup);
                 var payload = new JobStompStatusPayload(
-                    job.getId(),
-                    job.getJobStatus() != null ? job.getJobStatus().name() : "UNKNOWN",
-                    job.getBrandName(),
+                    base.jobId(),
+                    base.jobStatus(),
+                    base.brandName(),
                     "PDF generation failed",
                     PdfJobStatusValues.FAILED,
                     null,
-                    job.getCreatedAt(),
-                    job.getUpdatedAt());
+                    base.createdAt(),
+                    base.updatedAt(),
+                    base.diagnosticMessage(),
+                    base.recommendedActions(),
+                    base.jobMedianModifiedZ());
                 simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobId, payload);
             }
         });

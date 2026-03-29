@@ -6,16 +6,17 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @Service
 public class AsyncSgeMeasurementService {
+    private static final Logger log = LoggerFactory.getLogger(AsyncSgeMeasurementService.class);
     private final SgeMeasurementPort sgeMeasurementPort;
     private final SgeResultRepository sgeResultRepository;
     private final String serpApiKey;

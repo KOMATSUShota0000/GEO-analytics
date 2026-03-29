@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   competitorLabelsFromProject,
   formatAuditDate,
+  mergeJobAnalysisWithPdfContext,
   normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
   resolveChartShareData,
@@ -142,7 +143,7 @@ export default function ReportPrintPage(): JSX.Element {
           setLoadError("解析データの形式が不正です");
           setData(null);
         } else {
-          setData(p);
+          setData(mergeJobAnalysisWithPdfContext(p));
         }
       })
       .catch((err: unknown) => {
@@ -297,6 +298,55 @@ export default function ReportPrintPage(): JSX.Element {
           <p className="mt-10 text-center text-xl font-medium tracking-wide">{data.brandName}</p>
         </section>
       )}
+      {data && isCompletedJobStatus(data.jobStatus) && (
+        <section
+          className="pdf-inside-avoid mb-6 bg-white px-8 py-12 text-slate-900"
+          style={{
+            minHeight: "1123px",
+            width: "794px",
+            maxWidth: "100%",
+            breakAfter: "page",
+            pageBreakAfter: "always",
+            breakInside: "avoid",
+            pageBreakInside: "avoid",
+          }}
+        >
+          <h2 className="text-xl font-semibold tracking-tight" style={{ color: "var(--brand-color)" }}>
+            ジョブ全体の戦略診断
+          </h2>
+          {data.jobSummaryDiagnostic != null && data.jobSummaryDiagnostic.trim().length > 0 ? (
+            <p className="mt-6 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+              {data.jobSummaryDiagnostic}
+            </p>
+          ) : (
+            <p className="mt-6 text-sm text-slate-500">ジョブ全体の診断文は準備中です。</p>
+          )}
+          {(data.jobSummaryRecommendedActions?.length ?? 0) > 0 && (
+            <div className="mt-8">
+              <h3 className="text-sm font-semibold text-slate-800">推奨アクション</h3>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+                {data.jobSummaryRecommendedActions!.map((a, i) => (
+                  <li key={`summary-${i}-${a.slice(0, 24)}`}>{a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-10 grid gap-2 border-t border-slate-200 pt-6 text-xs text-slate-600">
+            {data.jobMedianModifiedZ != null && (
+              <p>
+                <span className="font-medium text-slate-800">ジョブ中央値（改Z&apos;）</span>{" "}
+                {data.jobMedianModifiedZ.toFixed(2)}
+              </p>
+            )}
+            {data.jobMedianVisibilityStage != null && (
+              <p>
+                <span className="font-medium text-slate-800">ジョブ中央 Stage</span>{" "}
+                {data.jobMedianVisibilityStage}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
       {data && isProcessing && (
         <section
           className="pdf-inside-avoid mb-6 rounded-xl border border-slate-200 bg-slate-50 p-5"
@@ -343,51 +393,56 @@ export default function ReportPrintPage(): JSX.Element {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
                     <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">SoMスコア</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
-                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resultRows.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
                         完了しましたが、保存された解析結果はまだありません。
                       </td>
                     </tr>
                   ) : (
                     resultRows.map((row) => (
-                      <tr key={row.resultId} className="border-b border-slate-100 last:border-0">
-                        <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
-                        <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
-                          {formatAuditDate(row.auditDate)}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
-                          {row.somScore}
-                        </td>
-                        <td className="px-4 py-3 align-top">
-                          {row.brandMentioned ? (
-                            <span
-                              className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
-                              style={{
-                                backgroundColor: "var(--brand-color)",
-                                printColorAdjust: "exact",
-                                WebkitPrintColorAdjust: "exact",
-                              }}
-                            >
-                              言及あり
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                              なし
-                            </span>
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
-                          {row.mentionRank === null ? "—" : String(row.mentionRank)}
-                        </td>
-                      </tr>
+                      <Fragment key={row.resultId}>
+                        <tr className="border-b border-slate-100 last:border-0">
+                          <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
+                          <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
+                            {row.somScore}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
+                            {row.visibilityStage == null ? "—" : String(row.visibilityStage)}
+                          </td>
+                        </tr>
+                        {row.significantDeviation === true && (
+                          <tr className="border-b border-slate-200 bg-slate-50/90">
+                            <td colSpan={3} className="px-4 py-4 align-top text-sm text-slate-800">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                差分診断（例外的乖離）
+                              </p>
+                              <p className="mt-2 text-xs text-slate-600">
+                                解析日 {formatAuditDate(row.auditDate)} / 言及
+                                {row.brandMentioned ? "あり" : "なし"} / 順位{" "}
+                                {row.mentionRank === null ? "—" : String(row.mentionRank)}
+                              </p>
+                              {row.diagnosticMessage != null && row.diagnosticMessage.trim().length > 0 ? (
+                                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{row.diagnosticMessage}</p>
+                              ) : (
+                                <p className="mt-2 text-slate-500">詳細診断は準備中です。</p>
+                              )}
+                              {(row.recommendedActions?.length ?? 0) > 0 && (
+                                <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
+                                  {row.recommendedActions!.map((a, i) => (
+                                    <li key={`${row.resultId}-gap-${i}`}>{a}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))
                   )}
                 </tbody>

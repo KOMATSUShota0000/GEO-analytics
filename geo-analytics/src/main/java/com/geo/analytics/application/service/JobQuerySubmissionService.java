@@ -173,7 +173,10 @@ public class JobQuerySubmissionService {
                                 syncVerificationResult.rankPosition(),
                                 syncVerificationResult.sentimentIntensity(),
                                 syncVerificationResult.visibilityStage(),
-                                syncVerificationResult.calculationVersion());
+                                syncVerificationResult.calculationVersion(),
+                                syncVerificationResult.modifiedZScore() != null
+                                    ? syncVerificationResult.modifiedZScore()
+                                    : 0.0);
                         } catch (Exception exception) {
                             log.error(
                                 "async audit persist failed jobId={} queryId={}",

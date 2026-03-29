@@ -1,13 +1,12 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.dto.JobStompStatusPayload;
+import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
@@ -23,28 +22,33 @@ public class AsyncBatchService {
     private final GeminiBatchExecutorService geminiBatchExecutorService;
     private final GeminiBatchClient geminiBatchClient;
     private final GeminiResultProcessor geminiResultProcessor;
-    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+    private final GapAnalysisBatchProcessor gapAnalysisBatchProcessor;
+    private final GapAnalysisService gapAnalysisService;
 
     public AsyncBatchService(
             JobPersistenceService jobPersistenceService,
             GeminiBatchExecutorService geminiBatchExecutorService,
             GeminiBatchClient geminiBatchClient,
             GeminiResultProcessor geminiResultProcessor,
-            SimpMessagingTemplate simpMessagingTemplate,
-            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
+            GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
+            GapAnalysisService gapAnalysisService) {
         this.jobPersistenceService = jobPersistenceService;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
         this.geminiResultProcessor = geminiResultProcessor;
-        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
+        this.gapAnalysisBatchProcessor = gapAnalysisBatchProcessor;
+        this.gapAnalysisService = gapAnalysisService;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
         JobEntity refreshedJobEntity = jobPersistenceService.findJobById(jobId);
-        JobStompStatusPayload payload = JobStompStatusPayload.from(refreshedJobEntity);
-        simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobId, payload);
+        jobStatusBroadcastPublisher.publish(refreshedJobEntity);
     }
 
     @Scheduled(fixedDelay = 10000)
@@ -137,5 +141,65 @@ public class AsyncBatchService {
             return null;
         }));
         logger.info("Batch polling task dispatched all jobs");
+    }
+
+    @Scheduled(fixedDelay = 15000)
+    public void pollGapAnalysisBatches() {
+        logger.info("Gap batch polling task started");
+        List<JobEntity> gapJobs = jobPersistenceService.findJobsPendingGapAnalysisOutput();
+        logger.info("Found {} job(s) with pending gap batch output", gapJobs.size());
+        gapJobs.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
+            try {
+                pollOneGapAnalysisJob(jobEntity);
+            } catch (Exception exception) {
+                logger.error("[Job:{}] Gap batch polling failure", jobEntity.getId(), exception);
+                jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+                broadcastJobStatusOverStomp(jobEntity.getId());
+            }
+        }).exceptionally(throwable -> {
+            logger.error("[Job:{}] Gap batch polling async failure", jobEntity.getId(), throwable);
+            jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+            broadcastJobStatusOverStomp(jobEntity.getId());
+            return null;
+        }));
+        logger.info("Gap batch polling task dispatched all jobs");
+    }
+
+    @Scheduled(fixedDelay = 60000)
+    public void retryProGapBatchCreation() {
+        List<JobEntity> pending = jobPersistenceService.findProJobsAwaitingGapBatchCreation();
+        pending.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
+            try {
+                gapAnalysisService.retryGapBatchForJob(jobEntity.getId());
+            } catch (Exception exception) {
+                logger.warn("[Job:{}] Gap batch retry scheduler failure", jobEntity.getId(), exception);
+            }
+        }));
+    }
+
+    private void pollOneGapAnalysisJob(JobEntity jobEntity) {
+        String gapJobName = jobEntity.getGapAnalysisGeminiJobName();
+        if (gapJobName == null || gapJobName.isBlank()) {
+            return;
+        }
+        GeminiBatchJob current = geminiBatchClient.getBatchJobStatus(gapJobName);
+        String state = current.state();
+        if (geminiBatchClient.shouldAwaitNextPoll(state)) {
+            return;
+        }
+        if (!geminiBatchClient.isTerminalState(state)) {
+            return;
+        }
+        UUID jobId = jobEntity.getId();
+        if (geminiBatchClient.isSucceededState(state)) {
+            String outputFileName = geminiBatchClient.resolveBatchOutputFileName(current);
+            String outputContent = geminiBatchClient.downloadOutputFileContent(outputFileName);
+            gapAnalysisBatchProcessor.processOutputJsonl(jobId, outputContent);
+            broadcastJobStatusOverStomp(jobId);
+            projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobId));
+        } else {
+            jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+            broadcastJobStatusOverStomp(jobId);
+        }
     }
 }

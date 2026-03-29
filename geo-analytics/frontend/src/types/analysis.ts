@@ -23,6 +23,9 @@ export interface JobStatusResponse {
   pdfFilePath: string | null;
   createdAt: string;
   updatedAt: string;
+  diagnosticMessage: string | null;
+  recommendedActions: string[];
+  jobMedianModifiedZ: number | null;
 }
 
 export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | null {
@@ -70,6 +73,23 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
   if (typeof r.createdAt !== "string" || typeof r.updatedAt !== "string") {
     return null;
   }
+  const dm =
+    r.diagnosticMessage === undefined || r.diagnosticMessage === null
+      ? null
+      : typeof r.diagnosticMessage === "string"
+        ? r.diagnosticMessage
+        : null;
+  const raRaw = r.recommendedActions;
+  const recommendedActions =
+    Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string")
+      ? raRaw
+      : [];
+  const jmz =
+    r.jobMedianModifiedZ === undefined || r.jobMedianModifiedZ === null
+      ? null
+      : typeof r.jobMedianModifiedZ === "number" && !Number.isNaN(r.jobMedianModifiedZ)
+        ? r.jobMedianModifiedZ
+        : null;
   return {
     jobId: r.jobId,
     projectId:
@@ -85,6 +105,9 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
       r.pdfFilePath === undefined || r.pdfFilePath === null ? null : r.pdfFilePath,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    diagnosticMessage: dm,
+    recommendedActions,
+    jobMedianModifiedZ: jmz,
   };
 }
 
@@ -427,6 +450,10 @@ export interface ResultDetail {
   visibilityStageNarrative?: string | null;
   calculationVersion?: string | null;
   negativeAlert?: boolean;
+  modifiedZScore?: number | null;
+  diagnosticMessage?: string | null;
+  recommendedActions?: string[];
+  significantDeviation?: boolean | null;
   rawResponse: string;
   auditDate: string;
   createdAt: string;
@@ -440,8 +467,126 @@ export interface JobAnalysisDetail {
   brandColor: string;
   logoUrl: string | null;
   project: JobProjectInfo | null;
+  jobSummaryDiagnostic?: string | null;
+  jobSummaryRecommendedActions?: string[];
+  jobMedianModifiedZ?: number | null;
+  jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
 }
+
+export function parseResultDetail(raw: unknown): ResultDetail | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.resultId !== "string" || typeof r.query !== "string") {
+    return null;
+  }
+  if (typeof r.somScore !== "number" || Number.isNaN(r.somScore)) {
+    return null;
+  }
+  if (typeof r.rawResponse !== "string" || typeof r.auditDate !== "string" || typeof r.createdAt !== "string") {
+    return null;
+  }
+  const mentionRank =
+    r.mentionRank === null || r.mentionRank === undefined
+      ? null
+      : typeof r.mentionRank === "number" && !Number.isNaN(r.mentionRank)
+        ? r.mentionRank
+        : null;
+  const overallScore =
+    r.overallScore === null || r.overallScore === undefined
+      ? null
+      : typeof r.overallScore === "number" && !Number.isNaN(r.overallScore)
+        ? r.overallScore
+        : null;
+  const raRaw = r.recommendedActions;
+  const recommendedActions =
+    Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string") ? raRaw : undefined;
+  const sd = r.significantDeviation;
+  const significantDeviation =
+    typeof sd === "boolean" ? sd : sd === null || sd === undefined ? null : undefined;
+  return {
+    resultId: r.resultId,
+    query: r.query,
+    somScore: r.somScore,
+    gbvsNormalizedScore:
+      typeof r.gbvsNormalizedScore === "number" && !Number.isNaN(r.gbvsNormalizedScore)
+        ? r.gbvsNormalizedScore
+        : undefined,
+    brandMentioned: r.brandMentioned === true,
+    mentionRank,
+    overallScore,
+    tokenCount:
+      typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined,
+    rankPosition:
+      typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined,
+    sentimentIntensity:
+      typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
+        ? r.sentimentIntensity
+        : undefined,
+    resolvedEntityLabel:
+      r.resolvedEntityLabel === null || r.resolvedEntityLabel === undefined
+        ? null
+        : typeof r.resolvedEntityLabel === "string"
+          ? r.resolvedEntityLabel
+          : null,
+    visibilityStage:
+      typeof r.visibilityStage === "number" && !Number.isNaN(r.visibilityStage)
+        ? r.visibilityStage
+        : null,
+    visibilityStageBand:
+      typeof r.visibilityStageBand === "string" ? r.visibilityStageBand : undefined,
+    visibilityStageNarrative:
+      typeof r.visibilityStageNarrative === "string" ? r.visibilityStageNarrative : undefined,
+    calculationVersion:
+      typeof r.calculationVersion === "string" ? r.calculationVersion : undefined,
+    negativeAlert: r.negativeAlert === true,
+    modifiedZScore:
+      typeof r.modifiedZScore === "number" && !Number.isNaN(r.modifiedZScore)
+        ? r.modifiedZScore
+        : null,
+    diagnosticMessage:
+      r.diagnosticMessage === null || r.diagnosticMessage === undefined
+        ? null
+        : typeof r.diagnosticMessage === "string"
+          ? r.diagnosticMessage
+          : null,
+    recommendedActions,
+    significantDeviation,
+    rawResponse: r.rawResponse,
+    auditDate: r.auditDate,
+    createdAt: r.createdAt,
+  };
+}
+
+export function mergeJobAnalysisWithPdfContext(data: JobAnalysisDetail): JobAnalysisDetail {
+  if (typeof window === "undefined") {
+    return data;
+  }
+  const w = window as unknown as { __GEO_PDF_CONTEXT__?: unknown };
+  const ctx = w.__GEO_PDF_CONTEXT__;
+  if (ctx === null || ctx === undefined || typeof ctx !== "object") {
+    return data;
+  }
+  const c = ctx as Record<string, unknown>;
+  const next: JobAnalysisDetail = { ...data };
+  if (typeof c.jobSummaryDiagnostic === "string") {
+    next.jobSummaryDiagnostic = c.jobSummaryDiagnostic;
+  }
+  const acts = c.jobSummaryRecommendedActions;
+  if (Array.isArray(acts) && acts.every((x): x is string => typeof x === "string")) {
+    next.jobSummaryRecommendedActions = acts;
+  }
+  if (typeof c.jobMedianModifiedZ === "number" && !Number.isNaN(c.jobMedianModifiedZ)) {
+    next.jobMedianModifiedZ = c.jobMedianModifiedZ;
+  }
+  if (typeof c.jobMedianVisibilityStage === "number" && !Number.isNaN(c.jobMedianVisibilityStage)) {
+    next.jobMedianVisibilityStage = c.jobMedianVisibilityStage;
+  }
+  return next;
+}
+
 export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   if (raw === null || typeof raw !== "object") {
     return null;
@@ -472,7 +617,31 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       : typeof r.logo_url === "string" && r.logo_url.length > 0
         ? r.logo_url
         : null;
-  const results = Array.isArray(r.results) ? (r.results as ResultDetail[]) : [];
+  const resultsRaw = Array.isArray(r.results) ? r.results : [];
+  const results = resultsRaw
+    .map((item) => parseResultDetail(item))
+    .filter((x): x is ResultDetail => x !== null);
+  const jsd =
+    r.job_summary_diagnostic === undefined || r.job_summary_diagnostic === null
+      ? null
+      : typeof r.job_summary_diagnostic === "string"
+        ? r.job_summary_diagnostic
+        : null;
+  const jsraRaw = r.job_summary_recommended_actions;
+  const jobSummaryRecommendedActions =
+    Array.isArray(jsraRaw) && jsraRaw.every((x): x is string => typeof x === "string") ? jsraRaw : [];
+  const jmz =
+    r.job_median_modified_z === undefined || r.job_median_modified_z === null
+      ? null
+      : typeof r.job_median_modified_z === "number" && !Number.isNaN(r.job_median_modified_z)
+        ? r.job_median_modified_z
+        : null;
+  const jmvs =
+    r.job_median_visibility_stage === undefined || r.job_median_visibility_stage === null
+      ? null
+      : typeof r.job_median_visibility_stage === "number" && !Number.isNaN(r.job_median_visibility_stage)
+        ? r.job_median_visibility_stage
+        : null;
   return {
     jobId: r.jobId,
     jobStatus: r.jobStatus,
@@ -481,6 +650,10 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     brandColor: bc,
     logoUrl: lu,
     project: parseJobProjectInfo(r.project),
+    jobSummaryDiagnostic: jsd,
+    jobSummaryRecommendedActions,
+    jobMedianModifiedZ: jmz,
+    jobMedianVisibilityStage: jmvs,
     results,
   };
 }

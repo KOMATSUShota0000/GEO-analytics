@@ -1,4 +1,5 @@
 package com.geo.analytics.infrastructure.bootstrap;
+
 import com.geo.analytics.domain.entity.UserEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.PricingPlan;
@@ -12,6 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
+
 @Component
 public class DataSeeder implements CommandLineRunner {
     private static final String SEED_USERNAME = "bootstrap";
@@ -19,11 +21,16 @@ public class DataSeeder implements CommandLineRunner {
     private final WorkspaceRepository workspaceRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    public DataSeeder(WorkspaceRepository workspaceRepository, UserRepository userRepository, PasswordEncoder passwordEncoder) {
+
+    public DataSeeder(
+            WorkspaceRepository workspaceRepository,
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder) {
         this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
     }
+
     @Override
     @Transactional
     public void run(String... args) {
@@ -31,8 +38,7 @@ public class DataSeeder implements CommandLineRunner {
             return;
         }
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
-        TenantContext.setCurrentTenant(wid.toString());
-        try {
+        TenantContext.executeWithTenant(wid, () -> {
             WorkspaceEntity w = new WorkspaceEntity();
             w.setId(wid);
             w.setName("Default");
@@ -43,8 +49,6 @@ public class DataSeeder implements CommandLineRunner {
             u.setRole(Role.ADMIN);
             u.setPricingPlan(PricingPlan.STANDARD);
             userRepository.save(u);
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 }

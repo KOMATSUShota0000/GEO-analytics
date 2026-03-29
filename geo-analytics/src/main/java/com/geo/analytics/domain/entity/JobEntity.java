@@ -11,7 +11,10 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 @Entity
 @Table(name = "jobs")
@@ -45,6 +48,17 @@ public class JobEntity extends BaseTenantEntity {
     private LocalDateTime createdAt;
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+    @Column(name = "job_diagnostic_message", columnDefinition = "text")
+    private String jobDiagnosticMessage;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "job_recommended_actions", columnDefinition = "jsonb")
+    private List<String> jobRecommendedActions;
+    @Column(name = "gap_batch_idempotency_key")
+    private UUID gapBatchIdempotencyKey;
+    @Column(name = "gap_analysis_gemini_job_name", length = 512)
+    private String gapAnalysisGeminiJobName;
+    @Column(name = "gap_analysis_completed", nullable = false)
+    private Boolean gapAnalysisCompleted = false;
     public JobEntity() {
     }
     public UUID getId() {
@@ -125,6 +139,36 @@ public class JobEntity extends BaseTenantEntity {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+    public String getJobDiagnosticMessage() {
+        return jobDiagnosticMessage;
+    }
+    public void setJobDiagnosticMessage(String jobDiagnosticMessage) {
+        this.jobDiagnosticMessage = jobDiagnosticMessage;
+    }
+    public List<String> getJobRecommendedActions() {
+        return jobRecommendedActions;
+    }
+    public void setJobRecommendedActions(List<String> jobRecommendedActions) {
+        this.jobRecommendedActions = jobRecommendedActions;
+    }
+    public UUID getGapBatchIdempotencyKey() {
+        return gapBatchIdempotencyKey;
+    }
+    public void setGapBatchIdempotencyKey(UUID gapBatchIdempotencyKey) {
+        this.gapBatchIdempotencyKey = gapBatchIdempotencyKey;
+    }
+    public String getGapAnalysisGeminiJobName() {
+        return gapAnalysisGeminiJobName;
+    }
+    public void setGapAnalysisGeminiJobName(String gapAnalysisGeminiJobName) {
+        this.gapAnalysisGeminiJobName = gapAnalysisGeminiJobName;
+    }
+    public Boolean getGapAnalysisCompleted() {
+        return gapAnalysisCompleted;
+    }
+    public void setGapAnalysisCompleted(Boolean gapAnalysisCompleted) {
+        this.gapAnalysisCompleted = gapAnalysisCompleted;
+    }
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -134,6 +178,9 @@ public class JobEntity extends BaseTenantEntity {
         }
         if (brandColor == null || brandColor.isBlank()) {
             brandColor = "#4F46E5";
+        }
+        if (gapAnalysisCompleted == null) {
+            gapAnalysisCompleted = false;
         }
     }
     @PreUpdate

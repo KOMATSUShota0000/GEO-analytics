@@ -78,6 +78,7 @@ public class SyncVerificationService {
             consultantOutputData.response(),
             verificationResponse.resolvedEntityLabel(),
             verificationResponse.visibilityStage(),
+            verificationResponse.modifiedZScore(),
             verificationResponse.calculationVersion());
     }
 
@@ -136,6 +137,7 @@ public class SyncVerificationService {
             consultantOutputData.response(),
             verificationResponse.resolvedEntityLabel(),
             verificationResponse.visibilityStage(),
+            verificationResponse.modifiedZScore(),
             verificationResponse.calculationVersion());
     }
 }

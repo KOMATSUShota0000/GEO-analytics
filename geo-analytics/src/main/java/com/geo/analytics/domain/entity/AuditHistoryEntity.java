@@ -13,6 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 @Entity
 @Table(name = "audit_histories", indexes = {
@@ -55,6 +56,13 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     private String calculationVersion;
     @Column(name = "negative_alert", nullable = false)
     private Boolean negativeAlert = false;
+    @Column(name = "modified_z_score")
+    private Double modifiedZScore;
+    @Column(name = "diagnostic_message", columnDefinition = "text")
+    private String diagnosticMessage;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "recommended_actions", columnDefinition = "jsonb")
+    private List<String> recommendedActions;
     @Column(name = "audit_date", nullable = false)
     private LocalDate auditDate;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -156,6 +164,24 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setNegativeAlert(Boolean negativeAlert) {
         this.negativeAlert = negativeAlert;
+    }
+    public Double getModifiedZScore() {
+        return modifiedZScore;
+    }
+    public void setModifiedZScore(Double modifiedZScore) {
+        this.modifiedZScore = modifiedZScore;
+    }
+    public String getDiagnosticMessage() {
+        return diagnosticMessage;
+    }
+    public void setDiagnosticMessage(String diagnosticMessage) {
+        this.diagnosticMessage = diagnosticMessage;
+    }
+    public List<String> getRecommendedActions() {
+        return recommendedActions;
+    }
+    public void setRecommendedActions(List<String> recommendedActions) {
+        this.recommendedActions = recommendedActions;
     }
     public LocalDate getAuditDate() {
         return auditDate;

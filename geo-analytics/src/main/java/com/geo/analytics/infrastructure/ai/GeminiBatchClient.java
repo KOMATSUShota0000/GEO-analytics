@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.SequenceWriter;
 import com.geo.analytics.infrastructure.ai.dto.BatchConfig;
 import com.geo.analytics.infrastructure.ai.dto.BatchGenerateContentRequest;
 import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
+import com.geo.analytics.infrastructure.ai.dto.GapAnalystJsonlLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import com.geo.analytics.infrastructure.ai.dto.InputConfig;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJobListResponse;
@@ -137,6 +138,30 @@ public class GeminiBatchClient {
         }
     }
 
+    public Path writeGapAnalystBatchJsonlToTempFile(List<GapAnalystJsonlLine> lines) {
+        if (lines == null || lines.isEmpty()) {
+            throw new GeminiBatchApiException("gap analyst batch lines are empty");
+        }
+        try {
+            Path tempPath = Files.createTempFile("gemini-gap-batch-req-", ".jsonl");
+            tempPath.toFile().deleteOnExit();
+            try (OutputStream outputStream = Files.newOutputStream(
+                tempPath,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+                try (SequenceWriter sequenceWriter = objectMapper.writer().writeValues(outputStream)) {
+                    for (GapAnalystJsonlLine line : lines) {
+                        sequenceWriter.write(buildGapAnalystJsonlLineRootMap(line));
+                        outputStream.write('\n');
+                    }
+                }
+            }
+            return tempPath;
+        } catch (IOException ioException) {
+            throw new GeminiBatchApiException("gap JSONL stream write failed", ioException);
+        }
+    }
+
     public GeminiFileMetadata uploadJsonlFile(Path jsonlPath) {
         try {
             byte[] bytes = Files.readAllBytes(jsonlPath);
@@ -147,6 +172,10 @@ public class GeminiBatchClient {
     }
 
     public GeminiBatchJob createBatchJob(GeminiFileMetadata uploadedFileMetadata) {
+        return createBatchJob(uploadedFileMetadata, null);
+    }
+
+    public GeminiBatchJob createBatchJob(GeminiFileMetadata uploadedFileMetadata, String idempotencyKey) {
         if (uploadedFileMetadata == null) {
             throw new GeminiBatchApiException("uploaded file metadata is null");
         }
@@ -163,9 +192,13 @@ public class GeminiBatchClient {
         logger.info("createBatchJob - sending POST to /v1beta/models/{}:batchGenerateContent",
             LlmModelNames.GEMINI_31_PRO);
         try {
-            GeminiBatchJob createdBatchJob = restClient.post()
+            var postSpec = restClient.post()
                 .uri(URI.create(batchCreateUrl))
-                .contentType(MediaType.APPLICATION_JSON)
+                .contentType(MediaType.APPLICATION_JSON);
+            if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                postSpec = postSpec.header("Idempotency-Key", idempotencyKey);
+            }
+            GeminiBatchJob createdBatchJob = postSpec
                 .body(batchCreateRequestBody)
                 .retrieve()
                 .body(GeminiBatchJob.class);
@@ -451,6 +484,20 @@ public class GeminiBatchClient {
         request.put("generationConfig", ConsultantOutputSchema.batchGenerationConfig(subscriptionPlan));
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("key", batchQueryLine.queryId().toString());
+        root.put("request", request);
+        return root;
+    }
+
+    private Map<String, Object> buildGapAnalystJsonlLineRootMap(GapAnalystJsonlLine line) {
+        Map<String, Object> textPart = new LinkedHashMap<>();
+        textPart.put("text", line.fullPromptText());
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("parts", List.of(textPart));
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("contents", List.of(content));
+        request.put("generationConfig", GapAnalystOutputSchema.batchGenerationConfig());
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("key", line.auditHistoryId().toString());
         root.put("request", request);
         return root;
     }
