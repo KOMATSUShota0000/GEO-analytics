@@ -1,4 +1,5 @@
 package com.geo.analytics.domain.entity;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -7,12 +8,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 @Entity
@@ -32,7 +35,7 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @Column(name = "query", nullable = false, columnDefinition = "text")
     private String query;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "raw_response", columnDefinition = "jsonb", nullable = false)
+    @Column(name = "raw_response", nullable = false)
     private String rawResponse;
     @Column(name = "som_score", nullable = false)
     private Double somScore;
@@ -61,8 +64,13 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @Column(name = "diagnostic_message", columnDefinition = "text")
     private String diagnosticMessage;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "recommended_actions", columnDefinition = "jsonb")
+    @Column(name = "recommended_actions")
     private List<String> recommendedActions;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "model_insights")
+    private String modelInsightsJson;
+    @OneToMany(mappedBy = "auditHistory", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<JobCompetitorScoreEntity> competitorScores = new ArrayList<>();
     @Column(name = "audit_date", nullable = false)
     private LocalDate auditDate;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -182,6 +190,18 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setRecommendedActions(List<String> recommendedActions) {
         this.recommendedActions = recommendedActions;
+    }
+    public String getModelInsightsJson() {
+        return modelInsightsJson;
+    }
+    public void setModelInsightsJson(String modelInsightsJson) {
+        this.modelInsightsJson = modelInsightsJson;
+    }
+    public List<JobCompetitorScoreEntity> getCompetitorScores() {
+        return competitorScores;
+    }
+    public void setCompetitorScores(List<JobCompetitorScoreEntity> competitorScores) {
+        this.competitorScores = competitorScores;
     }
     public LocalDate getAuditDate() {
         return auditDate;

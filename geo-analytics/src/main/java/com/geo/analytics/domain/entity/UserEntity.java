@@ -8,8 +8,9 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.util.UUID;
 @Entity
 @Table(name = "users")
@@ -27,10 +28,10 @@ public class UserEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "pricing_plan", nullable = false, length = 32)
     private PricingPlan pricingPlan = PricingPlan.STANDARD;
-    @Lob
+    @JdbcTypeCode(SqlTypes.VARBINARY)
     @Column(name = "webauthn_credential_id")
     private byte[] webAuthnCredentialId;
-    @Lob
+    @JdbcTypeCode(SqlTypes.VARBINARY)
     @Column(name = "webauthn_public_key_cose")
     private byte[] webAuthnPublicKeyCose;
     @Column(name = "webauthn_signature_count", nullable = false)

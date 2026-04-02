@@ -57,12 +57,12 @@ public class AnalyticsAggregationService {
         List<AuditHistoryEntity> histories = auditHistoryRepository.findByProject_IdOrderByAuditDateAsc(projectId);
         List<TrendDataPoint> trend = aggregateTrend(histories);
         Optional<JobEntity> latestJob = jobRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId);
-        SubscriptionPlan plan = latestJob.map(JobEntity::getSubscriptionPlan).orElse(SubscriptionPlan.STANDARD);
+        SubscriptionPlan plan = latestJob.map(JobEntity::getAppliedPlan).orElse(SubscriptionPlan.STANDARD);
         if (plan == null) {
             plan = SubscriptionPlan.STANDARD;
         }
         List<CompetitorSharePoint> shares = List.of();
-        if (plan == SubscriptionPlan.PRO && latestJob.isPresent()) {
+        if (plan.usesProTierFeatures() && latestJob.isPresent()) {
             shares = extractCompetitorShares(latestJob.get().getId());
         }
         return new AnalyticsSummaryResponse(trend, shares, plan);

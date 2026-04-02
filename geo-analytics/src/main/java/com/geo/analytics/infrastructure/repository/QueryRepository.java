@@ -9,4 +9,6 @@ public interface QueryRepository extends JpaRepository<QueryEntity, UUID> {
     List<QueryEntity> findByJobId(UUID jobId);
 
     List<QueryEntity> findByJobIdAndProcessedFalse(UUID jobId);
+
+    long countByJobId(UUID jobId);
 }

@@ -1,6 +1,5 @@
 package com.geo.analytics.application.service;
-import com.geo.analytics.application.dto.ConsultantOutputData;
-import com.geo.analytics.application.dto.SyncVerificationResult;
+
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
@@ -8,7 +7,8 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.domain.exception.ThresholdExceededException;
+import com.geo.analytics.domain.exception.InsufficientQuotaException;
+import com.geo.analytics.domain.exception.RateLimitExceededException;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
@@ -17,14 +17,15 @@ import com.geo.analytics.infrastructure.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+
 @Service
 public class JobQuerySubmissionService {
     private static final Logger log = LoggerFactory.getLogger(JobQuerySubmissionService.class);
@@ -36,9 +37,10 @@ public class JobQuerySubmissionService {
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ExecutorService streamDeliveryVirtualExecutor;
-    private final int realtimeThreshold;
     private final ProjectRepository projectRepository;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+    private final PlanBasedQuotaManager quotaLimiter;
+
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
             AsyncSgeMeasurementService asyncSgeMeasurementService,
@@ -48,9 +50,9 @@ public class JobQuerySubmissionService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
-            @Value("${app.ai.realtime-threshold:10}") int realtimeThreshold,
             ProjectRepository projectRepository,
-            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
+            PlanBasedQuotaManager quotaLimiter) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -59,107 +61,135 @@ public class JobQuerySubmissionService {
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
-        this.realtimeThreshold = realtimeThreshold;
         this.projectRepository = projectRepository;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
+        this.quotaLimiter = quotaLimiter;
     }
+
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
-        int keywordCount = queryTexts.size();
-        if (keywordCount > realtimeThreshold) {
-            if (plan == SubscriptionPlan.STANDARD) {
-                throw new ThresholdExceededException(realtimeThreshold);
-            }
-            jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, plan);
-            startDeepAnalysisBatchPlaceholder(jobId);
-            JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-            List<QueryEntity> queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-            asyncSgeMeasurementService.measureSgeForJob(jobEntity, queryEntities);
+        var keywordCount = queryTexts.size();
+        if (keywordCount <= 0) {
             return;
         }
-        jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, plan);
-        executeImmediateParallelProcessing(jobId, plan);
-        JobEntity completedJob = jobPersistenceService.findJobById(jobId);
-        List<QueryEntity> queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(completedJob, queryEntities);
+        var job = jobPersistenceService.findJobById(jobId);
+        var snapshot = job.getAppliedPlan() != null ? job.getAppliedPlan() : plan;
+        var existing = jobPersistenceService.countQueriesByJobId(jobId);
+        if (existing + keywordCount > snapshot.getTotalLimit()) {
+            throw new InsufficientQuotaException(
+                    "登録上限を超過しています。",
+                    snapshot.getTotalLimit(),
+                    snapshot.name());
+        }
+        if (snapshot.isRealtimeAllowed(keywordCount)) {
+            registerRealtimeRouteAndStartSgeThenExecute(jobId, queryTexts, snapshot);
+            return;
+        }
+        if (!snapshot.usesProTierFeatures()) {
+            throw new InsufficientQuotaException(
+                    "登録上限を超過しています。",
+                    snapshot.getTotalLimit(),
+                    snapshot.name());
+        }
+        jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, snapshot);
+        startDeepAnalysisBatchPlaceholder(jobId);
+        var batchJobEntity = jobPersistenceService.findJobById(jobId);
+        var batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities);
     }
+
+    private void registerRealtimeRouteAndStartSgeThenExecute(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
+        jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, plan);
+        var jobEntity = jobPersistenceService.findJobById(jobId);
+        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        asyncSgeMeasurementService.measureSgeForJob(jobEntity, queryEntities);
+        executeImmediateParallelProcessing(jobId);
+    }
+
     private void startDeepAnalysisBatchPlaceholder(UUID jobId) {
         log.debug("deep analysis batch placeholder jobId={}", jobId);
     }
-    private void executeImmediateParallelProcessing(UUID jobId, SubscriptionPlan subscriptionPlan) {
-        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-        String brandName = jobEntity.getBrandName();
-        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
-        List<QueryEntity> queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        UUID tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        List<CompletableFuture<Void>> pendingPersistenceTasks = new ArrayList<>();
+
+    private void executeImmediateParallelProcessing(UUID jobId) {
+        var jobEntity = jobPersistenceService.findJobById(jobId);
+        var brandName = jobEntity.getBrandName();
+        var competitorHosts = loadCompetitorHosts(jobEntity);
+        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
+        var probe = quotaLimiter.resolve(tenantId).tryConsumeAndReturnRemaining(queryEntities.size());
+        if (!probe.isConsumed()) {
+            var workspacePlan = quotaLimiter.resolveWorkspacePlan(tenantId);
+            throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
+        }
+        var pendingPersistenceTasks = new ArrayList<CompletableFuture<Void>>();
         try {
-            for (QueryEntity queryEntity : queryEntities) {
+            for (var queryEntity : queryEntities) {
                 processOneQueryRealtime(
-                    jobEntity.getId(),
-                    tenantId,
-                    brandName,
-                    competitorHosts,
-                    queryEntity,
-                    subscriptionPlan,
-                    pendingPersistenceTasks);
+                        jobEntity.getId(),
+                        tenantId,
+                        brandName,
+                        competitorHosts,
+                        queryEntity,
+                        appliedPlan,
+                        pendingPersistenceTasks);
             }
             CompletableFuture.allOf(pendingPersistenceTasks.toArray(CompletableFuture[]::new)).join();
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
-            JobEntity completedJobEntity = jobPersistenceService.findJobById(jobId);
+            var completedJobEntity = jobPersistenceService.findJobById(jobId);
             jobStatusBroadcastPublisher.publish(completedJobEntity);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
         } finally {
             jobStreamRegistryService.complete(jobId);
         }
     }
+
     private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        UUID projectId = jobEntity.getProjectId();
+        var projectId = jobEntity.getProjectId();
         if (projectId == null) {
             return List.of();
         }
-        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
-            .map(ProjectEntity::getCompetitorUrls)
-            .orElse(List.of())
-            .stream()
-            .map(EntityNormalizer::hostLabelFromUrl)
-            .filter(s -> !s.isBlank())
-            .toList());
+                .map(ProjectEntity::getCompetitorUrls)
+                .orElse(List.of())
+                .stream()
+                .map(EntityNormalizer::hostLabelFromUrl)
+                .filter(s -> !s.isBlank())
+                .toList());
     }
+
     private void processOneQueryRealtime(
             UUID jobId,
             UUID tenantId,
             String brandName,
             List<String> competitorHosts,
             QueryEntity queryEntity,
-            SubscriptionPlan subscriptionPlan,
+            SubscriptionPlan appliedPlan,
             List<CompletableFuture<Void>> pendingPersistenceTasks) {
-        TenantContext.executeWithTenant(tenantId, () -> {
-            try {
-                SyncVerificationResult syncVerificationResult = syncVerificationService.verify(
-                    brandName,
-                    queryEntity.getQueryText(),
-                    subscriptionPlan,
-                    jobId,
-                    queryEntity.getId(),
-                    brandName,
-                    competitorHosts);
-                pendingPersistenceTasks.add(CompletableFuture.runAsync(
-                    () -> TenantContext.executeWithTenant(tenantId, () -> {
-                        try {
-                            ConsultantOutputData consultantOutputData =
+        pendingPersistenceTasks.add(CompletableFuture.runAsync(
+                () -> TenantContext.executeWithTenant(tenantId, () -> {
+                    try {
+                        var syncVerificationResult = syncVerificationService.verify(
+                                brandName,
+                                queryEntity.getQueryText(),
+                                appliedPlan,
+                                jobId,
+                                queryEntity.getId(),
+                                brandName,
+                                competitorHosts);
+                        var consultantOutputData =
                                 somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-                            double somScore = syncVerificationResult.somScore() != null
+                        var somScore = syncVerificationResult.somScore() != null
                                 ? syncVerificationResult.somScore()
                                 : 0.0;
-                            boolean brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-                            Integer mr = syncVerificationResult.mentionRank() != null
+                        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+                        var mr = syncVerificationResult.mentionRank() != null
                                 ? syncVerificationResult.mentionRank()
                                 : 0;
-                            Integer ov = syncVerificationResult.overallScore() != null
+                        var ov = syncVerificationResult.overallScore() != null
                                 ? syncVerificationResult.overallScore()
                                 : 0;
-                            jobPersistenceService.upsertAuditHistoryForJobQuery(
+                        jobPersistenceService.upsertAuditHistoryForJobQuery(
                                 jobId,
                                 queryEntity.getId(),
                                 queryEntity.getQueryText(),
@@ -175,24 +205,18 @@ public class JobQuerySubmissionService {
                                 syncVerificationResult.visibilityStage(),
                                 syncVerificationResult.calculationVersion(),
                                 syncVerificationResult.modifiedZScore() != null
-                                    ? syncVerificationResult.modifiedZScore()
-                                    : 0.0);
-                        } catch (Exception exception) {
-                            log.error(
-                                "async audit persist failed jobId={} queryId={}",
+                                        ? syncVerificationResult.modifiedZScore()
+                                        : 0.0,
+                                syncVerificationResult.competitorScoreRows(),
+                                syncVerificationResult.modelInsightsJson());
+                    } catch (Exception exception) {
+                        log.error(
+                                "immediate mode query failed jobId={} queryId={}",
                                 jobId,
                                 queryEntity.getId(),
                                 exception);
-                        }
-                    }),
-                    streamDeliveryVirtualExecutor));
-            } catch (Exception exception) {
-                log.error(
-                    "immediate mode query failed jobId={} queryId={}",
-                    jobId,
-                    queryEntity.getId(),
-                    exception);
-            }
-        });
+                    }
+                }),
+                streamDeliveryVirtualExecutor));
     }
 }

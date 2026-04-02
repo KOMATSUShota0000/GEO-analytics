@@ -44,7 +44,7 @@ public final class GapAnalysisService {
 
     public void runForJob(UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<AuditHistoryEntity> rows = jobPersistenceService.findResultsByJobId(jobId);
         if (rows.size() < 2) {
             finalizeJobRollupAndGapFlag(jobId, rows);
@@ -90,7 +90,7 @@ public final class GapAnalysisService {
                 outlierRows.add(row);
             }
         }
-        if (plan == SubscriptionPlan.PRO) {
+        if (plan.usesProTierFeatures()) {
             if (outlierRows.isEmpty()) {
                 jobPersistenceService.markGapAnalysisCompleted(jobId, true);
             } else {
@@ -124,7 +124,8 @@ public final class GapAnalysisService {
             if (jobEntity.getJobStatus() != JobStatus.COMPLETED) {
                 return;
             }
-            if (jobEntity.getSubscriptionPlan() != SubscriptionPlan.PRO) {
+            SubscriptionPlan applied = jobEntity.getAppliedPlan();
+            if (applied == null || !applied.usesProTierFeatures()) {
                 return;
             }
             String gapName = jobEntity.getGapAnalysisGeminiJobName();

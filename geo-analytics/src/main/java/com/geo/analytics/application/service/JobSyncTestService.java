@@ -49,7 +49,7 @@ public class JobSyncTestService {
         }
         QueryEntity queryEntity = pendingQueryEntities.getFirst();
         SubscriptionPlan subscriptionPlan =
-            Objects.requireNonNullElse(jobEntity.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+            Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         SyncVerificationResult syncVerificationResult = syncVerificationService.verify(
             jobEntity.getBrandName(),
@@ -80,7 +80,9 @@ public class JobSyncTestService {
             syncVerificationResult.sentimentIntensity(),
             syncVerificationResult.visibilityStage(),
             syncVerificationResult.calculationVersion(),
-            syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0);
+            syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+            syncVerificationResult.competitorScoreRows(),
+            syncVerificationResult.modelInsightsJson());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         JobEntity updatedJobEntity = jobPersistenceService.findJobById(jobId);
         jobStatusBroadcastPublisher.publish(updatedJobEntity);

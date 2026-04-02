@@ -4,13 +4,14 @@ import com.geo.analytics.infrastructure.tenant.TenantContext;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Objects;
 @Service
 public class RateLimiterService {
     private final ProxyManager<String> proxyManager;
-    public RateLimiterService(ProxyManager<String> rateLimitProxyManager) {
+    public RateLimiterService(@Qualifier("rateLimitProxyManager") ProxyManager<String> rateLimitProxyManager) {
         this.proxyManager = Objects.requireNonNull(rateLimitProxyManager);
     }
     public boolean tryAcquire(PricingPlan plan) {

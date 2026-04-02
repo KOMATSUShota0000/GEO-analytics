@@ -190,7 +190,7 @@ public class JobController {
         List<String> jobActs = storedActs != null && !storedActs.isEmpty()
             ? List.copyOf(storedActs)
             : List.copyOf(rollup.recommendedActions());
-        SubscriptionPlan plan = Objects.requireNonNullElse(jobEnt.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+        SubscriptionPlan plan = Objects.requireNonNullElse(jobEnt.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<ResultDetailResponse> resultDetails = audits.stream()
             .map(a -> ResultDetailResponse.from(a, strategyInsightService, medZ, plan))
             .toList();

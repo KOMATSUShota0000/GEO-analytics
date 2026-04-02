@@ -47,7 +47,7 @@ public record ResultDetailResponse(
             ? auditHistoryEntity.getModifiedZScore()
             : insight.representativeModifiedZ();
         Boolean sig = Boolean.FALSE;
-        if (plan == SubscriptionPlan.PRO
+        if (plan.usesProTierFeatures()
             && jobMedianModifiedZ != null
             && auditHistoryEntity.getModifiedZScore() != null) {
             sig = Math.abs(auditHistoryEntity.getModifiedZScore() - jobMedianModifiedZ) >= 1.0;

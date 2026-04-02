@@ -113,7 +113,7 @@ public final class ConsultantOutputSchema {
             .addProperty(
                 "prioritizedTasks",
                 JsonArraySchema.builder().items(prioritizedTaskItemSchema()).build());
-        if (subscriptionPlan == SubscriptionPlan.PRO) {
+        if (subscriptionPlan.usesProTierFeatures()) {
             builder.addProperty(
                 "competitorComparison",
                 JsonArraySchema.builder().items(competitorEntrySchema()).build());
@@ -173,7 +173,7 @@ public final class ConsultantOutputSchema {
             "rank_position",
             "sentiment_intensity",
             "prioritizedTasks"));
-        if (subscriptionPlan == SubscriptionPlan.PRO) {
+        if (subscriptionPlan.usesProTierFeatures()) {
             Map<String, Object> entryProps = new LinkedHashMap<>();
             entryProps.put("competitorName", Map.of("type", "STRING"));
             entryProps.put("share", Map.of("type", "NUMBER"));

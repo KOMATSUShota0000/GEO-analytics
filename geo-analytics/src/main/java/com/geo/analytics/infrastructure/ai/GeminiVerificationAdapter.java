@@ -1,10 +1,13 @@
 package com.geo.analytics.infrastructure.ai;
 
+import com.geo.analytics.application.dto.CompetitorResult;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
-import com.geo.analytics.application.port.AiVerificationPort;
+import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
+import com.geo.analytics.domain.enums.MatchStatus;
+import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -28,6 +31,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClientResponseException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -36,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class GeminiVerificationAdapter implements AiVerificationPort {
+public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private static final Logger log = LoggerFactory.getLogger(GeminiVerificationAdapter.class);
     private final ChatLanguageModel geminiGbvsChatModel;
     private final SomScoreParser somScoreParser;
@@ -70,6 +75,11 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
     }
 
     @Override
+    public ModelType modelType() {
+        return ModelType.GEMINI;
+    }
+
+    @Override
     public VerificationResponse verify(VerificationRequest verificationRequest) {
         SubscriptionPlan plan = verificationRequest.subscriptionPlan();
         UUID jobId = verificationRequest.jobId();
@@ -80,7 +90,7 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
     }
 
     private GoogleAiGeminiStreamingChatModel streamingModelForPlan(SubscriptionPlan subscriptionPlan) {
-        return subscriptionPlan == SubscriptionPlan.PRO ? geminiStreamingPro : geminiStreamingStandard;
+        return subscriptionPlan.usesProTierFeatures() ? geminiStreamingPro : geminiStreamingStandard;
     }
 
     private record PreparedHandoff(String userMessage, boolean structured) {}
@@ -214,7 +224,7 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
         List<String> comps = verificationRequest.registeredCompetitorBrands() != null
             ? verificationRequest.registeredCompetitorBrands()
             : List.of();
-        boolean isProPlan = subscriptionPlan == SubscriptionPlan.PRO;
+        boolean isProPlan = subscriptionPlan.usesProTierFeatures();
         String nlpSource = full.response() != null && !full.response().isBlank()
             ? full.response()
             : rawAiResponseJson;
@@ -231,19 +241,38 @@ public class GeminiVerificationAdapter implements AiVerificationPort {
         var som = gbvs.scorePercent();
         boolean brand = nounCount > 0 || rp > 0;
         int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
+        var compList = new ArrayList<CompetitorResult>();
+        if (full.competitorComparison() != null) {
+            var idx = 0;
+            for (var entry : full.competitorComparison()) {
+                var label = entry.competitorName() != null ? entry.competitorName() : "";
+                var shareSom = entry.share() != null ? entry.share() * 100.0 : 0.0;
+                var vs = gbvs.visibilityStage();
+                compList.add(new CompetitorResult(
+                        label,
+                        shareSom,
+                        idx + 1,
+                        vs,
+                        MatchStatus.AUTO_MATCH));
+                idx++;
+            }
+        }
         return new VerificationResponse(
-            rawAiResponseJson,
-            som,
-            brand,
-            rp,
-            overall,
-            nounCount,
-            rp,
-            si,
-            resolved,
-            gbvs.visibilityStage(),
-            gbvs.modifiedZScore(),
-            GeoVisibilityCalculatorService.CALCULATION_VERSION);
+                ModelType.GEMINI,
+                rawAiResponseJson,
+                som,
+                brand,
+                rp,
+                overall,
+                nounCount,
+                rp,
+                si,
+                resolved,
+                gbvs.visibilityStage(),
+                gbvs.modifiedZScore(),
+                GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                compList,
+                new LinkedHashMap<>());
     }
 
     private static String formatGeminiErrorDetail(Throwable throwable) {

@@ -1,13 +1,18 @@
 package com.geo.analytics.infrastructure.config;
 
 import com.geo.analytics.application.port.AiVerificationPort;
+import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
+import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
+import com.geo.analytics.domain.enums.ModelType;
+import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
+import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
 import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import com.geo.analytics.infrastructure.ai.StrictSchemaValidator;
@@ -16,12 +21,17 @@ import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.Semaphore;
 
 @Configuration
 public class AiConfig {
+    public static final String AI_VERIFICATION_CONCURRENCY_LIMITER = "aiVerificationConcurrencyLimiter";
     public static final String GEMINI_STREAMING_STANDARD = "geminiStreamingStandard";
     public static final String GEMINI_STREAMING_PRO = "geminiStreamingPro";
     public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
@@ -77,8 +87,13 @@ public class AiConfig {
             .build();
     }
 
+    @Bean(AI_VERIFICATION_CONCURRENCY_LIMITER)
+    public Semaphore aiVerificationConcurrencyLimiter() {
+        return new Semaphore(15);
+    }
+
     @Bean
-    public AiVerificationPort aiVerificationPort(
+    public GeminiVerificationAdapter geminiVerificationAdapter(
             @Qualifier(GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
             JobStreamRegistryService jobStreamRegistryService,
@@ -89,14 +104,26 @@ public class AiConfig {
             DeepSeekAdapter deepSeekAdapter,
             StrictSchemaValidator strictSchemaValidator) {
         return new GeminiVerificationAdapter(
-            geminiGbvsChatModel,
-            somScoreParser,
-            jobStreamRegistryService,
-            geminiStreamingStandard,
-            geminiStreamingPro,
-            entityNormalizer,
-            japaneseNlpService,
-            deepSeekAdapter,
-            strictSchemaValidator);
+                geminiGbvsChatModel,
+                somScoreParser,
+                jobStreamRegistryService,
+                geminiStreamingStandard,
+                geminiStreamingPro,
+                entityNormalizer,
+                japaneseNlpService,
+                deepSeekAdapter,
+                strictSchemaValidator);
+    }
+
+    @Bean
+    public AiVerificationPort aiVerificationPort(
+            GeminiVerificationAdapter geminiVerificationAdapter,
+            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
+            @Qualifier(AI_VERIFICATION_CONCURRENCY_LIMITER) Semaphore aiVerificationConcurrencyLimiter) {
+        List<ModelTypedAiVerificationPort> adapters = List.of(
+                geminiVerificationAdapter,
+                new ForwardingModelAdapter(ModelType.CHATGPT, geminiVerificationAdapter),
+                new ForwardingModelAdapter(ModelType.CLAUDE, geminiVerificationAdapter));
+        return new AiVerificationRouter(adapters, informationTheoryBasedAggregator, aiVerificationConcurrencyLimiter);
     }
 }

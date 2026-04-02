@@ -1,4 +1,5 @@
 package com.geo.analytics.application.service;
+import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
@@ -6,6 +7,7 @@ import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.entity.JobCompetitorScoreEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -112,6 +114,11 @@ public class JobPersistenceService {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
     }
+
+    public long countQueriesByJobId(UUID jobId) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.countByJobId(jobId));
+    }
     public Optional<QueryEntity> findQueryById(UUID queryId) {
         UUID tenantId = readWorkspaceIdForQuery(queryId);
         return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
@@ -149,7 +156,9 @@ public class JobPersistenceService {
             double sentimentIntensity,
             Integer visibilityStage,
             String calculationVersion,
-            double modifiedZScore) {
+            double modifiedZScore,
+            List<CompetitorScoreRow> competitorScoreRows,
+            String modelInsightsJson) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -180,6 +189,8 @@ public class JobPersistenceService {
                 existing.setRecommendedActions(actions);
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
+                existing.setModelInsightsJson(modelInsightsJson);
+                applyCompetitorScores(existing, competitorScoreRows);
                 auditHistoryRepository.save(existing);
             } else {
                 AuditHistoryEntity auditHistoryEntity = new AuditHistoryEntity();
@@ -203,6 +214,8 @@ public class JobPersistenceService {
                 auditHistoryEntity.setDiagnosticMessage(insight.diagnosticMessage());
                 auditHistoryEntity.setRecommendedActions(actions);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
+                auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
+                applyCompetitorScores(auditHistoryEntity, competitorScoreRows);
                 auditHistoryRepository.save(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
@@ -210,6 +223,23 @@ public class JobPersistenceService {
                 queryRepository.save(queryEntity);
             });
         });
+    }
+
+    private static void applyCompetitorScores(AuditHistoryEntity audit, List<CompetitorScoreRow> rows) {
+        audit.getCompetitorScores().clear();
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (var row : rows) {
+            var entity = new JobCompetitorScoreEntity();
+            entity.setAuditHistory(audit);
+            entity.setCompetitorName(row.competitorName());
+            entity.setSomScore(row.somScore());
+            entity.setRankPosition(row.rankPosition());
+            entity.setVisibilityStage(row.visibilityStage());
+            entity.setMatchStatus(row.matchStatus());
+            audit.getCompetitorScores().add(entity);
+        }
     }
     @Transactional
     public void updateAuditStrategyInsights(
@@ -268,7 +298,7 @@ public class JobPersistenceService {
                 queryEntity.setQueryText(queryText);
                 queryRepository.save(queryEntity);
             });
-            jobEntity.setSubscriptionPlan(subscriptionPlan);
+            jobEntity.setAppliedPlan(subscriptionPlan);
             jobEntity.setJobStatus(nextStatus);
             jobRepository.save(jobEntity);
             jobStatusBroadcastPublisher.publish(jobEntity);
@@ -384,7 +414,8 @@ public class JobPersistenceService {
         return TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-            if (jobEntity.getSubscriptionPlan() != SubscriptionPlan.PRO) {
+            SubscriptionPlan applied = jobEntity.getAppliedPlan();
+            if (applied == null || !applied.usesProTierFeatures()) {
                 return Optional.empty();
             }
             String existingName = jobEntity.getGapAnalysisGeminiJobName();
@@ -424,6 +455,7 @@ public class JobPersistenceService {
     }
     public List<JobEntity> findProJobsAwaitingGapBatchCreation() {
         return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
-            () -> jobRepository.findProJobsAwaitingGapBatchCreation(JobStatus.COMPLETED, SubscriptionPlan.PRO));
+            () -> jobRepository.findProJobsAwaitingGapBatchCreation(
+                JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
     }
 }

@@ -62,9 +62,9 @@ public class GeminiResultProcessor {
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
-        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
-        boolean isProPlan = plan == SubscriptionPlan.PRO;
+        boolean isProPlan = plan.usesProTierFeatures();
         String mainBrand = jobEntity.getBrandName();
         var parsedLines = new ArrayList<BatchParsedLine>();
         for (String outputLine : outputJsonlContent.split("\n")) {
@@ -122,7 +122,7 @@ public class GeminiResultProcessor {
             var m = line.rawMetrics();
             boolean brand = m.nounCount() > 0 || m.rankPosition() > 0;
             int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
-            jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
+                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
                 jobPersistenceService.upsertAuditHistoryForJobQuery(
                     jobEntity.getId(),
                     line.queryId(),
@@ -138,7 +138,9 @@ public class GeminiResultProcessor {
                     m.sentimentIntensity(),
                     gbvs.visibilityStage(),
                     GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                    gbvs.modifiedZScore()));
+                    gbvs.modifiedZScore(),
+                    List.of(),
+                    null));
         }
         var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
         var rollup = strategyInsightService.rollupJob(auditsAfter);

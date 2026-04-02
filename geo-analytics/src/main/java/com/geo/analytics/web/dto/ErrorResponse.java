@@ -1,3 +1,7 @@
 package com.geo.analytics.web.dto;
 
-public record ErrorResponse(String errorMessage, int threshold) {}
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record ErrorResponse(String errorCode, String message, Integer currentLimit, String planName) {}

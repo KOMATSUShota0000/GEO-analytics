@@ -1,5 +1,6 @@
 package com.geo.analytics.infrastructure.tenant;
 
+import com.geo.analytics.application.service.WorkspacePlanResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,14 +9,21 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.UUID;
-import java.lang.ScopedValue;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class TenantContextFilter extends OncePerRequestFilter {
     public static final String TENANT_HEADER = "X-Tenant-ID";
+
+    private final WorkspacePlanResolver workspacePlanResolver;
+
+    public TenantContextFilter(WorkspacePlanResolver workspacePlanResolver) {
+        this.workspacePlanResolver = workspacePlanResolver;
+    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -31,23 +39,31 @@ public class TenantContextFilter extends OncePerRequestFilter {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing " + TENANT_HEADER);
             return;
         }
+        UUID tenantUuid;
         try {
-            UUID.fromString(raw.trim());
+            tenantUuid = UUID.fromString(raw.trim());
         } catch (IllegalArgumentException ex) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid " + TENANT_HEADER);
             return;
         }
+        var plan = workspacePlanResolver.resolvePlan(tenantUuid);
         try {
-            ScopedValue.where(TenantContext.TENANT_ID, raw.trim()).call(() -> {
-                filterChain.doFilter(request, response);
-                return null;
+            TenantContext.executeWithTenantAndPlan(tenantUuid, plan, () -> {
+                try {
+                    filterChain.doFilter(request, response);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                } catch (ServletException e) {
+                    throw new IllegalStateException(e);
+                }
             });
-        } catch (IOException e) {
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        } catch (IllegalStateException e) {
+            if (e.getCause() instanceof ServletException se) {
+                throw se;
+            }
             throw e;
-        } catch (ServletException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ServletException(e);
         }
     }
 

@@ -54,7 +54,7 @@ public class ScheduledProjectAuditService {
                 return;
             }
             SubscriptionPlan subscriptionPlan = jobRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
-                .map(JobEntity::getSubscriptionPlan)
+                .map(JobEntity::getAppliedPlan)
                 .orElse(SubscriptionPlan.STANDARD);
             if (subscriptionPlan == null) {
                 subscriptionPlan = SubscriptionPlan.STANDARD;

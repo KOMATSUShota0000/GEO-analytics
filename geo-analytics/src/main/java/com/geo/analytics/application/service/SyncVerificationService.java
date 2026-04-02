@@ -1,5 +1,6 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.CrawledPageData;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
@@ -8,7 +9,10 @@ import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.application.port.AiVerificationPort;
 import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import org.springframework.stereotype.Service;
+
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,16 +22,19 @@ public class SyncVerificationService {
     private final SomScoreParser somScoreParser;
     private final WebCrawlerPort webCrawlerPort;
     private final DomainTrustService domainTrustService;
+    private final JsonbOperations jsonbOperations;
 
     public SyncVerificationService(
             AiVerificationPort aiVerificationPort,
             SomScoreParser somScoreParser,
             WebCrawlerPort webCrawlerPort,
-            DomainTrustService domainTrustService) {
+            DomainTrustService domainTrustService,
+            JsonbOperations jsonbOperations) {
         this.aiVerificationPort = aiVerificationPort;
         this.somScoreParser = somScoreParser;
         this.webCrawlerPort = webCrawlerPort;
         this.domainTrustService = domainTrustService;
+        this.jsonbOperations = jsonbOperations;
     }
 
     public SyncVerificationResult verify(String brandName, String query, SubscriptionPlan subscriptionPlan) {
@@ -51,35 +58,20 @@ public class SyncVerificationService {
             UUID queryId,
             String canonicalMainBrand,
             List<String> registeredCompetitorBrands) {
-        VerificationRequest verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
-            brandName,
-            query,
-            null,
-            null,
-            null,
-            subscriptionPlan,
-            jobId,
-            queryId,
-            canonicalMainBrand,
-            registeredCompetitorBrands,
-            null));
-        VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
-        ConsultantOutputData consultantOutputData =
-            somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
-        return new SyncVerificationResult(
-            verificationResponse.rawResponseJson(),
-            verificationResponse.somScore(),
-            verificationResponse.brandMentioned(),
-            verificationResponse.mentionRank(),
-            verificationResponse.overallScore(),
-            verificationResponse.tokenCount(),
-            verificationResponse.rankPosition(),
-            verificationResponse.sentimentIntensity(),
-            consultantOutputData.response(),
-            verificationResponse.resolvedEntityLabel(),
-            verificationResponse.visibilityStage(),
-            verificationResponse.modifiedZScore(),
-            verificationResponse.calculationVersion());
+        var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
+                brandName,
+                query,
+                null,
+                null,
+                null,
+                subscriptionPlan,
+                jobId,
+                queryId,
+                canonicalMainBrand,
+                registeredCompetitorBrands,
+                null));
+        var verificationResponse = aiVerificationPort.verify(verificationRequest);
+        return toResult(verificationResponse);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -109,35 +101,61 @@ public class SyncVerificationService {
             UUID queryId,
             String canonicalMainBrand,
             List<String> registeredCompetitorBrands) {
-        CrawledPageData crawledPageData = webCrawlerPort.extractContent(url);
-        VerificationRequest verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
-            brandName,
-            query,
-            crawledPageData.url(),
-            crawledPageData.content(),
-            crawledPageData.contentHash(),
-            subscriptionPlan,
-            jobId,
-            queryId,
-            canonicalMainBrand,
-            registeredCompetitorBrands,
-            null));
-        VerificationResponse verificationResponse = aiVerificationPort.verify(verificationRequest);
-        ConsultantOutputData consultantOutputData =
-            somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
+        var crawledPageData = webCrawlerPort.extractContent(url);
+        var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
+                brandName,
+                query,
+                crawledPageData.url(),
+                crawledPageData.content(),
+                crawledPageData.contentHash(),
+                subscriptionPlan,
+                jobId,
+                queryId,
+                canonicalMainBrand,
+                registeredCompetitorBrands,
+                null));
+        var verificationResponse = aiVerificationPort.verify(verificationRequest);
+        return toResult(verificationResponse);
+    }
+
+    private SyncVerificationResult toResult(VerificationResponse verificationResponse) {
+        var consultantOutputData =
+                somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
+        var rows = verificationResponse.competitorResults().stream()
+                .map(cr -> new CompetitorScoreRow(
+                        cr.competitorLabel(),
+                        cr.somScore() != null ? cr.somScore() : 0.0,
+                        cr.rankPosition(),
+                        cr.visibilityStage(),
+                        cr.matchStatus()))
+                .toList();
+        var insightsJson = serializeInsights(verificationResponse);
         return new SyncVerificationResult(
-            verificationResponse.rawResponseJson(),
-            verificationResponse.somScore(),
-            verificationResponse.brandMentioned(),
-            verificationResponse.mentionRank(),
-            verificationResponse.overallScore(),
-            verificationResponse.tokenCount(),
-            verificationResponse.rankPosition(),
-            verificationResponse.sentimentIntensity(),
-            consultantOutputData.response(),
-            verificationResponse.resolvedEntityLabel(),
-            verificationResponse.visibilityStage(),
-            verificationResponse.modifiedZScore(),
-            verificationResponse.calculationVersion());
+                verificationResponse.rawResponseJson(),
+                verificationResponse.somScore(),
+                verificationResponse.brandMentioned(),
+                verificationResponse.mentionRank(),
+                verificationResponse.overallScore(),
+                verificationResponse.tokenCount(),
+                verificationResponse.rankPosition(),
+                verificationResponse.sentimentIntensity(),
+                consultantOutputData.response(),
+                verificationResponse.resolvedEntityLabel(),
+                verificationResponse.visibilityStage(),
+                verificationResponse.modifiedZScore(),
+                verificationResponse.calculationVersion(),
+                rows,
+                insightsJson);
+    }
+
+    private String serializeInsights(VerificationResponse verificationResponse) {
+        if (verificationResponse.modelInsights().isEmpty()) {
+            return null;
+        }
+        var map = new LinkedHashMap<String, String>();
+        for (var e : verificationResponse.modelInsights().entrySet()) {
+            map.put(e.getKey().name(), e.getValue());
+        }
+        return jsonbOperations.serialize(map);
     }
 }

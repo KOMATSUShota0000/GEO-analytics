@@ -24,8 +24,8 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
     List<JobEntity> findByGapAnalysisGeminiJobNameIsNotNullAndGapAnalysisCompletedIsFalse();
 
     @Query(
-        "select j from JobEntity j where j.jobStatus = :st and j.subscriptionPlan = :pl and j.gapBatchIdempotencyKey is not null and (j.gapAnalysisGeminiJobName is null or j.gapAnalysisGeminiJobName = '')")
+        "select j from JobEntity j where j.jobStatus = :st and j.appliedPlan in :plans and j.gapBatchIdempotencyKey is not null and (j.gapAnalysisGeminiJobName is null or j.gapAnalysisGeminiJobName = '')")
     List<JobEntity> findProJobsAwaitingGapBatchCreation(
             @Param("st") JobStatus jobStatus,
-            @Param("pl") SubscriptionPlan subscriptionPlan);
+            @Param("plans") List<SubscriptionPlan> plans);
 }

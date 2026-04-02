@@ -53,7 +53,7 @@ public class GeminiBatchExecutorService {
                 .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
                 .toList();
             SubscriptionPlan subscriptionPlan =
-                Objects.requireNonNullElse(jobEntity.getSubscriptionPlan(), SubscriptionPlan.STANDARD);
+                Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
             jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
                 jobEntity.getBrandName(), batchQueryLines, subscriptionPlan);
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);

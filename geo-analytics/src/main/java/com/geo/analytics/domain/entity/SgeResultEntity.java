@@ -23,7 +23,7 @@ public class SgeResultEntity extends BaseTenantEntity {
     @Column(name = "query", nullable = false, columnDefinition = "text")
     private String query;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "sge_raw_response", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "sge_raw_response", nullable = false)
     private String sgeRawResponse;
     @Column(name = "sge_mentioned", nullable = false)
     private Boolean sgeMentioned;

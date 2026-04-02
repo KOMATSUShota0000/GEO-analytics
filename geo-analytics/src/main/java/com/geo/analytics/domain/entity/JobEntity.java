@@ -27,9 +27,14 @@ public class JobEntity extends BaseTenantEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "job_status", nullable = false, length = 20)
     private JobStatus jobStatus;
+    /**
+     * Plan captured when queries are registered; must not change afterward (see {@link #setAppliedPlan}).
+     * Not marked {@code updatable = false} here because the job row is inserted before queries exist;
+     * Hibernate would then skip persisting the plan on the follow-up update.
+     */
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", length = 16)
-    private SubscriptionPlan subscriptionPlan;
+    private SubscriptionPlan appliedPlan;
     @Column(name = "brand_name", nullable = false)
     private String brandName;
     @Column(name = "brand_color", nullable = false, length = 64)
@@ -51,7 +56,7 @@ public class JobEntity extends BaseTenantEntity {
     @Column(name = "job_diagnostic_message", columnDefinition = "text")
     private String jobDiagnosticMessage;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "job_recommended_actions", columnDefinition = "jsonb")
+    @Column(name = "job_recommended_actions")
     private List<String> jobRecommendedActions;
     @Column(name = "gap_batch_idempotency_key")
     private UUID gapBatchIdempotencyKey;
@@ -79,11 +84,18 @@ public class JobEntity extends BaseTenantEntity {
     public void setJobStatus(JobStatus jobStatus) {
         this.jobStatus = jobStatus;
     }
-    public SubscriptionPlan getSubscriptionPlan() {
-        return subscriptionPlan;
+    public SubscriptionPlan getAppliedPlan() {
+        return appliedPlan;
     }
-    public void setSubscriptionPlan(SubscriptionPlan subscriptionPlan) {
-        this.subscriptionPlan = subscriptionPlan;
+
+    public void setAppliedPlan(SubscriptionPlan appliedPlan) {
+        if (appliedPlan == null) {
+            return;
+        }
+        if (this.appliedPlan != null && this.appliedPlan != appliedPlan) {
+            throw new IllegalStateException("appliedPlan is immutable once set");
+        }
+        this.appliedPlan = appliedPlan;
     }
     public String getBrandName() {
         return brandName;
