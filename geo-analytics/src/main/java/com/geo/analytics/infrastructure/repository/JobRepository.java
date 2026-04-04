@@ -16,6 +16,7 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
     List<JobEntity> findByJobStatus(JobStatus jobStatus);
     Optional<JobEntity> findFirstByProjectIdOrderByCreatedAtDesc(UUID projectId);
     List<JobEntity> findByProjectIdOrderByCreatedAtDesc(UUID projectId);
+    Optional<JobEntity> findByTenantIdAndCreateIdempotencyKey(String tenantId, UUID createIdempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select j from JobEntity j where j.id = :id")

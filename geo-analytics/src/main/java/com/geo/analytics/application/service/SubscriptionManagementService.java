@@ -5,6 +5,8 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
@@ -32,6 +34,11 @@ public class SubscriptionManagementService {
             workspace.setSubscriptionPlan(newPlan);
             workspaceRepository.save(workspace);
         });
-        planBasedQuotaManager.invalidateTenantBucket(tenantId);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                planBasedQuotaManager.invalidateTenantBucket(tenantId);
+            }
+        });
     }
 }

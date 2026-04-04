@@ -228,17 +228,21 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         String nlpSource = full.response() != null && !full.response().isBlank()
             ? full.response()
             : rawAiResponseJson;
+        si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
         String needle = main != null && !main.isBlank() ? main : rawName;
         int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
         double stuffingDensity = japaneseNlpService.wordDensity(nlpSource, needle);
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         boolean isProAnalysis = isProPlan;
+        double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = new SomRawMetrics(
-            tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength);
+            tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         var gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
         var som = gbvs.scorePercent();
+        som = japaneseNlpService.applyIntensifierBoost(nlpSource, som);
+        som = Math.clamp(som, 0.0, 100.0);
         boolean brand = nounCount > 0 || rp > 0;
         int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
         var compList = new ArrayList<CompetitorResult>();

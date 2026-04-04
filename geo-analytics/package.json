@@ -2,7 +2,9 @@
   "name": "geo-analytics-project",
   "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd spring-boot:run\""
+    "dev": "npm run dev:safe",
+    "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd test && .\\mvnw.cmd spring-boot:run\"",
+    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd spring-boot:run\""
   },
   "devDependencies": {
     "concurrently": "^x.x.x"

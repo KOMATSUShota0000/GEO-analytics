@@ -1,12 +1,16 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { DEFAULT_WORKSPACE_TENANT_ID, DEV_BASIC_AUTHORIZATION } from "../api/apiFetch";
+import {
+  DEFAULT_WORKSPACE_TENANT_ID,
+  DEV_BASIC_AUTHORIZATION,
+  keysToCamelDeep,
+} from "../api/apiFetch";
 import { Allow, MalformedJSON, PartialJSON, parse } from "partial-json";
 import { useCallback, useRef, useState } from "react";
 import type { VerifyStreamChunkPayload } from "../types/analysis";
 
 function parseVerifyStreamChunkPayload(raw: string): VerifyStreamChunkPayload | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = keysToCamelDeep(JSON.parse(raw));
     if (typeof parsed !== "object" || parsed === null || !("kind" in parsed) || !("text" in parsed)) {
       return null;
     }
@@ -140,7 +144,7 @@ export function useJobStreaming(
             }
             if (event.event === "error") {
               try {
-                const parsed: unknown = JSON.parse(event.data);
+                const parsed: unknown = keysToCamelDeep(JSON.parse(event.data));
                 const rec = parsed as Record<string, unknown>;
                 const message = typeof rec.message === "string" ? rec.message : "stream error";
                 setStreamError(message);

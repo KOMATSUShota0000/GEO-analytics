@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { apiFetch } from "../api/apiFetch";
+import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   competitorLabelsFromProject,
@@ -109,7 +109,7 @@ export default function ReportPrintPage(): JSX.Element {
         }
         return;
       }
-      const body: unknown = await res.json();
+      const body: unknown = await responseJsonAsCamel(res);
       if (!signal.aborted) {
         setApiCharts(normalizeAnalyticsSummary(body) ?? undefined);
       }
@@ -135,7 +135,7 @@ export default function ReportPrintPage(): JSX.Element {
           const text = await response.text();
           throw new Error(text || `HTTP ${response.status}`);
         }
-        return response.json() as Promise<unknown>;
+        return responseJsonAsCamel(response);
       })
       .then((body: unknown) => {
         const p = parseJobAnalysisDetail(body);

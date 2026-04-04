@@ -25,8 +25,8 @@ import { useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { KeywordSuggestionWizard } from "../components/KeywordSuggestionWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
-import { apiFetch } from "../api/apiFetch";
-import { normalizeJobStatusResponse } from "../types/analysis";
+import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
 
 const theme = createTheme();
 
@@ -96,7 +96,7 @@ export default function JobCreationPage(): JSX.Element {
         const text = await createRes.text();
         throw new Error(text || `HTTP ${createRes.status}`);
       }
-      const raw: unknown = await createRes.json();
+      const raw: unknown = await responseJsonAsCamel(createRes);
       const created = normalizeJobStatusResponse(raw);
       if (created === null || created.projectId === null) {
         throw new Error("ジョブ作成レスポンスの形式が不正です");
@@ -133,7 +133,7 @@ export default function JobCreationPage(): JSX.Element {
           const text = await createRes.text();
           throw new Error(text || `HTTP ${createRes.status}`);
         }
-        const raw: unknown = await createRes.json();
+        const raw: unknown = await responseJsonAsCamel(createRes);
         const created = normalizeJobStatusResponse(raw);
         if (created === null) {
           throw new Error("ジョブ作成レスポンスの形式が不正です");
@@ -155,14 +155,10 @@ export default function JobCreationPage(): JSX.Element {
           const text = await queriesRes.text();
           let message = text || `HTTP ${queriesRes.status}`;
           try {
-            const parsed: unknown = JSON.parse(text);
-            if (
-              typeof parsed === "object" &&
-              parsed !== null &&
-              "errorMessage" in parsed &&
-              typeof (parsed as { errorMessage: unknown }).errorMessage === "string"
-            ) {
-              message = (parsed as { errorMessage: string }).errorMessage;
+            const parsed: unknown = parseJsonTextAsCamel(text);
+            const em = extractApiErrorMessage(parsed);
+            if (em !== undefined) {
+              message = em;
             }
           } catch {}
           throw new Error(message);
@@ -322,7 +318,7 @@ export default function JobCreationPage(): JSX.Element {
               isSubmitting={submitting || wizardPreparing}
               onRegistered={(r) =>
                 setKwRegSnackbar(
-                  `プロジェクトへ登録しました（新規${r.registered_count}件・スキップ${r.skipped_count}件）`,
+                  `プロジェクトへ登録しました（新規${r.registeredCount}件・スキップ${r.skippedCount}件）`,
                 )
               }
               onKeywordsSelected={(selectedKeywords) => {

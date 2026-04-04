@@ -20,6 +20,7 @@ import com.geo.analytics.infrastructure.tenant.TenantContext;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
@@ -34,6 +35,7 @@ import java.util.UUID;
 @Service
 @Transactional(readOnly = true)
 public class JobPersistenceService {
+    public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final AuditHistoryRepository auditHistoryRepository;
@@ -134,7 +136,7 @@ public class JobPersistenceService {
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             ProjectEntity projectEntity = null;
             if (jobEntity.getProjectId() != null) {
-                projectEntity = projectRepository.findById(jobEntity.getProjectId()).orElse(null);
+                projectEntity = projectRepository.findByIdWithCompetitorUrls(jobEntity.getProjectId()).orElse(null);
             }
             List<AuditHistoryEntity> auditHistories = auditHistoryRepository.findByJobId(jobId);
             return new JobAnalysisAggregate(jobEntity, projectEntity, auditHistories);
@@ -257,18 +259,41 @@ public class JobPersistenceService {
     }
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public JobEntity createJob(String brandName) {
+        return createJobWithIdempotency(brandName, null).jobEntity();
+    }
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(brandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
-        return TenantContext.executeWithTenant(workspaceId, () -> jobCreateTransactionTemplate.execute(status -> {
-            JobEntity jobEntity = new JobEntity();
-            jobEntity.setBrandName(brandName);
-            jobEntity.setWorkspaceId(workspaceId);
-            jobEntity.setProjectId(projectEntity.getId());
-            String pbc = projectEntity.getBrandColor();
-            jobEntity.setBrandColor(pbc != null && !pbc.isBlank() ? pbc : "#4F46E5");
-            jobEntity.setLogoUrl(projectEntity.getLogoUrl());
-            return jobRepository.save(jobEntity);
-        }));
+        return TenantContext.executeWithTenant(workspaceId, () -> {
+            if (idempotencyKey != null) {
+                var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
+                if (existing.isPresent()) {
+                    return new JobCreateOutcome(existing.get(), false);
+                }
+            }
+            try {
+                var created = jobCreateTransactionTemplate.execute(status -> {
+                    JobEntity jobEntity = new JobEntity();
+                    jobEntity.setBrandName(brandName);
+                    jobEntity.setWorkspaceId(workspaceId);
+                    jobEntity.setProjectId(projectEntity.getId());
+                    jobEntity.setCreateIdempotencyKey(idempotencyKey);
+                    String pbc = projectEntity.getBrandColor();
+                    jobEntity.setBrandColor(pbc != null && !pbc.isBlank() ? pbc : "#4F46E5");
+                    jobEntity.setLogoUrl(projectEntity.getLogoUrl());
+                    return jobRepository.save(jobEntity);
+                });
+                return new JobCreateOutcome(created, true);
+            } catch (DataIntegrityViolationException exception) {
+                if (idempotencyKey == null) {
+                    throw exception;
+                }
+                return jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey)
+                    .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
+                    .orElseThrow(() -> exception);
+            }
+        });
     }
     @Transactional
     public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
@@ -285,7 +310,7 @@ public class JobPersistenceService {
             SubscriptionPlan subscriptionPlan) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
-            JobEntity jobEntity = jobRepository.findById(jobId)
+            JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (jobEntity.getJobStatus() != JobStatus.CREATED) {
                 throw new IllegalStateException(

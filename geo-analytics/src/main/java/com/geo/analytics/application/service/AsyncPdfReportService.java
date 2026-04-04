@@ -16,7 +16,7 @@ import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.io.PrintWriter;
@@ -57,10 +57,7 @@ public class AsyncPdfReportService {
             SimpMessagingTemplate simpMessagingTemplate,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper,
-            @Value("${app.pdf.internal-token}") String internalToken,
-            @Value("${app.pdf.default-brand-color}") String defaultBrandColor,
-            @Value("${app.pdf.default-logo-url}") String defaultLogoUrl,
-            @Value("${app.pdf.max-concurrent}") int pdfMaxConcurrent) {
+            AppProperties appProperties) {
         this.pdfReportPort = pdfReportPort;
         this.jobPersistenceService = jobPersistenceService;
         this.projectRepository = projectRepository;
@@ -68,9 +65,12 @@ public class AsyncPdfReportService {
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
-        this.internalToken = internalToken;
-        this.defaultBrandColor = defaultBrandColor;
-        this.defaultLogoUrl = defaultLogoUrl == null ? "" : defaultLogoUrl;
+        AppProperties.Pdf pdf = appProperties.getPdf();
+        this.internalToken = pdf.getInternalToken();
+        this.defaultBrandColor = pdf.getDefaultBrandColor();
+        this.defaultLogoUrl = pdf.getDefaultLogoUrl() == null ? "" : pdf.getDefaultLogoUrl();
+        Integer mc = pdf.getMaxConcurrent();
+        int pdfMaxConcurrent = mc != null ? mc : 2;
         var permits = Math.max(1, pdfMaxConcurrent);
         this.pdfPlaywrightSemaphore = new Semaphore(permits, true);
     }

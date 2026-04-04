@@ -16,7 +16,7 @@ import {
 import { ArrowLeft, PlusCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { apiFetch } from "../api/apiFetch";
+import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
 
 const theme = createTheme();
 const SLACK_PREFIX = "https://hooks.slack.com/";
@@ -24,38 +24,38 @@ const EMAIL_RE =
   /^[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 
 type ProjectSettings = {
-  project_id: string;
-  auto_audit_enabled: boolean;
-  slack_webhook_url: string | null;
-  notification_email: string | null;
-  last_audit_at: string | null;
+  projectId: string;
+  autoAuditEnabled: boolean;
+  slackWebhookUrl: string | null;
+  notificationEmail: string | null;
+  lastAuditAt: string | null;
 };
 
 function parseSettings(raw: unknown): ProjectSettings | null {
   if (raw === null || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  if (typeof r.project_id !== "string") return null;
-  if (typeof r.auto_audit_enabled !== "boolean") return null;
+  if (typeof r.projectId !== "string") return null;
+  if (typeof r.autoAuditEnabled !== "boolean") return null;
   return {
-    project_id: r.project_id,
-    auto_audit_enabled: r.auto_audit_enabled,
-    slack_webhook_url:
-      r.slack_webhook_url === undefined || r.slack_webhook_url === null
+    projectId: r.projectId,
+    autoAuditEnabled: r.autoAuditEnabled,
+    slackWebhookUrl:
+      r.slackWebhookUrl === undefined || r.slackWebhookUrl === null
         ? null
-        : typeof r.slack_webhook_url === "string"
-          ? r.slack_webhook_url
+        : typeof r.slackWebhookUrl === "string"
+          ? r.slackWebhookUrl
           : null,
-    notification_email:
-      r.notification_email === undefined || r.notification_email === null
+    notificationEmail:
+      r.notificationEmail === undefined || r.notificationEmail === null
         ? null
-        : typeof r.notification_email === "string"
-          ? r.notification_email
+        : typeof r.notificationEmail === "string"
+          ? r.notificationEmail
           : null,
-    last_audit_at:
-      r.last_audit_at === undefined || r.last_audit_at === null
+    lastAuditAt:
+      r.lastAuditAt === undefined || r.lastAuditAt === null
         ? null
-        : typeof r.last_audit_at === "string"
-          ? r.last_audit_at
+        : typeof r.lastAuditAt === "string"
+          ? r.lastAuditAt
           : null,
   };
 }
@@ -93,11 +93,11 @@ export default function ProjectSettingsPage(): JSX.Element {
       if (!res.ok) {
         throw new Error(await res.text());
       }
-      const parsed = parseSettings(await res.json());
+      const parsed = parseSettings(await responseJsonAsCamel(res));
       if (!parsed) throw new Error("設定の形式が不正です");
-      setAutoAudit(parsed.auto_audit_enabled);
-      setSlackUrl(parsed.slack_webhook_url ?? "");
-      setEmail(parsed.notification_email ?? "");
+      setAutoAudit(parsed.autoAuditEnabled);
+      setSlackUrl(parsed.slackWebhookUrl ?? "");
+      setEmail(parsed.notificationEmail ?? "");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -141,7 +141,7 @@ export default function ProjectSettingsPage(): JSX.Element {
         const t = await res.text();
         let msg = t || `HTTP ${res.status}`;
         try {
-          const o = JSON.parse(t) as { detail?: string };
+          const o = parseJsonTextAsCamel(t) as { detail?: string };
           if (typeof o.detail === "string") msg = o.detail;
         } catch {}
         throw new Error(msg);

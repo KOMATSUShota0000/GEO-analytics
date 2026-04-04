@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
 
 @Component
 public class InformationTheoryBasedAggregator {
-    public static final String AGGREGATION_CALCULATION_VERSION = "SUBSCRIPTION_INTEGRATION_V4.13";
+    public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
+    private static final double EPSILON = 1.0E-10;
     private static final double P_WINKLER = 0.1;
     private static final int WINKLER_PREFIX_MAX = 4;
     private static final Pattern LEGAL_ENTITY = Pattern.compile(
@@ -42,12 +43,25 @@ public class InformationTheoryBasedAggregator {
             insights.put(v.modelType(), v.rawResponseJson());
         }
         SequencedMap<ModelType, String> insightView = Collections.unmodifiableSequencedMap(insights);
-        double sumSom = 0.0;
+        double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(request.url());
+        double sumBrandSignal = 0.0;
+        double sumAllBrands = 0.0;
         for (var v : successes) {
-            sumSom += v.somScore() != null ? v.somScore() : 0.0;
+            double presence = Boolean.TRUE.equals(v.brandMentioned()) ? 1.0 : 0.0;
+            double sentiment = normalizeSentiment(v.sentimentIntensity());
+            double brandSignal = presence * sourceWeight * sentiment;
+            sumBrandSignal += brandSignal;
+            sumAllBrands += brandSignal;
+            for (var c : v.competitorResults()) {
+                if (c.matchStatus() == MatchStatus.NO_MATCH) {
+                    continue;
+                }
+                double cs = c.somScore() != null ? c.somScore() : 0.0;
+                sumAllBrands += clamp(cs / 100.0, 0.0, 1.0);
+            }
         }
-        double finalSom = Math.clamp(sumSom / n, 0.0, 100.0);
-        finalSom = Math.round(finalSom * 100.0) / 100.0;
+        double finalSom = sumAllBrands > EPSILON ? (sumBrandSignal / sumAllBrands) * 100.0 : 0.0;
+        finalSom = round2(clamp(finalSom, 0.0, 100.0));
         var brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
         var sumMr = 0;
         var sumRp = 0;
@@ -126,10 +140,10 @@ public class InformationTheoryBasedAggregator {
                 merged.add(new CompetitorResult(regDisplay, 0.0, 0, 0, MatchStatus.NO_MATCH));
             } else {
                 var avgC = matchedSoms.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-                avgC = Math.round(avgC * 100.0) / 100.0;
-                avgC = Math.clamp(avgC, 0.0, 100.0);
-                var aggRank = (int) Math.round(matchedRanks.stream().mapToInt(Integer::intValue).average().orElse(0.0));
-                var aggVs = (int) Math.round(matchedVs.stream().mapToInt(Integer::intValue).average().orElse(0.0));
+                avgC = round2(avgC);
+                avgC = clamp(avgC, 0.0, 100.0);
+                var aggRank = (int) StrictMath.round(matchedRanks.stream().mapToInt(Integer::intValue).average().orElse(0.0));
+                var aggVs = (int) StrictMath.round(matchedVs.stream().mapToInt(Integer::intValue).average().orElse(0.0));
                 var aggMs = statusBands.contains(MatchStatus.MANUAL_REVIEW)
                         ? MatchStatus.MANUAL_REVIEW
                         : MatchStatus.AUTO_MATCH;
@@ -239,7 +253,7 @@ public class InformationTheoryBasedAggregator {
     private double jaroWinkler(String s1, String s2) {
         var j = jaro(s1, s2);
         var prefix = 0;
-        var maxP = Math.min(WINKLER_PREFIX_MAX, Math.min(s1.length(), s2.length()));
+        var maxP = StrictMath.min(WINKLER_PREFIX_MAX, StrictMath.min(s1.length(), s2.length()));
         for (var i = 0; i < maxP; i++) {
             if (s1.charAt(i) == s2.charAt(i)) {
                 prefix++;
@@ -257,7 +271,7 @@ public class InformationTheoryBasedAggregator {
         if (s1.isEmpty() || s2.isEmpty()) {
             return 0.0;
         }
-        var m = Math.max(s1.length(), s2.length()) / 2 - 1;
+        var m = StrictMath.max(s1.length(), s2.length()) / 2 - 1;
         if (m < 0) {
             m = 0;
         }
@@ -265,8 +279,8 @@ public class InformationTheoryBasedAggregator {
         var s2Matches = new boolean[s2.length()];
         var matches = 0;
         for (var i = 0; i < s1.length(); i++) {
-            var start = Math.max(0, i - m);
-            var end = Math.min(i + m + 1, s2.length());
+            var start = StrictMath.max(0, i - m);
+            var end = StrictMath.min(i + m + 1, s2.length());
             for (var j = start; j < end; j++) {
                 if (s2Matches[j] || s1.charAt(i) != s2.charAt(j)) {
                     continue;
@@ -299,5 +313,32 @@ public class InformationTheoryBasedAggregator {
                 + (matches / (double) s2.length())
                 + (matches - t) / matches)
                 / 3.0;
+    }
+
+    private static double normalizeSentiment(double sentimentIntensity) {
+        if (Double.isNaN(sentimentIntensity) || Double.isInfinite(sentimentIntensity)) {
+            return 1.0;
+        }
+        if (sentimentIntensity >= 0.5 && sentimentIntensity <= 1.5) {
+            return sentimentIntensity;
+        }
+        if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
+            return 1.0 + 0.5 * sentimentIntensity;
+        }
+        return clamp(sentimentIntensity, 0.5, 1.5);
+    }
+
+    private static double clamp(double value, double min, double max) {
+        if (value < min) {
+            return min;
+        }
+        if (value > max) {
+            return max;
+        }
+        return value;
+    }
+
+    private static double round2(double value) {
+        return StrictMath.round(value * 100.0) / 100.0;
     }
 }

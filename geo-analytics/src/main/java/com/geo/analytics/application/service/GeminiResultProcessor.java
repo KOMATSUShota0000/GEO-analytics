@@ -89,6 +89,7 @@ public class GeminiResultProcessor {
                 String nlpSource = consultantOutputData.response() != null && !consultantOutputData.response().isBlank()
                     ? consultantOutputData.response()
                     : aiResponseText;
+                si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
                 String needle = mainBrand != null && !mainBrand.isBlank() ? mainBrand : rawName;
                 int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
@@ -96,7 +97,7 @@ public class GeminiResultProcessor {
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
                 boolean isProAnalysis = isProPlan;
                 SomRawMetrics rawMetrics = new SomRawMetrics(
-                    tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength);
+                    tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
@@ -118,7 +119,11 @@ public class GeminiResultProcessor {
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
             var gbvs = gbvsList.get(idx);
-            var somScore = gbvs.scorePercent();
+            var sourceText = line.consultantOutputData().response() != null && !line.consultantOutputData().response().isBlank()
+                ? line.consultantOutputData().response()
+                : "";
+            var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
+            var somScore = Math.clamp(boostedSomScore, 0.0, 100.0);
             var m = line.rawMetrics();
             boolean brand = m.nounCount() > 0 || m.rankPosition() > 0;
             int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));

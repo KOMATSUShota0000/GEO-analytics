@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: "jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+    username: "${DB_USER:postgres}"
+    password: "${DB_PASSWORD}"
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      "[hibernate.format_sql]": false
+      "[org.hibernate.envers.audit_table_suffix]": _AUD
+      "[org.hibernate.envers.revision_field_name]": rev
+      "[org.hibernate.envers.revision_type_field_name]": revtype
+    show-sql: false
+    open-in-view: false
+
+app:
+  security:
+    rls:
+      enabled: true
+      postgres-session-parameter: app.current_tenant
+      oracle-client-identifier: GEO_ANALYTICS_TENANT
+      enforce-appi-2026: true
+  oracle:
+    datasource:
+      url: "${ORACLE_JDBC_URL:jdbc:oracle:thin:@localhost:1521/FREEPDB1}"
+      username: "${ORACLE_USER:}"
+      password: "${ORACLE_PASSWORD:}"

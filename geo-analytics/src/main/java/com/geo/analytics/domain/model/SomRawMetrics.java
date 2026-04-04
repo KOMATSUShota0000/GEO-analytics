@@ -7,4 +7,5 @@ public record SomRawMetrics(
     boolean isProAnalysis,
     int nounCount,
     double stuffingDensity,
-    int responseTokenLength) {}
+    int responseTokenLength,
+    double sourceWeight) {}

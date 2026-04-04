@@ -1,11 +1,14 @@
 package com.geo.analytics.web.dto;
 
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.JobEntity;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record JobStatusResponse(
     UUID jobId,
     UUID projectId,

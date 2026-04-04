@@ -1,4 +1,4 @@
-import { apiFetch } from "../api/apiFetch";
+import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -195,7 +195,7 @@ export function JobAnalysisPage(): JSX.Element {
     if (!res.ok) {
       return null;
     }
-    const body: unknown = await res.json();
+    const body: unknown = await responseJsonAsCamel(res);
     const p = parseJobAnalysisDetail(body);
     setData(p);
     return p;
@@ -212,7 +212,7 @@ export function JobAnalysisPage(): JSX.Element {
         setApiCharts(undefined);
         return;
       }
-      const body: unknown = await res.json();
+      const body: unknown = await responseJsonAsCamel(res);
       const normalized = normalizeAnalyticsSummary(body);
       setApiCharts(normalized ?? undefined);
     } catch {
@@ -356,7 +356,7 @@ export function JobAnalysisPage(): JSX.Element {
       });
       let body: PdfRequestResponse | null = null;
       try {
-        body = (await res.json()) as PdfRequestResponse;
+        body = (await responseJsonAsCamel(res)) as PdfRequestResponse;
       } catch {
         body = null;
       }
@@ -476,7 +476,7 @@ export function JobAnalysisPage(): JSX.Element {
           const text = await response.text();
           throw new Error(text || `HTTP ${response.status}`);
         }
-        return response.json() as Promise<unknown>;
+        return responseJsonAsCamel(response);
       })
       .then((body: unknown) => {
         const p = parseJobAnalysisDetail(body);

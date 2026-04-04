@@ -60,6 +60,8 @@ public class JobEntity extends BaseTenantEntity {
     private List<String> jobRecommendedActions;
     @Column(name = "gap_batch_idempotency_key")
     private UUID gapBatchIdempotencyKey;
+    @Column(name = "create_idempotency_key")
+    private UUID createIdempotencyKey;
     @Column(name = "gap_analysis_gemini_job_name", length = 512)
     private String gapAnalysisGeminiJobName;
     @Column(name = "gap_analysis_completed", nullable = false)
@@ -168,6 +170,12 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setGapBatchIdempotencyKey(UUID gapBatchIdempotencyKey) {
         this.gapBatchIdempotencyKey = gapBatchIdempotencyKey;
+    }
+    public UUID getCreateIdempotencyKey() {
+        return createIdempotencyKey;
+    }
+    public void setCreateIdempotencyKey(UUID createIdempotencyKey) {
+        this.createIdempotencyKey = createIdempotencyKey;
     }
     public String getGapAnalysisGeminiJobName() {
         return gapAnalysisGeminiJobName;

@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
+import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
@@ -57,7 +58,8 @@ public class GeminiBatchExecutorService {
             jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
                 jobEntity.getBrandName(), batchQueryLines, subscriptionPlan);
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
-            GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata);
+            String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
+            GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
             jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(
                 jobEntity.getId(), createdBatchJob.name());
             jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
@@ -76,5 +78,42 @@ public class GeminiBatchExecutorService {
             }
         }
         return CompletableFuture.completedFuture(null);
+    }
+
+    private String chooseModelForProfitGuard(List<QueryEntity> queryEntities, SubscriptionPlan subscriptionPlan) {
+        long totalTokens = estimateTotalTokens(queryEntities);
+        double unitPrice = planUnitPrice(subscriptionPlan);
+        double guardBudget = unitPrice * 0.14;
+        double predictedPrimary = estimateApiCost(totalTokens, LlmModelNames.GEMINI_25_PRO);
+        if (predictedPrimary > guardBudget) {
+            return LlmModelNames.GEMINI_25_FLASH;
+        }
+        return LlmModelNames.GEMINI_25_PRO;
+    }
+
+    private static long estimateTotalTokens(List<QueryEntity> queryEntities) {
+        long tokens = 0L;
+        for (var q : queryEntities) {
+            var text = q.getQueryText();
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            long approx = StrictMath.max(1L, text.strip().length() / 4L);
+            tokens += approx;
+        }
+        return StrictMath.max(tokens, 1L);
+    }
+
+    private static double estimateApiCost(long totalTokens, String modelName) {
+        double per1k = LlmModelNames.GEMINI_25_FLASH.equals(modelName) ? 0.0012 : 0.006;
+        return ((double) totalTokens / 1000.0) * per1k;
+    }
+
+    private static double planUnitPrice(SubscriptionPlan subscriptionPlan) {
+        return switch (subscriptionPlan) {
+            case STANDARD -> 29.0;
+            case PRO -> 149.0;
+            case EXPERT -> 499.0;
+        };
     }
 }

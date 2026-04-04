@@ -82,9 +82,16 @@ public class JobController {
     }
 
     @PostMapping
-    public ResponseEntity<JobStatusResponse> createJob(@RequestBody @Valid CreateJobRequest createJobRequest) {
+    public ResponseEntity<JobStatusResponse> createJob(
+            @RequestHeader(value = "Idempotency-Key", required = false) UUID idempotencyKeyHeader,
+            @RequestBody @Valid CreateJobRequest createJobRequest) {
         log.info("createJob request brandName={}", createJobRequest.brandName());
-        JobEntity createdJobEntity = jobPersistenceService.createJob(createJobRequest.brandName());
+        UUID idempotencyKey = idempotencyKeyHeader != null ? idempotencyKeyHeader : createJobRequest.idempotencyKey();
+        var outcome = jobPersistenceService.createJobWithIdempotency(createJobRequest.brandName(), idempotencyKey);
+        JobEntity createdJobEntity = outcome.jobEntity();
+        if (!outcome.created()) {
+            return ResponseEntity.ok(JobStatusResponse.from(createdJobEntity));
+        }
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()
             .path("/{jobId}")
             .buildAndExpand(createdJobEntity.getId())

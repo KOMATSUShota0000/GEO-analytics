@@ -8,7 +8,7 @@ import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -24,10 +24,11 @@ public class AsyncSgeMeasurementService {
     public AsyncSgeMeasurementService(
             SgeMeasurementPort sgeMeasurementPort,
             SgeResultRepository sgeResultRepository,
-            @Value("${app.serpapi.api-key:}") String serpApiKey) {
+            AppProperties appProperties) {
         this.sgeMeasurementPort = sgeMeasurementPort;
         this.sgeResultRepository = sgeResultRepository;
-        this.serpApiKey = serpApiKey;
+        String key = appProperties.getSerpapi().getApiKey();
+        this.serpApiKey = key != null ? key : "";
     }
 
     @Async
@@ -57,6 +58,14 @@ public class AsyncSgeMeasurementService {
             String queryText = queryEntity.getQueryText();
             try {
                 SgeMentionResult sgeMentionResult = sgeMeasurementPort.checkSgeMention(queryText, brandName);
+                if (sgeMentionResult == null) {
+                    log.warn(
+                        "SGE measurement skipped jobId={} queryId={} queryText={} reason=adapter returned null",
+                        jobId,
+                        queryEntity.getId(),
+                        queryText);
+                    continue;
+                }
                 SgeResultEntity sgeResultEntity = new SgeResultEntity();
                 sgeResultEntity.setJobId(jobId);
                 sgeResultEntity.setWorkspaceId(job.getWorkspaceId());

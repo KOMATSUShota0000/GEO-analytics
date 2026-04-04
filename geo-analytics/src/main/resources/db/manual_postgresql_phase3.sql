@@ -1,6 +1,10 @@
 -- Existing PostgreSQL DB: add columns missing before Hibernate ddl-auto=validate.
 -- Brand-new DB: use one-time ddl-auto=create or generate DDL from entities, then switch to validate.
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(16);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS create_idempotency_key UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jobs_tenant_create_idempotency_key
+  ON jobs(tenant_id, create_idempotency_key)
+  WHERE create_idempotency_key IS NOT NULL;
 -- Immutability after first non-null (snapshot plan). Allows NULL -> set on query registration; blocks later changes.
 CREATE OR REPLACE FUNCTION jobs_prevent_applied_plan_change() RETURNS trigger AS $$
 BEGIN

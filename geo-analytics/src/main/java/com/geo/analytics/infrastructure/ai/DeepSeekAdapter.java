@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -12,7 +12,6 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.StructuredTaskScope;
 
 @Service
@@ -33,10 +32,11 @@ public final class DeepSeekAdapter {
     public DeepSeekAdapter(
             WebClient deepSeekWebClient,
             ObjectMapper objectMapper,
-            @Value("${app.ai.deepseek.api-key:}") String apiKey) {
+            AppProperties appProperties) {
         this.deepSeekWebClient = deepSeekWebClient;
         this.objectMapper = objectMapper;
-        this.apiKey = apiKey;
+        String key = appProperties.getAi().getDeepseek().getApiKey();
+        this.apiKey = key != null ? key : "";
     }
 
     public Mono<String> extractStructuredJsonMono(String rawPageText, String sourceUrl, String brandName) {
@@ -82,15 +82,16 @@ public final class DeepSeekAdapter {
     }
 
     private static <T> T runShutdownOnFailure(Callable<T> task) {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+        try (StructuredTaskScope<T, Void> scope = StructuredTaskScope.open()) {
             var sub = scope.fork(task);
-            scope.join();
-            scope.throwIfFailed();
+            try {
+                scope.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
             return sub.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
-        } catch (ExecutionException e) {
+        } catch (StructuredTaskScope.FailedException e) {
             Throwable c = e.getCause();
             if (c instanceof Error er) {
                 throw er;

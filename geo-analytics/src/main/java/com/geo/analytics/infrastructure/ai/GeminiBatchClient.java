@@ -16,7 +16,7 @@ import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileUploadResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -57,10 +57,10 @@ public class GeminiBatchClient {
     public GeminiBatchClient(
             RestClient.Builder restClientBuilder,
             ObjectMapper objectMapper,
-            @Value("${app.ai.gemini.api-key}") String geminiApiKey) {
+            AppProperties appProperties) {
         this.restClient = restClientBuilder.baseUrl(GEMINI_API_BASE_URL).build();
         this.objectMapper = objectMapper;
-        this.geminiApiKey = geminiApiKey;
+        this.geminiApiKey = appProperties.getAi().getGemini().getApiKey();
     }
 
     public GeminiFileMetadata uploadJsonlFile(byte[] jsonlContent) {
@@ -172,10 +172,17 @@ public class GeminiBatchClient {
     }
 
     public GeminiBatchJob createBatchJob(GeminiFileMetadata uploadedFileMetadata) {
-        return createBatchJob(uploadedFileMetadata, null);
+        return createBatchJob(uploadedFileMetadata, null, LlmModelNames.GEMINI_25_PRO);
     }
 
     public GeminiBatchJob createBatchJob(GeminiFileMetadata uploadedFileMetadata, String idempotencyKey) {
+        return createBatchJob(uploadedFileMetadata, idempotencyKey, LlmModelNames.GEMINI_25_PRO);
+    }
+
+    public GeminiBatchJob createBatchJob(
+            GeminiFileMetadata uploadedFileMetadata,
+            String idempotencyKey,
+            String modelName) {
         if (uploadedFileMetadata == null) {
             throw new GeminiBatchApiException("uploaded file metadata is null");
         }
@@ -183,14 +190,15 @@ public class GeminiBatchClient {
         if (fileName == null || fileName.isBlank()) {
             throw new GeminiBatchApiException("file name missing in upload response");
         }
+        String selectedModel = modelName != null && !modelName.isBlank() ? modelName : LlmModelNames.GEMINI_25_PRO;
         logger.info("createBatchJob started - file name: {}", fileName);
         BatchGenerateContentRequest batchCreateRequestBody = new BatchGenerateContentRequest(
             new BatchConfig("geo-analytics-batch", new InputConfig(fileName)));
         String batchCreateUrl = GEMINI_API_BASE_URL
-            + "/v1beta/models/" + LlmModelNames.GEMINI_31_PRO
+            + "/v1beta/models/" + selectedModel
             + ":batchGenerateContent?key=" + geminiApiKey;
         logger.info("createBatchJob - sending POST to /v1beta/models/{}:batchGenerateContent",
-            LlmModelNames.GEMINI_31_PRO);
+            selectedModel);
         try {
             var postSpec = restClient.post()
                 .uri(URI.create(batchCreateUrl))

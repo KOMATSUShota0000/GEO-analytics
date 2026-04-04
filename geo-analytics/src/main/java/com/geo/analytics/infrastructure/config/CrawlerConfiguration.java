@@ -13,27 +13,26 @@ import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import java.util.concurrent.Semaphore;
 
 @Configuration
-@EnableConfigurationProperties(CrawlerCacheProperties.class)
 public class CrawlerConfiguration {
     @Configuration
     @ConditionalOnProperty(name = "app.crawler.redis-enabled", havingValue = "true")
     static class CrawlerRedisConfiguration {
         @Bean(destroyMethod = "shutdown")
-        RedisClient crawlRedisClient(CrawlerCacheProperties crawlerCacheProperties) {
-            String host = crawlerCacheProperties.getRedisHost();
+        RedisClient crawlRedisClient(AppProperties appProperties) {
+            AppProperties.Crawler crawler = appProperties.getCrawler();
+            String host = crawler.getRedisHost();
             if (host == null || host.isBlank()) {
                 throw new IllegalStateException("app.crawler.redis-host is required when redis-enabled=true");
             }
             RedisURI redisUri = RedisURI.builder()
                 .withHost(host.strip())
-                .withPort(crawlerCacheProperties.getRedisPort())
+                .withPort(crawler.getRedisPort())
                 .build();
             return RedisClient.create(redisUri);
         }
@@ -76,9 +75,9 @@ public class CrawlerConfiguration {
     WebCrawlerPort webCrawlerPort(
             PlaywrightWebCrawlerAdapter playwrightWebCrawlerAdapter,
             ObjectMapper objectMapper,
-            CrawlerCacheProperties crawlerCacheProperties,
+            AppProperties appProperties,
             TieredCrawlCache tieredCrawlCache) {
-        long ttlSeconds = Math.max(1L, crawlerCacheProperties.getCacheTtl().toSeconds());
+        long ttlSeconds = Math.max(1L, appProperties.getCrawler().getCacheTtl().toSeconds());
         return new CachedWebCrawlerDecorator(
             playwrightWebCrawlerAdapter,
             objectMapper,

@@ -72,7 +72,7 @@ export function KeywordSuggestionWizard({
       setKeywordCategoryByText((pm) => {
         const m = new Map(pm);
         for (const k of keys) {
-          if (selectAll) m.set(k, cat.category_name);
+          if (selectAll) m.set(k, cat.categoryName);
           else m.delete(k);
         }
         return m;
@@ -107,7 +107,7 @@ export function KeywordSuggestionWizard({
           const t = k.trim();
           if (!t) continue;
           init.add(t);
-          catMap.set(t, c.category_name);
+          catMap.set(t, c.categoryName);
         }
       }
       setSelected(init);
@@ -243,9 +243,9 @@ export function KeywordSuggestionWizard({
               const allInCategorySelected =
                 catKeys.length > 0 && catKeys.every((k) => selected.has(k));
               return (
-              <section key={cat.category_name} className="rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+              <section key={cat.categoryName} className="rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700">{cat.category_name}</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700">{cat.categoryName}</h3>
                   {catKeys.length > 0 ? (
                     <button
                       type="button"
@@ -263,9 +263,9 @@ export function KeywordSuggestionWizard({
                     const on = selected.has(k);
                     return (
                       <button
-                        key={`${cat.category_name}:${k}`}
+                        key={`${cat.categoryName}:${k}`}
                         type="button"
-                        onClick={() => toggleKeyword(k, cat.category_name)}
+                        onClick={() => toggleKeyword(k, cat.categoryName)}
                         className={`rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-[0.97] ${
                           on
                             ? "border-indigo-500 bg-indigo-600 text-white shadow-md shadow-indigo-500/25 ring-2 ring-indigo-400/40"

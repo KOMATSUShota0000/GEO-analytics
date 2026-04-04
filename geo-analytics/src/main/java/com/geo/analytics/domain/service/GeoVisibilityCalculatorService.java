@@ -8,18 +8,13 @@ import java.util.stream.IntStream;
 public final class GeoVisibilityCalculatorService {
     public static final String CALCULATION_VERSION = "PHASE4.5_FINAL_V1";
     private static final double EPSILON = 1.0E-10;
-    private static final double K1 = 1.2;
-    private static final double B = 0.75;
-    private static final double LAMBDA = 0.5;
-    private static final double STUFFING_THRESHOLD = 0.03;
-    private static final double STUFFING_COEFF = 500.0;
-    private static final double RBP_P = 0.5;
-    private static final double RBP_ONE_MINUS_P = 0.5;
     private static final double IQR_SCALE = 1.3489;
-    private static final double SINGLE_SAMPLE_RAW_SCALE = 25.0;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
-    private static final double MARKET_PRIOR_INTEGRATED_RAW = 0.48;
+    private static final double MARKET_PRIOR_INTEGRATED_RAW = 0.42;
     private static final double PRIOR_EQUIVALENT_N = 18.0;
+    private static final double SOURCE_WEIGHT_HIGH = 1.5;
+    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
+    private static final double SOURCE_WEIGHT_LOW = 0.3;
 
     private GeoVisibilityCalculatorService() {}
 
@@ -33,13 +28,17 @@ public final class GeoVisibilityCalculatorService {
             return List.of();
         }
         double[] raw = new double[n];
-        IntStream.range(0, n).parallel().forEach(i -> raw[i] = integratedRaw(rows.get(i), lAvgJob));
+        IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
         double[] work = new double[n];
         if (n < BAYES_SAMPLE_THRESHOLD) {
             int finalN = n;
             IntStream.range(0, n).parallel().forEach(i -> work[i] = bayesBlend(raw[i], finalN));
         } else {
             System.arraycopy(raw, 0, work, 0, n);
+        }
+        if (n == 1) {
+            double pct = clamp01(work[0]) * 100.0;
+            return List.of(new GbvsResult(pct, stageFromScorePercent(pct), 0.0));
         }
         double[] sorted = Arrays.copyOf(work, n);
         Arrays.parallelSort(sorted);
@@ -52,11 +51,8 @@ public final class GeoVisibilityCalculatorService {
         IntStream.range(0, n).parallel().forEach(i -> {
             double zPrime = denom > EPSILON ? (work[i] - med) / denom : 0.0;
             int stage = stageFromZPrime(zPrime);
-            double pct =
-                maxR > minR + EPSILON
-                    ? 100.0 * (work[i] - minR) / (maxR - minR)
-                    : Math.clamp(work[i] * SINGLE_SAMPLE_RAW_SCALE, 0.0, 100.0);
-            out[i] = new GbvsResult(Math.clamp(pct, 0.0, 100.0), stage, zPrime);
+            double pct = maxR > minR + EPSILON ? 100.0 * (work[i] - minR) / (maxR - minR) : clamp01(work[i]) * 100.0;
+            out[i] = new GbvsResult(clampPercent(pct), stage, zPrime);
         });
         return Arrays.asList(out);
     }
@@ -66,59 +62,114 @@ public final class GeoVisibilityCalculatorService {
         return w * rawI + (1.0 - w) * MARKET_PRIOR_INTEGRATED_RAW;
     }
 
-    private static double integratedRaw(SomRawMetrics metrics, double lAvgJob) {
-        int f = Math.max(0, metrics.nounCount());
-        int L = Math.max(0, metrics.responseTokenLength());
-        double lAvgEff = lAvgEffective(lAvgJob);
-        double bm25 = bm25Term(f, L, lAvgEff);
-        double rbp = rbpTerm(f, metrics.rankPosition());
-        double sent = sentimentMultiplier(metrics.sentimentIntensity());
-        double density = L > 0 ? (double) f / (double) L : 0.0;
-        double penalty = stuffingPenaltyMultiplier(density);
-        return bm25 * rbp * sent * penalty;
-    }
-
-    private static double lAvgEffective(double lAvgJob) {
-        if (lAvgJob > EPSILON) {
-            return lAvgJob;
+    public static double sourceWeightFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return SOURCE_WEIGHT_LOW;
         }
-        return 1.0;
+        var normalized = url.strip().toLowerCase();
+        if (!normalized.contains("://")) {
+            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        }
+        try {
+            var host = java.net.URI.create(normalized).getHost();
+            if (host == null || host.isBlank()) {
+                return SOURCE_WEIGHT_LOW;
+            }
+            var h = host.toLowerCase();
+            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        } catch (Exception ignored) {
+            return SOURCE_WEIGHT_LOW;
+        }
     }
 
-    private static double bm25Term(int f, int L, double lAvgEff) {
-        if (f == 0) {
+    private static double weightedSom(SomRawMetrics metrics) {
+        int f = StrictMath.max(0, metrics.nounCount());
+        int rank = metrics.rankPosition();
+        int total = StrictMath.max(0, metrics.responseTokenLength());
+        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
+        double sourceWeight = metrics.sourceWeight() > EPSILON ? metrics.sourceWeight() : SOURCE_WEIGHT_LOW;
+        double sentiment = sentimentWeight(metrics.sentimentIntensity());
+        double brandSignal = presence * sourceWeight * sentiment;
+        double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
+        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
+        double denom = brandSignal + otherSignal;
+        if (denom <= EPSILON) {
             return 0.0;
         }
-        double lenBase = StrictMath.max(lAvgEff, 1.0);
-        double normLen = 1.0 - B + B * ((double) L / lenBase);
-        double den = (double) f + K1 * normLen;
-        return (double) f * (K1 + 1.0) / StrictMath.max(den, EPSILON);
+        return clamp01(brandSignal / denom);
     }
 
-    private static double rbpTerm(int f, int rankPosition) {
-        if (f <= 0) {
-            return 0.0;
-        }
-        int r0 = rankPosition > 0 ? rankPosition : 1;
-        double sum = 0.0;
-        for (int j = 0; j < f; j++) {
-            int r = r0 + j;
-            sum += RBP_ONE_MINUS_P * StrictMath.pow(RBP_P, (double) (r - 1));
-        }
-        return sum;
-    }
-
-    private static double sentimentMultiplier(double sentimentScore) {
-        double s = Math.clamp(sentimentScore, -1.0, 1.0);
-        return 1.0 + LAMBDA * StrictMath.tanh(s);
-    }
-
-    private static double stuffingPenaltyMultiplier(double density) {
-        if (density <= STUFFING_THRESHOLD) {
+    private static double sentimentWeight(double sentimentScore) {
+        if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
             return 1.0;
         }
-        double d = density - STUFFING_THRESHOLD;
-        return StrictMath.max(0.0, 1.0 - STUFFING_COEFF * d * d);
+        if (sentimentScore < 0.5) {
+            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
+                return 1.0 + 0.5 * sentimentScore;
+            }
+        }
+        return clamp(sentimentScore, 0.5, 1.5);
+    }
+
+    private static double clamp01(double v) {
+        return clamp(v, 0.0, 1.0);
+    }
+
+    private static double clampPercent(double v) {
+        return clamp(v, 0.0, 100.0);
+    }
+
+    private static double clamp(double v, double lo, double hi) {
+        if (v < lo) {
+            return lo;
+        }
+        if (v > hi) {
+            return hi;
+        }
+        return v;
+    }
+
+    private static int stageFromScorePercent(double pct) {
+        if (pct >= 90.0) {
+            return 10;
+        }
+        if (pct >= 80.0) {
+            return 9;
+        }
+        if (pct >= 70.0) {
+            return 8;
+        }
+        if (pct >= 60.0) {
+            return 7;
+        }
+        if (pct >= 50.0) {
+            return 6;
+        }
+        if (pct >= 40.0) {
+            return 5;
+        }
+        if (pct >= 30.0) {
+            return 4;
+        }
+        if (pct >= 20.0) {
+            return 3;
+        }
+        if (pct >= 10.0) {
+            return 2;
+        }
+        return 1;
     }
 
     private static int stageFromZPrime(double z) {

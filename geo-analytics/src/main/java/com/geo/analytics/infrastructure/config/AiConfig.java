@@ -6,9 +6,9 @@ import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.ModelType;
-import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
@@ -19,8 +19,6 @@ import com.geo.analytics.infrastructure.ai.StrictSchemaValidator;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,14 +34,18 @@ public class AiConfig {
     public static final String GEMINI_STREAMING_PRO = "geminiStreamingPro";
     public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
     public static final String GEMINI_GBVS_CHAT = "geminiGbvsChat";
-    @Value("${app.ai.gemini.api-key}")
-    private String geminiApiKey;
+
+    private final AppProperties appProperties;
+
+    public AiConfig(AppProperties appProperties) {
+        this.appProperties = appProperties;
+    }
 
     @Bean
     @Qualifier(GEMINI_GBVS_CHAT)
     public ChatLanguageModel geminiGbvsChatModel() {
         return GoogleAiGeminiChatModel.builder()
-            .apiKey(geminiApiKey)
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
             .build();
@@ -51,13 +53,13 @@ public class AiConfig {
 
     @Bean
     @Qualifier(GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL)
-    public ChatLanguageModel keywordSuggestionChatLanguageModel(
-            @Value("${app.ai.gemini.model-name:}") String configuredGeminiModelName) {
+    public ChatLanguageModel keywordSuggestionChatLanguageModel() {
+        String configuredGeminiModelName = appProperties.getAi().getGemini().getModelName();
         var resolvedModel = configuredGeminiModelName == null || configuredGeminiModelName.isBlank()
             ? LlmModelNames.GEMINI_31_PRO
             : configuredGeminiModelName;
         return GoogleAiGeminiChatModel.builder()
-            .apiKey(geminiApiKey)
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(resolvedModel)
             .temperature(0.2)
             .timeout(Duration.ofSeconds(180))
@@ -69,7 +71,7 @@ public class AiConfig {
     @Qualifier(GEMINI_STREAMING_STANDARD)
     public GoogleAiGeminiStreamingChatModel geminiStreamingStandard() {
         return GoogleAiGeminiStreamingChatModel.builder()
-            .apiKey(geminiApiKey)
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
             .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.STANDARD))
@@ -80,7 +82,7 @@ public class AiConfig {
     @Qualifier(GEMINI_STREAMING_PRO)
     public GoogleAiGeminiStreamingChatModel geminiStreamingPro() {
         return GoogleAiGeminiStreamingChatModel.builder()
-            .apiKey(geminiApiKey)
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
             .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.PRO))

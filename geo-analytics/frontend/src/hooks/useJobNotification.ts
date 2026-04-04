@@ -1,7 +1,7 @@
 import { Client, IMessage } from "@stomp/stompjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SockJS from "sockjs-client";
-import { apiFetch } from "../api/apiFetch";
+import { apiFetch, parseJsonTextAsCamel } from "../api/apiFetch";
 import {
   normalizeJobStatusResponse,
   type JobStatusResponse,
@@ -63,7 +63,7 @@ function mergeJobStatusPreservingSummary(
 
 function parseJobStatusMessage(body: string): JobStatusResponse | null {
   try {
-    const parsed: unknown = JSON.parse(body);
+    const parsed: unknown = parseJsonTextAsCamel(body);
     return normalizeJobStatusResponse(parsed);
   } catch {
     return null;
@@ -119,7 +119,7 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       }
       let parsed: unknown;
       try {
-        parsed = JSON.parse(responseText) as unknown;
+        parsed = parseJsonTextAsCamel(responseText) as unknown;
       } catch {
         return;
       }
@@ -191,7 +191,7 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
         } else {
           let parsed: unknown;
           try {
-            parsed = JSON.parse(responseText) as unknown;
+            parsed = parseJsonTextAsCamel(responseText) as unknown;
           } catch {
             console.error(
               "job status JSON parse error",

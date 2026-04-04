@@ -11,7 +11,7 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Margin;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.stereotype.Component;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -50,8 +50,9 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     private final String pdfBaseUrl;
     private final ObjectMapper objectMapper;
     public PlaywrightPdfAdapter(
-            @Value("${app.pdf.base-url}") String pdfBaseUrl,
+            AppProperties appProperties,
             ObjectMapper objectMapper) {
+        String pdfBaseUrl = appProperties.getPdf().getBaseUrl();
         if (pdfBaseUrl == null || pdfBaseUrl.isBlank()) {
             throw new IllegalStateException("app.pdf.base-url must be configured");
         }

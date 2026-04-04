@@ -13,6 +13,18 @@ export function formatAuditDate(isoDate: string): string {
   });
 }
 
+type JsonDict = Record<string, unknown>;
+
+function pickNum(r: JsonDict, camel: string, snake: string): number | undefined {
+  const v = r[camel] !== undefined ? r[camel] : r[snake];
+  return typeof v === "number" && !Number.isNaN(v) ? v : undefined;
+}
+
+function pickBool(r: JsonDict, camel: string, snake: string): boolean | undefined {
+  const v = r[camel] !== undefined ? r[camel] : r[snake];
+  return typeof v === "boolean" ? v : undefined;
+}
+
 export interface JobStatusResponse {
   jobId: string;
   projectId: string | null;
@@ -32,79 +44,73 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
   if (value === null || typeof value !== "object") {
     return null;
   }
-  const r = value as Record<string, unknown>;
-  if (typeof r.jobId !== "string") {
+  const r = value as JsonDict;
+  const jobId = typeof r.jobId === "string" ? r.jobId : undefined;
+  if (jobId === undefined) {
     return null;
   }
+  const projectIdRaw = r.projectId;
   if (
-    r.projectId !== undefined &&
-    r.projectId !== null &&
-    typeof r.projectId !== "string"
+    projectIdRaw !== undefined &&
+    projectIdRaw !== null &&
+    typeof projectIdRaw !== "string"
   ) {
     return null;
   }
-  if (typeof r.jobStatus !== "string") {
+  const jobStatus = typeof r.jobStatus === "string" ? r.jobStatus : undefined;
+  const brandName = typeof r.brandName === "string" ? r.brandName : undefined;
+  if (jobStatus === undefined || brandName === undefined) {
     return null;
   }
-  if (typeof r.brandName !== "string") {
+  const errRaw = r.errorMessage;
+  if (errRaw !== undefined && errRaw !== null && typeof errRaw !== "string") {
     return null;
   }
-  if (
-    r.errorMessage !== undefined &&
-    r.errorMessage !== null &&
-    typeof r.errorMessage !== "string"
-  ) {
+  const psRaw = r.pdfStatus;
+  if (psRaw !== undefined && psRaw !== null && typeof psRaw !== "string") {
     return null;
   }
-  if (
-    r.pdfStatus !== undefined &&
-    r.pdfStatus !== null &&
-    typeof r.pdfStatus !== "string"
-  ) {
+  const pfpRaw = r.pdfFilePath;
+  if (pfpRaw !== undefined && pfpRaw !== null && typeof pfpRaw !== "string") {
     return null;
   }
-  if (
-    r.pdfFilePath !== undefined &&
-    r.pdfFilePath !== null &&
-    typeof r.pdfFilePath !== "string"
-  ) {
+  const createdAt = typeof r.createdAt === "string" ? r.createdAt : undefined;
+  const updatedAt = typeof r.updatedAt === "string" ? r.updatedAt : undefined;
+  if (createdAt === undefined || updatedAt === undefined) {
     return null;
   }
-  if (typeof r.createdAt !== "string" || typeof r.updatedAt !== "string") {
-    return null;
-  }
+  const dmRaw = r.diagnosticMessage;
   const dm =
-    r.diagnosticMessage === undefined || r.diagnosticMessage === null
+    dmRaw === undefined || dmRaw === null
       ? null
-      : typeof r.diagnosticMessage === "string"
-        ? r.diagnosticMessage
+      : typeof dmRaw === "string"
+        ? dmRaw
         : null;
   const raRaw = r.recommendedActions;
   const recommendedActions =
     Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string")
       ? raRaw
       : [];
+  const jmzRaw = r.jobMedianModifiedZ;
   const jmz =
-    r.jobMedianModifiedZ === undefined || r.jobMedianModifiedZ === null
+    jmzRaw === undefined || jmzRaw === null
       ? null
-      : typeof r.jobMedianModifiedZ === "number" && !Number.isNaN(r.jobMedianModifiedZ)
-        ? r.jobMedianModifiedZ
+      : typeof jmzRaw === "number" && !Number.isNaN(jmzRaw)
+        ? jmzRaw
         : null;
   return {
-    jobId: r.jobId,
+    jobId,
     projectId:
-      r.projectId === undefined || r.projectId === null || typeof r.projectId !== "string"
+      projectIdRaw === undefined || projectIdRaw === null || typeof projectIdRaw !== "string"
         ? null
-        : r.projectId,
-    jobStatus: r.jobStatus,
-    brandName: r.brandName,
-    errorMessage:
-      r.errorMessage === undefined || r.errorMessage === null ? null : r.errorMessage,
-    pdfStatus: r.pdfStatus === undefined || r.pdfStatus === null ? null : r.pdfStatus,
-    pdfFilePath:
-      r.pdfFilePath === undefined || r.pdfFilePath === null ? null : r.pdfFilePath,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
+        : projectIdRaw,
+    jobStatus,
+    brandName,
+    errorMessage: errRaw === undefined || errRaw === null ? null : errRaw,
+    pdfStatus: psRaw === undefined || psRaw === null ? null : psRaw,
+    pdfFilePath: pfpRaw === undefined || pfpRaw === null ? null : pfpRaw,
+    createdAt,
+    updatedAt,
     diagnosticMessage: dm,
     recommendedActions,
     jobMedianModifiedZ: jmz,
@@ -131,9 +137,9 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
     return null;
   }
   const r = raw as Record<string, unknown>;
-  const trendRaw = r.trend_data;
-  const shareRaw = r.competitor_shares;
-  const planRaw = r.subscription_plan;
+  const trendRaw = r.trendData;
+  const shareRaw = r.competitorShares;
+  const planRaw = r.subscriptionPlan;
   if (!Array.isArray(trendRaw) || !Array.isArray(shareRaw) || typeof planRaw !== "string") {
     return null;
   }
@@ -146,9 +152,9 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
       return null;
     }
     const o = item as Record<string, unknown>;
-    const ad = o.audit_date;
-    const som = o.average_som_score;
-    const ov = o.average_overall_score;
+    const ad = o.auditDate;
+    const som = o.averageSomScore;
+    const ov = o.averageOverallScore;
     if (typeof ad !== "string" || typeof som !== "number" || Number.isNaN(som)) {
       return null;
     }
@@ -183,31 +189,33 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
   if (raw === null || typeof raw !== "object") {
     return null;
   }
-  const p = raw as Record<string, unknown>;
-  if (
-    typeof p.projectId !== "string" ||
-    typeof p.projectName !== "string" ||
-    typeof p.targetUrl !== "string"
-  ) {
+  const p = raw as JsonDict;
+  const projectId = typeof p.projectId === "string" ? p.projectId : undefined;
+  const projectName = typeof p.projectName === "string" ? p.projectName : undefined;
+  const targetUrl = typeof p.targetUrl === "string" ? p.targetUrl : undefined;
+  if (projectId === undefined || projectName === undefined || targetUrl === undefined) {
     return null;
   }
-  const comp = Array.isArray(p.competitorUrls)
-    ? p.competitorUrls.filter((x): x is string => typeof x === "string")
+  const compRaw = p.competitorUrls;
+  const comp = Array.isArray(compRaw)
+    ? compRaw.filter((x): x is string => typeof x === "string")
     : [];
+  const bcRaw = p.brandColor;
   const bc =
-    typeof p.brand_color === "string" && p.brand_color.length > 0
-      ? p.brand_color
+    typeof bcRaw === "string" && bcRaw.length > 0
+      ? bcRaw
       : "#4F46E5";
+  const luRaw = p.logoUrl;
   const lu =
-    p.logo_url === null || p.logo_url === undefined
+    luRaw === null || luRaw === undefined
       ? null
-      : typeof p.logo_url === "string" && p.logo_url.length > 0
-        ? p.logo_url
+      : typeof luRaw === "string" && luRaw.length > 0
+        ? luRaw
         : null;
   return {
-    projectId: p.projectId,
-    projectName: p.projectName,
-    targetUrl: p.targetUrl,
+    projectId,
+    projectName,
+    targetUrl,
     competitorUrls: comp,
     brandColor: bc,
     logoUrl: lu,
@@ -229,17 +237,21 @@ export function liveMetricsFromParsed(parsed: unknown): LiveResultMetrics {
   if (parsed === null || typeof parsed !== "object") {
     return empty;
   }
-  const r = parsed as Record<string, unknown>;
-  const overallScore = typeof r.overallScore === "number" ? r.overallScore : null;
-  const confidenceScore = typeof r.confidenceScore === "number" ? r.confidenceScore : null;
+  const r = parsed as JsonDict;
+  const overallScore =
+    pickNum(r, "overallScore", "overall_score") ?? null;
+  const confidenceScore =
+    pickNum(r, "confidenceScore", "confidence_score") ?? null;
   const somScore = confidenceScore ?? overallScore;
   let brandMentioned: boolean | null = null;
-  if (typeof r.brandMentioned === "boolean") {
-    brandMentioned = r.brandMentioned;
+  const bm = pickBool(r, "brandMentioned", "brand_mentioned");
+  if (bm !== undefined) {
+    brandMentioned = bm;
   }
   let mentionRank: number | null = null;
-  if (typeof r.mentionRank === "number" && !Number.isNaN(r.mentionRank)) {
-    mentionRank = r.mentionRank;
+  const mr = pickNum(r, "mentionRank", "mention_rank");
+  if (mr !== undefined && !Number.isNaN(mr)) {
+    mentionRank = mr;
   }
   return { somScore, overallScore, brandMentioned, mentionRank };
 }
@@ -474,31 +486,59 @@ export interface JobAnalysisDetail {
   results: ResultDetail[];
 }
 
+function auditDateString(v: unknown): string | null {
+  if (typeof v === "string") {
+    return v.length >= 10 ? v.slice(0, 10) : v;
+  }
+  if (Array.isArray(v) && v.length >= 3) {
+    const y = v[0];
+    const mo = v[1];
+    const d = v[2];
+    if (
+      typeof y === "number" &&
+      typeof mo === "number" &&
+      typeof d === "number" &&
+      Number.isInteger(y) &&
+      Number.isInteger(mo) &&
+      Number.isInteger(d)
+    ) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  return null;
+}
+
 export function parseResultDetail(raw: unknown): ResultDetail | null {
   if (raw === null || typeof raw !== "object") {
     return null;
   }
-  const r = raw as Record<string, unknown>;
-  if (typeof r.resultId !== "string" || typeof r.query !== "string") {
+  const r = raw as JsonDict;
+  const resultId = typeof r.resultId === "string" ? r.resultId : undefined;
+  const query = typeof r.query === "string" ? r.query : undefined;
+  const somScore = typeof r.somScore === "number" && !Number.isNaN(r.somScore) ? r.somScore : undefined;
+  if (resultId === undefined || query === undefined || somScore === undefined || Number.isNaN(somScore)) {
     return null;
   }
-  if (typeof r.somScore !== "number" || Number.isNaN(r.somScore)) {
+  const rawResponse = typeof r.rawResponse === "string" ? r.rawResponse : undefined;
+  const auditRaw = r.auditDate;
+  const createdAt = typeof r.createdAt === "string" ? r.createdAt : undefined;
+  const auditDate = auditDateString(auditRaw);
+  if (rawResponse === undefined || auditDate === null || createdAt === undefined) {
     return null;
   }
-  if (typeof r.rawResponse !== "string" || typeof r.auditDate !== "string" || typeof r.createdAt !== "string") {
-    return null;
-  }
+  const mrRaw = r.mentionRank;
   const mentionRank =
-    r.mentionRank === null || r.mentionRank === undefined
+    mrRaw === null || mrRaw === undefined
       ? null
-      : typeof r.mentionRank === "number" && !Number.isNaN(r.mentionRank)
-        ? r.mentionRank
+      : typeof mrRaw === "number" && !Number.isNaN(mrRaw)
+        ? mrRaw
         : null;
+  const osRaw = r.overallScore;
   const overallScore =
-    r.overallScore === null || r.overallScore === undefined
+    osRaw === null || osRaw === undefined
       ? null
-      : typeof r.overallScore === "number" && !Number.isNaN(r.overallScore)
-        ? r.overallScore
+      : typeof osRaw === "number" && !Number.isNaN(osRaw)
+        ? osRaw
         : null;
   const raRaw = r.recommendedActions;
   const recommendedActions =
@@ -506,58 +546,70 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
   const sd = r.significantDeviation;
   const significantDeviation =
     typeof sd === "boolean" ? sd : sd === null || sd === undefined ? null : undefined;
+  const gbs = typeof r.gbvsNormalizedScore === "number" && !Number.isNaN(r.gbvsNormalizedScore)
+    ? r.gbvsNormalizedScore
+    : undefined;
+  const tc = typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined;
+  const rp = typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined;
+  const si =
+    typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
+      ? r.sentimentIntensity
+      : undefined;
+  const relRaw = r.resolvedEntityLabel;
+  const resolvedEntityLabel =
+    relRaw === null || relRaw === undefined
+      ? null
+      : typeof relRaw === "string"
+        ? relRaw
+        : null;
+  const vs = typeof r.visibilityStage === "number" && !Number.isNaN(r.visibilityStage) ? r.visibilityStage : undefined;
+  const vsbRaw = r.visibilityStageBand;
+  const vsnRaw = r.visibilityStageNarrative;
+  const cvRaw = r.calculationVersion;
+  const mz =
+    typeof r.modifiedZScore === "number" && !Number.isNaN(r.modifiedZScore) ? r.modifiedZScore : undefined;
+  const dmRaw = r.diagnosticMessage;
+  const diagnosticMessage =
+    dmRaw === null || dmRaw === undefined
+      ? null
+      : typeof dmRaw === "string"
+        ? dmRaw
+        : null;
+  const naRaw = r.negativeAlert;
   return {
-    resultId: r.resultId,
-    query: r.query,
-    somScore: r.somScore,
-    gbvsNormalizedScore:
-      typeof r.gbvsNormalizedScore === "number" && !Number.isNaN(r.gbvsNormalizedScore)
-        ? r.gbvsNormalizedScore
-        : undefined,
+    resultId,
+    query,
+    somScore,
+    gbvsNormalizedScore: gbs !== undefined && !Number.isNaN(gbs) ? gbs : undefined,
     brandMentioned: r.brandMentioned === true,
     mentionRank,
     overallScore,
-    tokenCount:
-      typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined,
-    rankPosition:
-      typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined,
-    sentimentIntensity:
-      typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
-        ? r.sentimentIntensity
-        : undefined,
-    resolvedEntityLabel:
-      r.resolvedEntityLabel === null || r.resolvedEntityLabel === undefined
-        ? null
-        : typeof r.resolvedEntityLabel === "string"
-          ? r.resolvedEntityLabel
-          : null,
-    visibilityStage:
-      typeof r.visibilityStage === "number" && !Number.isNaN(r.visibilityStage)
-        ? r.visibilityStage
-        : null,
-    visibilityStageBand:
-      typeof r.visibilityStageBand === "string" ? r.visibilityStageBand : undefined,
-    visibilityStageNarrative:
-      typeof r.visibilityStageNarrative === "string" ? r.visibilityStageNarrative : undefined,
-    calculationVersion:
-      typeof r.calculationVersion === "string" ? r.calculationVersion : undefined,
-    negativeAlert: r.negativeAlert === true,
-    modifiedZScore:
-      typeof r.modifiedZScore === "number" && !Number.isNaN(r.modifiedZScore)
-        ? r.modifiedZScore
-        : null,
-    diagnosticMessage:
-      r.diagnosticMessage === null || r.diagnosticMessage === undefined
-        ? null
-        : typeof r.diagnosticMessage === "string"
-          ? r.diagnosticMessage
-          : null,
+    tokenCount: tc !== undefined && !Number.isNaN(tc) ? tc : undefined,
+    rankPosition: rp !== undefined && !Number.isNaN(rp) ? rp : undefined,
+    sentimentIntensity: si !== undefined && !Number.isNaN(si) ? si : undefined,
+    resolvedEntityLabel,
+    visibilityStage: vs !== undefined && !Number.isNaN(vs) ? vs : null,
+    visibilityStageBand: typeof vsbRaw === "string" ? vsbRaw : undefined,
+    visibilityStageNarrative: typeof vsnRaw === "string" ? vsnRaw : undefined,
+    calculationVersion: typeof cvRaw === "string" ? cvRaw : undefined,
+    negativeAlert: naRaw === true,
+    modifiedZScore: mz !== undefined && !Number.isNaN(mz) ? mz : null,
+    diagnosticMessage,
     recommendedActions,
     significantDeviation,
-    rawResponse: r.rawResponse,
-    auditDate: r.auditDate,
-    createdAt: r.createdAt,
+    rawResponse,
+    auditDate,
+    createdAt,
   };
+}
+
+export function extractApiErrorMessage(parsed: unknown): string | undefined {
+  if (parsed === null || typeof parsed !== "object") {
+    return undefined;
+  }
+  const r = parsed as JsonDict;
+  const v = r.errorMessage;
+  return typeof v === "string" ? v : undefined;
 }
 
 export function mergeJobAnalysisWithPdfContext(data: JobAnalysisDetail): JobAnalysisDetail {
@@ -591,12 +643,11 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   if (raw === null || typeof raw !== "object") {
     return null;
   }
-  const r = raw as Record<string, unknown>;
-  if (
-    typeof r.jobId !== "string" ||
-    typeof r.jobStatus !== "string" ||
-    typeof r.brandName !== "string"
-  ) {
+  const r = raw as JsonDict;
+  const jobId = typeof r.jobId === "string" ? r.jobId : undefined;
+  const jobStatus = typeof r.jobStatus === "string" ? r.jobStatus : undefined;
+  const brandName = typeof r.brandName === "string" ? r.brandName : undefined;
+  if (jobId === undefined || jobStatus === undefined || brandName === undefined) {
     return null;
   }
   const err =
@@ -604,48 +655,46 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       ? null
       : typeof r.errorMessage === "string"
         ? r.errorMessage
-        : typeof r.error_message === "string"
-          ? r.error_message
-          : null;
+        : null;
   const bc =
-    typeof r.brand_color === "string" && r.brand_color.length > 0
-      ? r.brand_color
+    typeof r.brandColor === "string" && r.brandColor.length > 0
+      ? r.brandColor
       : "#4F46E5";
   const lu =
-    r.logo_url === null || r.logo_url === undefined
+    r.logoUrl === null || r.logoUrl === undefined
       ? null
-      : typeof r.logo_url === "string" && r.logo_url.length > 0
-        ? r.logo_url
+      : typeof r.logoUrl === "string" && r.logoUrl.length > 0
+        ? r.logoUrl
         : null;
   const resultsRaw = Array.isArray(r.results) ? r.results : [];
   const results = resultsRaw
     .map((item) => parseResultDetail(item))
     .filter((x): x is ResultDetail => x !== null);
   const jsd =
-    r.job_summary_diagnostic === undefined || r.job_summary_diagnostic === null
+    r.jobSummaryDiagnostic === undefined || r.jobSummaryDiagnostic === null
       ? null
-      : typeof r.job_summary_diagnostic === "string"
-        ? r.job_summary_diagnostic
+      : typeof r.jobSummaryDiagnostic === "string"
+        ? r.jobSummaryDiagnostic
         : null;
-  const jsraRaw = r.job_summary_recommended_actions;
+  const jsraRaw = r.jobSummaryRecommendedActions;
   const jobSummaryRecommendedActions =
     Array.isArray(jsraRaw) && jsraRaw.every((x): x is string => typeof x === "string") ? jsraRaw : [];
   const jmz =
-    r.job_median_modified_z === undefined || r.job_median_modified_z === null
+    r.jobMedianModifiedZ === undefined || r.jobMedianModifiedZ === null
       ? null
-      : typeof r.job_median_modified_z === "number" && !Number.isNaN(r.job_median_modified_z)
-        ? r.job_median_modified_z
+      : typeof r.jobMedianModifiedZ === "number" && !Number.isNaN(r.jobMedianModifiedZ)
+        ? r.jobMedianModifiedZ
         : null;
   const jmvs =
-    r.job_median_visibility_stage === undefined || r.job_median_visibility_stage === null
+    r.jobMedianVisibilityStage === undefined || r.jobMedianVisibilityStage === null
       ? null
-      : typeof r.job_median_visibility_stage === "number" && !Number.isNaN(r.job_median_visibility_stage)
-        ? r.job_median_visibility_stage
+      : typeof r.jobMedianVisibilityStage === "number" && !Number.isNaN(r.jobMedianVisibilityStage)
+        ? r.jobMedianVisibilityStage
         : null;
   return {
-    jobId: r.jobId,
-    jobStatus: r.jobStatus,
-    brandName: r.brandName,
+    jobId,
+    jobStatus,
+    brandName,
     errorMessage: err,
     brandColor: bc,
     logoUrl: lu,

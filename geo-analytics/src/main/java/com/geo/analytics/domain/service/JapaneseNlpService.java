@@ -9,9 +9,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 public final class JapaneseNlpService {
     private static final String NOUN = "名詞";
+    private static final Pattern DOUBLE_NEGATION = Pattern.compile("ないわけではない|なくはない|ないことはない|ぬわけではない");
+    private static final Pattern INTENSIFIER = Pattern.compile("非常に|圧倒的に|最も");
     private final Dictionary dictionary;
     private final Semaphore sudachiSemaphore;
     private final ArrayDeque<Tokenizer> tokenizerPool = new ArrayDeque<>();
@@ -108,6 +111,26 @@ public final class JapaneseNlpService {
             return 0.0;
         }
         return (double) countTargetPhraseOccurrences(text, phrase) / total;
+    }
+
+    public double normalizeSentimentCoefficient(String text, double sentimentCoefficient) {
+        if (text == null || text.isBlank()) {
+            return sentimentCoefficient;
+        }
+        if (DOUBLE_NEGATION.matcher(text).find()) {
+            return 1.0;
+        }
+        return sentimentCoefficient;
+    }
+
+    public double applyIntensifierBoost(String text, double score) {
+        if (text == null || text.isBlank()) {
+            return score;
+        }
+        if (INTENSIFIER.matcher(text).find()) {
+            return score * 1.2;
+        }
+        return score;
     }
 
     private MorphemeList tokenize(String text) {

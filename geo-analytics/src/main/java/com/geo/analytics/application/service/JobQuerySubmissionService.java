@@ -149,7 +149,7 @@ public class JobQuerySubmissionService {
             return List.of();
         }
         var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
+        return TenantContext.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
                 .map(ProjectEntity::getCompetitorUrls)
                 .orElse(List.of())
                 .stream()

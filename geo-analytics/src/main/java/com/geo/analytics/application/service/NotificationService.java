@@ -16,7 +16,7 @@ import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -51,13 +51,14 @@ public class NotificationService {
             JobRepository jobRepository,
             ObjectMapper objectMapper,
             ObjectProvider<JavaMailSender> javaMailSenderProvider,
-            @Value("${app.notifications.mail-from:noreply@example.com}") String mailFrom) {
+            AppProperties appProperties) {
         this.projectRepository = projectRepository;
         this.auditHistoryRepository = auditHistoryRepository;
         this.jobRepository = jobRepository;
         this.objectMapper = objectMapper;
         this.javaMailSender = javaMailSenderProvider.getIfAvailable();
-        this.mailFrom = mailFrom;
+        String from = appProperties.getNotifications().getMailFrom();
+        this.mailFrom = from != null && !from.isBlank() ? from : "noreply@example.com";
     }
 
     public void deliver(ProjectAuditCompletedEvent projectAuditCompletedEvent) {

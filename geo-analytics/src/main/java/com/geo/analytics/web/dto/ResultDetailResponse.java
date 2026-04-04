@@ -1,5 +1,7 @@
 package com.geo.analytics.web.dto;
 
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -9,6 +11,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record ResultDetailResponse(
     UUID resultId,
     String query,
@@ -24,6 +27,7 @@ public record ResultDetailResponse(
     Integer visibilityStage,
     String visibilityStageBand,
     String visibilityStageNarrative,
+    Double visibilityStageProgress,
     String calculationVersion,
     Boolean negativeAlert,
     Double modifiedZScore,
@@ -41,7 +45,9 @@ public record ResultDetailResponse(
             SubscriptionPlan subscriptionPlan) {
         var plan = subscriptionPlan != null ? subscriptionPlan : SubscriptionPlan.STANDARD;
         var som = auditHistoryEntity.getSomScore();
-        var stageDef = VisibilityStageMapper.define(auditHistoryEntity.getVisibilityStage());
+        var stageDef = VisibilityStageMapper.define(
+            auditHistoryEntity.getVisibilityStage(),
+            auditHistoryEntity.getRankPosition());
         var insight = strategyInsightService.resolveForAudit(auditHistoryEntity);
         var mz = auditHistoryEntity.getModifiedZScore() != null
             ? auditHistoryEntity.getModifiedZScore()
@@ -67,6 +73,7 @@ public record ResultDetailResponse(
             auditHistoryEntity.getVisibilityStage(),
             stageDef.bandLabel(),
             stageDef.narrative(),
+            stageDef.progressRate(),
             auditHistoryEntity.getCalculationVersion(),
             Boolean.TRUE.equals(auditHistoryEntity.getNegativeAlert()),
             mz,

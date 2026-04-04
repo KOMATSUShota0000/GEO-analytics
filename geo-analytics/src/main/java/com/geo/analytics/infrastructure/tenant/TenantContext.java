@@ -25,24 +25,20 @@ public final class TenantContext {
     }
 
     public static <T> T executeWithTenant(UUID tenantId, Callable<T> callable) {
-        try {
-            return ScopedValue.where(TENANT_ID, tenantId.toString()).call(callable);
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+        return ScopedValue.where(TENANT_ID, tenantId.toString()).call(() -> wrapCallable(callable));
     }
 
     public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
-        ScopedValue.where(TENANT_ID, tenantId.toString())
-                .run(() -> ScopedValue.where(TENANT_PLAN, plan).run(runnable));
+        ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).run(runnable);
     }
 
     public static <T> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Callable<T> callable) {
+        return ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).call(() -> wrapCallable(callable));
+    }
+
+    private static <T> T wrapCallable(Callable<T> callable) {
         try {
-            return ScopedValue.where(TENANT_ID, tenantId.toString())
-                    .call(() -> ScopedValue.where(TENANT_PLAN, plan).call(callable));
+            return callable.call();
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

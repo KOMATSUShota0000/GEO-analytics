@@ -7,14 +7,37 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+    open-in-view: false
     properties:
-      "[hibernate.dialect]": org.hibernate.dialect.H2Dialect
+      "[hibernate.format_sql]": false
+      "[org.hibernate.envers.audit_table_suffix]": _AUD
+      "[org.hibernate.envers.revision_field_name]": rev
+      "[org.hibernate.envers.revision_type_field_name]": revtype
   main:
     allow-bean-definition-overriding: true
 
 app:
+  crawler:
+    cache-ttl: 24h
+    redis-enabled: false
+    redis-host: localhost
+    redis-port: 6379
+  serpapi:
+    api-key: dummy_serp_key
   ai:
+    realtime-threshold: 10
     gemini:
       api-key: test-key
+      model-name: gemini-2.5-flash
     deepseek:
       api-key: ""
+      base-url: "https://api.deepseek.com"
+  pdf:
+    base-url: "http://127.0.0.1:5173"
+    temp-dir: "./target/pdf-temp-test"
+    internal-token: test-internal-token
+    default-brand-color: "#1976d2"
+    default-logo-url: ""
+    max-concurrent: 2
+  notifications:
+    mail-from: noreply@example.com

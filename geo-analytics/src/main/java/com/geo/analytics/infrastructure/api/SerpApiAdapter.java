@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.port.SgeMeasurementPort;
 import com.geo.analytics.infrastructure.api.dto.SerpApiResponse;
-import org.springframework.beans.factory.annotation.Value;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -26,10 +26,11 @@ public class SerpApiAdapter implements SgeMeasurementPort {
     public SerpApiAdapter(
             RestClient.Builder restClientBuilder,
             ObjectMapper objectMapper,
-            @Value("${app.serpapi.api-key:}") String serpApiKey) {
+            AppProperties appProperties) {
         this.restClient = restClientBuilder.build();
         this.objectMapper = objectMapper;
-        this.serpApiKey = serpApiKey;
+        String key = appProperties.getSerpapi().getApiKey();
+        this.serpApiKey = key != null ? key : "";
     }
 
     @Override

@@ -1,22 +1,9 @@
 spring:
+  profiles:
+    default: dev
   threads:
     virtual:
       enabled: true
-  datasource:
-    url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
-    username: "postgres"
-    password: "Koma7851"
-    driver-class-name: org.postgresql.Driver
-  jpa:
-    hibernate:
-      ddl-auto: create
-    properties:
-      "[hibernate.dialect]": "org.hibernate.dialect.PostgreSQLDialect"
-      "[hibernate.format_sql]": false
-      "[org.hibernate.envers.audit_table_suffix]": _AUD
-      "[org.hibernate.envers.revision_field_name]": rev
-      "[org.hibernate.envers.revision_type_field_name]": revtype
-    show-sql: false
   jackson:
     default-property-inclusion: non_null
     serialization:
@@ -31,6 +18,7 @@ app:
     cache-ttl: 24h
     redis-enabled: false
     redis-host: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
+    redis-port: 6379
   ai:
     realtime-threshold: 10
     gemini:
@@ -40,7 +28,7 @@ app:
       api-key: "${DEEPSEEK_API_KEY:}"
       base-url: "https://api.deepseek.com"
   serpapi:
-    api-key: "${SERPAPI_API_KEY:}"
+    api-key: "dummy_serp_key"
   pdf:
     base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
     temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"

@@ -5,12 +5,12 @@ import type {
   KeywordSuggestionResponse,
   SelectedKeywordPayload,
 } from "../types/keyword";
-import { apiFetch } from "./apiFetch";
+import { apiFetch, parseJsonTextAsCamel } from "./apiFetch";
 
 function extractErrorMessage(text: string): string {
   if (!text) return "リクエストに失敗しました";
   try {
-    const o = JSON.parse(text) as unknown;
+    const o = parseJsonTextAsCamel(text) as unknown;
     if (
       typeof o === "object" &&
       o !== null &&
@@ -44,7 +44,7 @@ export async function suggestKeywords(
   if (!res.ok) {
     throw new Error(extractErrorMessage(text));
   }
-  const parsed: unknown = text ? JSON.parse(text) : null;
+  const parsed: unknown = text ? parseJsonTextAsCamel(text) : null;
   if (typeof parsed !== "object" || parsed === null || !("categories" in parsed)) {
     throw new Error("レスポンス形式が不正です");
   }
@@ -65,20 +65,20 @@ export async function registerProjectKeywords(
   if (!res.ok) {
     throw new Error(extractErrorMessage(text));
   }
-  const parsed: unknown = text ? JSON.parse(text) : null;
+  const parsed: unknown = text ? parseJsonTextAsCamel(text) : null;
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    !("registered_count" in parsed) ||
-    !("skipped_count" in parsed)
+    !("registeredCount" in parsed) ||
+    !("skippedCount" in parsed)
   ) {
     throw new Error("登録レスポンス形式が不正です");
   }
   const o = parsed as Record<string, unknown>;
-  const rc = o.registered_count;
-  const sc = o.skipped_count;
+  const rc = o.registeredCount;
+  const sc = o.skippedCount;
   if (typeof rc !== "number" || typeof sc !== "number") {
     throw new Error("登録レスポンス形式が不正です");
   }
-  return { registered_count: rc, skipped_count: sc };
+  return { registeredCount: rc, skippedCount: sc };
 }

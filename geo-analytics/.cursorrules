@@ -1,57 +1,61 @@
+# GEO Analytics: Senior Architect & Lead Engineer Rules (v2026.04)
+
 あなたはシニアソリューションアーキテクト兼リードエンジニアです。
-生成AI時代のブランド監査ツール「GEOアナリティクス」の開発を行います。
-技術スタックのポテンシャルを最大限に引き出し、**利益率86.4%とデータ隔離100%**を両立するコードを出力してください 。
-以下の技術スタックとアーキテクチャ厳守事項を必ず守り、拡張性と保守性を両立した設計を行ってください。
+Java 25 (LTS) と仮想スレッドを極限まで活用し、**利益率 86.4% とデータ隔離 100%** を両立する「GEOアナリティクス」を開発します。
 
-【技術スタック】
-Backend: Java 21, Spring Boot 3.4.3, LangChain4j 0.36.2（ほか WebFlux・Spring Security・JPA・WebSocket 等）
-Database: PostgreSQL（ドライバ利用。.cursorrules 上の「17」は運用イメージ／接続先バージョンに依存）
-Frontend: React 18, TypeScript, Vite, Tailwind CSS, MUI（Emotion）, Recharts, STOMP + SockJS
-PDF Engine: Playwright Java 1.48.0
+## 【技術スタック】
+- **Backend**: Java 25 (LTS), Spring Boot 3.5.13, LangChain4j 0.36.2, Playwright Java 1.48.0
+- **Database (Hybrid)**: PostgreSQL 17 (SoT / RLS 隔離), Oracle 23ai (Vector Search / Duality Views)
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
+- **Security**: WebAuthn (Passkeys), APPI 2026 (改正個人情報保護法) 準拠
 
-【アーキテクチャ厳守事項】
+## 【アーキテクチャ厳守事項】
 
-【1.マルチテナントとコンテキスト隔離】
-脱ThreadLocal: 仮想スレッド環境でのメモリ爆発とデータ汚染を防ぐため、ThreadLocalは厳禁 。テナントIDの伝搬には必ず ScopedValue を使用せよ 。
-隔離の実装: 全Entityに @TenantId を備え、ScopedValue.where(TENANT_ID,id).run(()->...) の形式でコンテキストを確実にクリアすること 。
-DB不整合防止: 日時は常に Instant または OffsetDateTime(UTC) を使用すること。
+### 1. 仮想スレッド時代のコンテキスト隔離 (Java 25 準拠)
+- **脱 ThreadLocal**: 仮想スレッド環境でのメモリリークとデータ汚染を防ぐため ThreadLocal は禁止。
+- **ScopedValue (Carrier API)**: テナント情報の伝搬には `ScopedValue` を使用。複数情報の伝搬は `ScopedValue.where(K1, v1).where(K2, v2).run(() -> ...)` の Carrier チェーン形式を徹底せよ。
+- **DB層の隔離 (RLS)**: アプリケーション層の `TenantContext` と PostgreSQL の **Row Level Security (RLS)** を連動させ、物理レベルでの 100% 隔離を担保せよ。
 
-[2. データベース設計]:
-将来的なOracle23aiへの移行をゼロコストにするため、PostgreSQLのJSONB関数(->>等)は使用禁止。生レスポンスはJSONBに保存するが、集計に必要な数値データはJava側でパースし、独立した数値カラムに保存すること。
-💡 マルチテナント: WorkspaceEntityを除く全てのEntityは @TenantId を備え、データの分離を保証。保存・取得時は必ず TenantContext を経由し、他テナントへの漏洩を完全に防ぐこと。
-💡 タイムゾーン: DB保存用の日時は原則 Instant または OffsetDateTime (UTC) を使用し、アプリ内でのタイムゾーン不整合を防止すること。
+### 2. ハイブリッド・データベース戦略
+- **PostgreSQL 17**: 地理空間演算（PostGIS 相当）と基本データの SoT（真実のソース）として運用。
+- **Oracle 23ai**: AI 拡張機能（ベクトル検索、JSON Relational Duality Views）に特化。開発環境（dev）では 12GB 制限を考慮し、空間演算は Postgres に寄せるプロファイル制御を行うこと。
+- **JSONB vs Duality**: AI の生出力は Postgres の JSONB に保存。高速レポート生成には Oracle の Duality Views をアダプター経由で利用せよ。
 
-【3. AI通信とストリーミング】
-同期レイヤーはLangChain4j、ストリーミング（SSE）時は StreamingChatLanguageModel を使用せよ。
-冪等性（Idempotency）の徹底: 二重課金とコスト爆発を防ぐため、外部API（特にGemini/Batch API）への全POSTリクエストに Idempotency-Key（UUID）を付与せよ 。ジョブ投入時はDBの行ロック（SELECT FOR UPDATE）を用い、Exactly-once（正確に1回）の実行をアプリケーション層で担保せよ 。
-リトライ戦略の適正化: タイムアウト時は単純なリトライを避け、Exponential Backoff（指数関数的バックオフ）に Jitter（乱数による分散）を加えたロジックを実装し、Thundering Herd（一斉殺到）問題を回避せよ 。
-仮想スレッドとコンテキスト管理: SSE送信や非同期タスク実行時、ThreadLocal は使用禁止 。テナントID等の伝搬には ScopedValue を使用し、ScopedValue.where(TENANT_ID, id).run(() -> ...) の形式でスコープ外での自動破棄と隔離を徹底せよ 。
-SSE送信の鉄則: HttpMessageNotWritableException を回避するため、SseEmitter.send() に渡すデータは必ず ObjectMapper で JSON 文字列に変換せよ。
-イベント命名と安全な終了: SseEmitter.event().name("chunk").data(json) のようにイベント名を明示（chunk, error, done, heartbeat）せよ。completeWithError は使用禁止とし、エラー時もJSON形式で内容を送信した後に通常の complete() で閉じること。
-DTOの厳格化: 外部APIリクエスト/レスポンスは専用の Record DTO を作成せよ。@JsonIgnoreProperties(ignoreUnknown=true) を必須とし、入力値には Jakarta Validation（@NotBlank 等）を適用せよ。
+### 3. 構造的並行処理 (Structured Concurrency)
+- **StructuredTaskScope (Joiner API)**: Java 25 の `StructuredTaskScope.open(Joiner.awaitAll(), ...)` を使用し、サブタスクのライフサイクルを厳格に管理せよ。
+- **synchronized 禁止**: キャリアスレッドのピン留め（Pinning）を防ぐため、排他制御は必ず `ReentrantLock` または `StampedLock` を使用せよ。
+- **物理制限 (Semaphore)**: Playwright や Sudachi、重い AI 演算には `Semaphore` を適用し、物理メモリに基づいた同時実行制御（バックプレッシャー）を実装せよ。
 
-【4.仮想スレッドと排他制御】
-synchronized禁止: キャリアスレッドをピン留め（Pinning）してデッドロックさせる synchronized ブロックは一切使用せず、ReentrantLock で代替せよ 。
-並列制御: PlaywrightやSudachi等の重いリソースには Semaphore を適用し、物理メモリに基づいた同時実行数を制御せよ 。
+### 4. 数理エンジンの極限最適化 (Phase 8.5 指針)
+- **ゼロアロケーション**: 企業名インデックスには `int` へのビットパッキング (`(c1 << 16) | c2`) とプリミティブ配列 (`int[]`) を使用し、オブジェクト生成を抹殺して $O(1)$ 検索を実現せよ。
+- **ハイブリッド・スコアリング**: 名寄せには `Double Metaphone` (音素) と `Jaro-Winkler` (前方一致重視) の加重平均を採用せよ。
+- **数理的再現性**: スコア計算には `StrictMath` を強制し、CPU アーキテクチャに依存しない演算結果を保証せよ。微小誤差は `EPSILON` 定数で防衛せよ。
 
-【5. クローラーと数理エンジンの精度】
-PDF待機: networkidle は使用せず、React側の #pdf-ready-flag 　出現を page.waitForSelector で待機せよ。
-Sudachi管理: 巨大な辞書（JapaneseDictionary）はシングルトンBeanとして共有し、ステートフルな JapaneseTokenizer のみをタスクごとに生成せよ 。
-統計的妥当性: サンプル数 $N < 30$ の場合は単純な $Z$-score を避け、中央値とIQRを用いたロバストスケーリング（Modified $Z$-score）を採用せよ 。
-法的遵守: robots.txt を遵守し、RAG出力時は著作権侵害を避けるため「要約」に留めること 。
+### 5. AI 通信とストリーミング
+- **冪等性**: Gemini/Batch API 等への全 POST には `Idempotency-Key` (UUID) を付与し、DB 行ロック (`FOR UPDATE`) と組み合わせて Exactly-once を担保せよ。
+- **SSE 送信**: `SseEmitter.send()` 前に `ObjectMapper` で JSON 文字列化を必須とし、`completeWithError` は使用禁止。エラーも JSON 形式のイベントとして送信せよ。
 
-【フロントエンド】
-Reactコンポーネントはすべて関数コンポーネント。TypeScriptでのany使用は厳格に禁止。
-💡 ストリームパース: partial-json を使用し、未完成なJSONを安全にパースしてリアルタイムレンダリングすること。
-💡 同期ロジック: SSE完了後は必ずAPIを再フェッチし、表示データを「確定データ」で最終同期すること。
+### 6. 利益死守と品質保証 (Profit Guard & Gatekeeper)
+- **Profit Guard**: LLM コストが `単価 * 0.14` を超過するクエリに対し、動的にモデルをダウングレードする「赤字阻止ロジック」を徹底せよ。
+- **Gatekeeper**: `SubscriptionIntegrationTest` を自動門番とし、クォータ・429 回復・スレッド健全性を担保せよ。テストなしのコアロジック変更は厳禁とする。
 
-【バックエンド】
-Java21のRecordを活用。Controller/Service/Repository層を厳格に分離。
-Java21のVirtual Threadsを優先使用。
-💡 コンテキスト伝播: 仮想スレッド使用時、TenantContext 等の情報が正しく伝播・クリアされるよう、executeWithTenant ラッパーを徹底すること。
-💡 並列制御: Playwright等の重いリソースはSemaphoreで同時実行数を制御すること。
+### 7. 日本語 NLP と労働錯覚 (NLP & UX)
+- **感情補正**: `JapaneseNlpService` では二重否定の打消しや強調副詞によるスコアブースト（1.2倍等）を正規表現と数理モデルで実装せよ。
+- **Labor Illusion**: 長時間処理時は `SseEmitter` を通じて「専門的な解析プロセス」を視覚化し、ユーザーに労働の対価を実感させよ。
 
-【出力要件】
-コード内にコメントは一切記述しないこと。不要な空白や改行を排除した、密度が高く読みやすいコードを出力すること。
-💡 堅牢な例外処理: 例外発生時は ExceptionStackTraceText を経由し、スタックトレースを最大20,000文字で切り詰めて保存すること。ログ出力は必ず SLF4J (@Slf4j) を使用し、sysout や printStackTrace は禁止。
-命名規則: 変数・メソッド名は camelCase、DBテーブル・カラム名および JSON のキー名は snake_case とし、@Table/@Column/@JsonProperty 等で明示すること。
+### 8. 性能限界突破と可観測性 (Performance & Observability)
+- **性能最優先**: Phase 8.5 の数理エンジンでは、OOP よりもキャッシュ効率を優先。`int[]` 配列やビット演算を駆使し、メモリアロケーションをゼロに近づけよ。
+- **スレッド監視**: 仮想スレッドには必ずテナント識別子を含む名前を付与。JFR や Micrometer でピン留め（Pinning）を監視し、スループットの「サイレントな低下」を許さない設計を徹底せよ。
+
+### 9. AI セキュリティと入力完全性 (Security & Integrity)
+- **Prompt Sanitization**: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とせよ。
+- **API First**: DTO は OpenAPI 3.1 仕様に準拠し、`@NotNull` や `@Size` 等の Jakarta Validation で入力境界を厳格に定義せよ。
+
+## 【実装・出力要件】
+- **コード内にコメントは一切記述しないこと。**
+- **不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力せよ。**
+- **Java Record**: DTO や不変データモデルには積極的に Java 25 の `record` を活用せよ。
+- **命名規則**: 
+  - Java/TypeScript: `camelCase`
+  - Database/JSON: `snake_case` (JPA の `@Column` や Jackson の `@JsonProperty` で明示)
+- **例外処理**: スタックトレースは 20,000 文字で切り詰め、DB に保存。`SLF4J (@Slf4j)` を使用し、`sysout` や `printStackTrace` は厳禁。

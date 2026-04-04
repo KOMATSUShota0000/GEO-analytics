@@ -21,6 +21,39 @@ function primeCsrfCookie(): Promise<void> {
   }
   return csrfPrime;
 }
+
+function snakeToCamelKey(key: string): string {
+  return key.replace(/_([a-zA-Z0-9])/g, (_, ch: string) => ch.toUpperCase());
+}
+
+export function keysToCamelDeep(value: unknown): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(keysToCamelDeep);
+  }
+  const src = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(src)) {
+    out[snakeToCamelKey(k)] = keysToCamelDeep(src[k]);
+  }
+  return out;
+}
+
+export function parseJsonTextAsCamel(text: string): unknown {
+  const t = text.trim();
+  if (t.length === 0) {
+    return null;
+  }
+  return keysToCamelDeep(JSON.parse(t) as unknown);
+}
+
+export async function responseJsonAsCamel(response: Response): Promise<unknown> {
+  const text = await response.text();
+  return parseJsonTextAsCamel(text);
+}
+
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const baseReq = input instanceof Request ? input : null;
   const method = (init.method ?? baseReq?.method ?? "GET").toUpperCase();

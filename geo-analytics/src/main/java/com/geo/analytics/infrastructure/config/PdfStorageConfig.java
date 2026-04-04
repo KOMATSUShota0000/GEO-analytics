@@ -2,7 +2,6 @@ package com.geo.analytics.infrastructure.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,7 +19,11 @@ public class PdfStorageConfig {
 
     private final Path tempDirectory;
 
-    public PdfStorageConfig(@Value("${app.pdf.temp-dir}") String tempDir) throws IOException {
+    public PdfStorageConfig(AppProperties appProperties) throws IOException {
+        String tempDir = appProperties.getPdf().getTempDir();
+        if (tempDir == null || tempDir.isBlank()) {
+            throw new IllegalStateException("app.pdf.temp-dir must be configured");
+        }
         this.tempDirectory = Path.of(tempDir).toAbsolutePath().normalize();
         Files.createDirectories(this.tempDirectory);
     }
