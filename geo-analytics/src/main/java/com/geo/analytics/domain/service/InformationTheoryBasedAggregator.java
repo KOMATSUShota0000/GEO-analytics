@@ -134,10 +134,10 @@ public class InformationTheoryBasedAggregator {
                 statusBands.add(ms);
                 matchedSoms.add(pick.somScore() != null ? pick.somScore() : 0.0);
                 matchedRanks.add(pick.rankPosition() != null ? pick.rankPosition() : 0);
-                matchedVs.add(pick.visibilityStage() != null ? pick.visibilityStage() : 0);
+                matchedVs.add(pick.visibilityStage() != null ? pick.visibilityStage() : 10);
             }
             if (matchedSoms.isEmpty()) {
-                merged.add(new CompetitorResult(regDisplay, 0.0, 0, 0, MatchStatus.NO_MATCH));
+                merged.add(new CompetitorResult(regDisplay, 0.0, 0, null, MatchStatus.NO_MATCH));
             } else {
                 var avgC = matchedSoms.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
                 avgC = round2(avgC);

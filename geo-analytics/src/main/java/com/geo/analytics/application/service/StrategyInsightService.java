@@ -45,13 +45,13 @@ public final class StrategyInsightService {
 
     public StrategyInsight fromVisibilityStage(int stage) {
         var s = Math.clamp(stage, 1, 10);
-        if (s == 10) {
+        if (s <= 1) {
             return new StrategyInsight(MSG_DOMINATOR, ACTIONS_HIGH, 2.0);
         }
-        if (s >= 7) {
+        if (s <= 4) {
             return new StrategyInsight(MSG_STRONG, ACTIONS_HIGH, 1.0);
         }
-        if (s >= 4) {
+        if (s <= 7) {
             return new StrategyInsight(MSG_REDOCEAN, ACTIONS_LOW, 0.0);
         }
         return new StrategyInsight(MSG_BLINDSPOT, ACTIONS_LOW, -1.5);
@@ -68,7 +68,7 @@ public final class StrategyInsightService {
             return fromModifiedZ(mz);
         }
         var vs = auditHistoryEntity.getVisibilityStage();
-        return fromVisibilityStage(vs != null ? vs : 1);
+        return fromVisibilityStage(vs != null ? vs : 10);
     }
 
     public StrategyInsight rollupJob(List<AuditHistoryEntity> rows) {
@@ -83,7 +83,7 @@ public final class StrategyInsightService {
         if (zArr.length == 0) {
             var stages = rows.stream()
                 .map(AuditHistoryEntity::getVisibilityStage)
-                .map(s -> s != null ? s : 1)
+                .map(s -> s != null ? s : 10)
                 .sorted()
                 .mapToInt(Integer::intValue)
                 .toArray();
@@ -116,7 +116,7 @@ public final class StrategyInsightService {
             return null;
         }
         var arr = rows.stream()
-            .map(a -> a.getVisibilityStage() != null ? a.getVisibilityStage() : 1)
+            .map(a -> a.getVisibilityStage() != null ? a.getVisibilityStage() : 10)
             .mapToInt(Integer::intValue)
             .toArray();
         Arrays.sort(arr);
@@ -130,7 +130,7 @@ public final class StrategyInsightService {
             int medSt,
             String jobTrendClip,
             String responseExcerpt) {
-        var st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 1;
+        var st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 10;
         var baseline = fromVisibilityStage(st).diagnosticMessage();
         var z = row.getModifiedZScore() != null ? row.getModifiedZScore() : 0.0;
         var rk = row.getRankPosition() != null ? row.getRankPosition() : 0;
@@ -186,7 +186,7 @@ public final class StrategyInsightService {
         Arrays.sort(sorted);
         int n = sorted.length;
         if (n == 0) {
-            return 1;
+            return 10;
         }
         return sorted[(n - 1) / 2];
     }

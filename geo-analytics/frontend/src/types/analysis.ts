@@ -508,6 +508,48 @@ function auditDateString(v: unknown): string | null {
   return null;
 }
 
+function gbvsKeysEqual(a: number, b: number): boolean {
+  if (Object.is(a, b)) {
+    return true;
+  }
+  return Number.isNaN(a) && Number.isNaN(b);
+}
+
+export function withGbvsCompetitionRanks(results: ResultDetail[]): ResultDetail[] {
+  if (results.length === 0) {
+    return results;
+  }
+  type Item = { idx: number; r: ResultDetail; key: number };
+  const items: Item[] = results.map((r, idx) => {
+    const g = r.gbvsNormalizedScore ?? r.somScore;
+    const key = typeof g === "number" && !Number.isNaN(g) ? g : Number.NEGATIVE_INFINITY;
+    return { idx, r, key };
+  });
+  items.sort((a, b) => {
+    if (a.key > b.key) {
+      return -1;
+    }
+    if (a.key < b.key) {
+      return 1;
+    }
+    return a.r.query.localeCompare(b.r.query);
+  });
+  const rankAt: number[] = new Array(results.length);
+  let p = 0;
+  while (p < items.length) {
+    const runStart = p;
+    const k = items[p].key;
+    while (p < items.length && gbvsKeysEqual(items[p].key, k)) {
+      p++;
+    }
+    const rank = runStart + 1;
+    for (let j = runStart; j < p; j++) {
+      rankAt[items[j].idx] = rank;
+    }
+  }
+  return results.map((r, i) => ({ ...r, mentionRank: rankAt[i] }));
+}
+
 export function parseResultDetail(raw: unknown): ResultDetail | null {
   if (raw === null || typeof raw !== "object") {
     return null;
@@ -667,9 +709,11 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
         ? r.logoUrl
         : null;
   const resultsRaw = Array.isArray(r.results) ? r.results : [];
-  const results = resultsRaw
-    .map((item) => parseResultDetail(item))
-    .filter((x): x is ResultDetail => x !== null);
+  const results = withGbvsCompetitionRanks(
+    resultsRaw
+      .map((item) => parseResultDetail(item))
+      .filter((x): x is ResultDetail => x !== null),
+  );
   const jsd =
     r.jobSummaryDiagnostic === undefined || r.jobSummaryDiagnostic === null
       ? null

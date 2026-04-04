@@ -38,6 +38,34 @@ public record ResultDetailResponse(
     LocalDate auditDate,
     Instant createdAt
 ) {
+    public ResultDetailResponse withMentionRank(Integer newMentionRank) {
+        return new ResultDetailResponse(
+                resultId,
+                query,
+                somScore,
+                gbvsNormalizedScore,
+                brandMentioned,
+                newMentionRank,
+                overallScore,
+                tokenCount,
+                rankPosition,
+                sentimentIntensity,
+                resolvedEntityLabel,
+                visibilityStage,
+                visibilityStageBand,
+                visibilityStageNarrative,
+                visibilityStageProgress,
+                calculationVersion,
+                negativeAlert,
+                modifiedZScore,
+                diagnosticMessage,
+                recommendedActions,
+                significantDeviation,
+                rawResponse,
+                auditDate,
+                createdAt);
+    }
+
     public static ResultDetailResponse from(
             AuditHistoryEntity auditHistoryEntity,
             StrategyInsightService strategyInsightService,

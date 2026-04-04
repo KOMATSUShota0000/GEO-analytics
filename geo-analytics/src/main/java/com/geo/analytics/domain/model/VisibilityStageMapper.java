@@ -10,31 +10,32 @@ public final class VisibilityStageMapper {
     }
 
     public static StageDefinition define(Integer visibilityStage, Integer rankPosition) {
-        var s = visibilityStage == null ? 1 : visibilityStage;
+        var s = visibilityStage == null ? 10 : visibilityStage;
         s = Math.clamp(s, 1, 10);
-        var progress = progressRate(s, rankPosition);
-        if (s <= 2) {
+        var t = 11 - s;
+        var progress = progressRate(t, rankPosition);
+        if (t <= 2) {
             return new StageDefinition(
                 s,
                 "基礎認識・インジェスト",
                 "AIモデルがエンティティを認識し始めた状態",
                 progress);
         }
-        if (s <= 4) {
+        if (t <= 4) {
             return new StageDefinition(
                 s,
                 "文脈理解・分類",
                 "限定的な質問や指名検索で言及される状態",
                 progress);
         }
-        if (s <= 6) {
+        if (t <= 6) {
             return new StageDefinition(
                 s,
                 "信頼構築・部分引用",
                 "まとめ記事等で選択肢として羅列される状態",
                 progress);
         }
-        if (s <= 8) {
+        if (t <= 8) {
             return new StageDefinition(
                 s,
                 "競合優位・主情報源化",

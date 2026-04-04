@@ -142,65 +142,55 @@ public final class GeoVisibilityCalculatorService {
     }
 
     private static int stageFromScorePercent(double pct) {
+        int inner;
         if (pct >= 90.0) {
-            return 10;
+            inner = 10;
+        } else if (pct >= 80.0) {
+            inner = 9;
+        } else if (pct >= 70.0) {
+            inner = 8;
+        } else if (pct >= 60.0) {
+            inner = 7;
+        } else if (pct >= 50.0) {
+            inner = 6;
+        } else if (pct >= 40.0) {
+            inner = 5;
+        } else if (pct >= 30.0) {
+            inner = 4;
+        } else if (pct >= 20.0) {
+            inner = 3;
+        } else if (pct >= 10.0) {
+            inner = 2;
+        } else {
+            inner = 1;
         }
-        if (pct >= 80.0) {
-            return 9;
-        }
-        if (pct >= 70.0) {
-            return 8;
-        }
-        if (pct >= 60.0) {
-            return 7;
-        }
-        if (pct >= 50.0) {
-            return 6;
-        }
-        if (pct >= 40.0) {
-            return 5;
-        }
-        if (pct >= 30.0) {
-            return 4;
-        }
-        if (pct >= 20.0) {
-            return 3;
-        }
-        if (pct >= 10.0) {
-            return 2;
-        }
-        return 1;
+        return StrictMath.subtractExact(11, inner);
     }
 
     private static int stageFromZPrime(double z) {
+        int inner;
         if (z >= 2.0) {
-            return 10;
+            inner = 10;
+        } else if (z >= 1.5) {
+            inner = 9;
+        } else if (z >= 1.0) {
+            inner = 8;
+        } else if (z >= 0.5) {
+            inner = 7;
+        } else if (z >= 0.0) {
+            inner = 6;
+        } else if (z >= -0.5) {
+            inner = 5;
+        } else if (z >= -1.0) {
+            inner = 4;
+        } else if (z >= -1.5) {
+            inner = 3;
+        } else if (z >= -2.0) {
+            inner = 2;
+        } else {
+            inner = 1;
         }
-        if (z >= 1.5) {
-            return 9;
-        }
-        if (z >= 1.0) {
-            return 8;
-        }
-        if (z >= 0.5) {
-            return 7;
-        }
-        if (z >= 0.0) {
-            return 6;
-        }
-        if (z >= -0.5) {
-            return 5;
-        }
-        if (z >= -1.0) {
-            return 4;
-        }
-        if (z >= -1.5) {
-            return 3;
-        }
-        if (z >= -2.0) {
-            return 2;
-        }
-        return 1;
+        return StrictMath.subtractExact(11, inner);
     }
 
     private static double medianSorted(double[] sorted) {

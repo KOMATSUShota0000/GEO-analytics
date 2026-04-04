@@ -18,6 +18,7 @@ import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobAnalysisDetailResponse;
 import com.geo.analytics.web.dto.JobStatusResponse;
+import com.geo.analytics.web.dto.ResultDetailRanking;
 import com.geo.analytics.web.dto.ResultDetailResponse;
 import com.geo.analytics.web.dto.ResultSummaryResponse;
 import com.geo.analytics.web.dto.StreamErrorPayload;
@@ -198,9 +199,10 @@ public class JobController {
             ? List.copyOf(storedActs)
             : List.copyOf(rollup.recommendedActions());
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEnt.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<ResultDetailResponse> resultDetails = audits.stream()
-            .map(a -> ResultDetailResponse.from(a, strategyInsightService, medZ, plan))
-            .toList();
+        List<ResultDetailResponse> resultDetails = ResultDetailRanking.withGbvsCompetitionRanks(
+            audits.stream()
+                .map(a -> ResultDetailResponse.from(a, strategyInsightService, medZ, plan))
+                .toList());
         return ResponseEntity.ok(JobAnalysisDetailResponse.from(
             jobEnt,
             aggregate.project(),

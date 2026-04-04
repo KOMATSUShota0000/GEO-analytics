@@ -70,7 +70,7 @@ public final class GapAnalysisService {
                 continue;
             }
             double z = row.getModifiedZScore();
-            int st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 1;
+            int st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 10;
             boolean outlier = Math.abs(z - medZ) >= 1.0;
             if (!outlier) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
