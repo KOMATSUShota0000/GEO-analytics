@@ -4,11 +4,12 @@ import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
@@ -18,12 +19,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 
 @Service
@@ -39,7 +39,7 @@ public class JobQuerySubmissionService {
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final ProjectRepository projectRepository;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
-    private final PlanBasedQuotaManager quotaLimiter;
+    private final PlanBasedQuotaManager quotaManager;
 
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
@@ -52,7 +52,7 @@ public class JobQuerySubmissionService {
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
             ProjectRepository projectRepository,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
-            PlanBasedQuotaManager quotaLimiter) {
+            PlanBasedQuotaManager quotaManager) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -63,7 +63,7 @@ public class JobQuerySubmissionService {
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.projectRepository = projectRepository;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
-        this.quotaLimiter = quotaLimiter;
+        this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -72,29 +72,49 @@ public class JobQuerySubmissionService {
             return;
         }
         var job = jobPersistenceService.findJobById(jobId);
-        var snapshot = job.getAppliedPlan() != null ? job.getAppliedPlan() : plan;
+        var planEnum = Objects.requireNonNullElse(job.getAppliedPlan(), plan);
+        var limits = effectiveLimits(job, plan);
         var existing = jobPersistenceService.countQueriesByJobId(jobId);
-        if (existing + keywordCount > snapshot.getTotalLimit()) {
+        if (existing + keywordCount > limits.totalLimit()) {
             throw new InsufficientQuotaException(
                     "登録上限を超過しています。",
-                    snapshot.getTotalLimit(),
-                    snapshot.name());
+                    limits.totalLimit(),
+                    planEnum.name());
         }
-        if (snapshot.isRealtimeAllowed(keywordCount)) {
-            registerRealtimeRouteAndStartSgeThenExecute(jobId, queryTexts, snapshot);
+        if (limits.isRealtimeAllowed(keywordCount)) {
+            registerRealtimeRouteAndStartSgeThenExecute(jobId, queryTexts, planEnum);
             return;
         }
-        if (!snapshot.usesProTierFeatures()) {
+        if (!planEnum.usesProTierFeatures()) {
             throw new InsufficientQuotaException(
                     "登録上限を超過しています。",
-                    snapshot.getTotalLimit(),
-                    snapshot.name());
+                    limits.totalLimit(),
+                    planEnum.name());
         }
-        jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, snapshot);
+        var batchTenantId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        var batchProbe = quotaManager.resolve(batchTenantId).tryConsumeAndReturnRemaining(keywordCount);
+        if (!batchProbe.isConsumed()) {
+            var workspacePlan = quotaManager.resolveWorkspacePlan(batchTenantId);
+            throw new RateLimitExceededException(batchProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
+        }
+        try {
+            jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, planEnum);
+        } catch (RuntimeException e) {
+            quotaManager.addTokens(batchTenantId, keywordCount);
+            throw e;
+        }
         startDeepAnalysisBatchPlaceholder(jobId);
         var batchJobEntity = jobPersistenceService.findJobById(jobId);
         var batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities);
+        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, keywordCount);
+    }
+
+    private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {
+        var raw = job.getPlanLimitsSnapshot();
+        if (raw != null && !raw.isBlank()) {
+            return jsonbOperations.deserialize(raw, PlanLimitsSnapshot.class);
+        }
+        return PlanLimitsSnapshot.fromPlan(Objects.requireNonNullElse(job.getAppliedPlan(), requestPlan));
     }
 
     private void registerRealtimeRouteAndStartSgeThenExecute(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -116,28 +136,47 @@ public class JobQuerySubmissionService {
         var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        var probe = quotaLimiter.resolve(tenantId).tryConsumeAndReturnRemaining(queryEntities.size());
+        var bucket = quotaManager.resolve(tenantId);
+        int n = queryEntities.size();
+        var probe = bucket.tryConsumeAndReturnRemaining(n);
         if (!probe.isConsumed()) {
-            var workspacePlan = quotaLimiter.resolveWorkspacePlan(tenantId);
+            var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
             throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
         }
-        var pendingPersistenceTasks = new ArrayList<CompletableFuture<Void>>();
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Void>[] futures = queryEntities.stream()
+                .map(qe -> CompletableFuture.runAsync(
+                        () -> TenantContext.executeWithTenant(
+                                tenantId,
+                                () -> processOneQueryRealtimeCore(
+                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan)),
+                        streamDeliveryVirtualExecutor))
+                .toArray(CompletableFuture[]::new);
         try {
-            for (var queryEntity : queryEntities) {
-                processOneQueryRealtime(
-                        jobEntity.getId(),
-                        tenantId,
-                        brandName,
-                        competitorHosts,
-                        queryEntity,
-                        appliedPlan,
-                        pendingPersistenceTasks);
-            }
-            CompletableFuture.allOf(pendingPersistenceTasks.toArray(CompletableFuture[]::new)).join();
+            CompletableFuture.allOf(futures).join();
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
             jobStatusBroadcastPublisher.publish(completedJobEntity);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
+        } catch (Throwable t) {
+            quotaManager.addTokens(tenantId, n);
+            if (t instanceof CompletionException ce) {
+                var c = ce.getCause();
+                if (c instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (c instanceof Error e) {
+                    throw e;
+                }
+                throw new IllegalStateException(c);
+            }
+            if (t instanceof RuntimeException re) {
+                throw re;
+            }
+            if (t instanceof Error e) {
+                throw e;
+            }
+            throw new IllegalStateException(t);
         } finally {
             jobStreamRegistryService.complete(jobId);
         }
@@ -158,65 +197,43 @@ public class JobQuerySubmissionService {
                 .toList());
     }
 
-    private void processOneQueryRealtime(
+    private void processOneQueryRealtimeCore(
             UUID jobId,
             UUID tenantId,
             String brandName,
             List<String> competitorHosts,
             QueryEntity queryEntity,
-            SubscriptionPlan appliedPlan,
-            List<CompletableFuture<Void>> pendingPersistenceTasks) {
-        pendingPersistenceTasks.add(CompletableFuture.runAsync(
-                () -> TenantContext.executeWithTenant(tenantId, () -> {
-                    try {
-                        var syncVerificationResult = syncVerificationService.verify(
-                                brandName,
-                                queryEntity.getQueryText(),
-                                appliedPlan,
-                                jobId,
-                                queryEntity.getId(),
-                                brandName,
-                                competitorHosts);
-                        var consultantOutputData =
-                                somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-                        var somScore = syncVerificationResult.somScore() != null
-                                ? syncVerificationResult.somScore()
-                                : 0.0;
-                        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-                        var mr = syncVerificationResult.mentionRank() != null
-                                ? syncVerificationResult.mentionRank()
-                                : 0;
-                        var ov = syncVerificationResult.overallScore() != null
-                                ? syncVerificationResult.overallScore()
-                                : 0;
-                        jobPersistenceService.upsertAuditHistoryForJobQuery(
-                                jobId,
-                                queryEntity.getId(),
-                                queryEntity.getQueryText(),
-                                jsonbOperations.serialize(consultantOutputData),
-                                somScore,
-                                brand,
-                                mr,
-                                ov,
-                                syncVerificationResult.resolvedEntityLabel(),
-                                syncVerificationResult.tokenCount(),
-                                syncVerificationResult.rankPosition(),
-                                syncVerificationResult.sentimentIntensity(),
-                                syncVerificationResult.visibilityStage(),
-                                syncVerificationResult.calculationVersion(),
-                                syncVerificationResult.modifiedZScore() != null
-                                        ? syncVerificationResult.modifiedZScore()
-                                        : 0.0,
-                                syncVerificationResult.competitorScoreRows(),
-                                syncVerificationResult.modelInsightsJson());
-                    } catch (Exception exception) {
-                        log.error(
-                                "immediate mode query failed jobId={} queryId={}",
-                                jobId,
-                                queryEntity.getId(),
-                                exception);
-                    }
-                }),
-                streamDeliveryVirtualExecutor));
+            SubscriptionPlan appliedPlan) {
+        var syncVerificationResult = syncVerificationService.verify(
+                brandName,
+                queryEntity.getQueryText(),
+                appliedPlan,
+                jobId,
+                queryEntity.getId(),
+                brandName,
+                competitorHosts);
+        var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
+        var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
+        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+        var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
+        var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
+        jobPersistenceService.upsertAuditHistoryForJobQuery(
+                jobId,
+                queryEntity.getId(),
+                queryEntity.getQueryText(),
+                jsonbOperations.serialize(consultantOutputData),
+                somScore,
+                brand,
+                mr,
+                ov,
+                syncVerificationResult.resolvedEntityLabel(),
+                syncVerificationResult.tokenCount(),
+                syncVerificationResult.rankPosition(),
+                syncVerificationResult.sentimentIntensity(),
+                syncVerificationResult.visibilityStage(),
+                syncVerificationResult.calculationVersion(),
+                syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+                syncVerificationResult.competitorScoreRows(),
+                syncVerificationResult.modelInsightsJson());
     }
 }

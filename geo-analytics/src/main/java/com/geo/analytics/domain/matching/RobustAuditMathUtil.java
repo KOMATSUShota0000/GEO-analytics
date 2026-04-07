@@ -68,31 +68,30 @@ public final class RobustAuditMathUtil {
         return StrictMath.fma(0.5, copy[mid - 1], 0.5 * copy[mid]);
     }
 
-    public static double medianAbsoluteDeviation(double[] values) {
-        if (values.length == 0) {
-            return 0.0;
-        }
-        double med = median(values);
-        int n = values.length;
-        double[] dev = new double[n];
-        for (int i = 0; i < n; i++) {
-            dev[i] = StrictMath.abs(StrictMath.fma(values[i], 1.0, -med));
-        }
-        return median(dev);
-    }
-
-    public static double modifiedZScore(double value, double[] sample) {
-        if (sample.length == 0) {
-            return 0.0;
+    /**
+     * Modified Z′ (Iglewicz–Hoaglin style) for each sample element: one median and one MAD-of-deviations pass over {@code sample}.
+     */
+    public static double[] modifiedZScores(double[] sample) {
+        int n = sample.length;
+        if (n == 0) {
+            return new double[0];
         }
         double med = median(sample);
-        double mad = medianAbsoluteDeviation(sample);
+        double[] dev = new double[n];
+        for (int i = 0; i < n; i++) {
+            dev[i] = StrictMath.abs(StrictMath.fma(sample[i], 1.0, -med));
+        }
+        double mad = median(dev);
         if (mad < EPSILON) {
-            return 0.0;
+            return new double[n];
         }
         double scale = StrictMath.fma(MAD_NORMALIZATION, mad, 0.0);
-        double num = StrictMath.fma(value, 1.0, -med);
-        return bankRoundHalfEvenDefault(softwareFtzFlush(num / scale));
+        double[] z = new double[n];
+        for (int i = 0; i < n; i++) {
+            double num = StrictMath.fma(sample[i], 1.0, -med);
+            z[i] = bankRoundHalfEvenDefault(softwareFtzFlush(num / scale));
+        }
+        return z;
     }
 
     public static double logSigmoidStable(double x) {
@@ -116,6 +115,12 @@ public final class RobustAuditMathUtil {
     }
 
     public static double bankRoundHalfEven(double value, int scale) {
+        if (Double.isNaN(value)) {
+            return 0.0;
+        }
+        if (!Double.isFinite(value)) {
+            return StrictMath.copySign(1.0, value);
+        }
         return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_EVEN).doubleValue();
     }
 

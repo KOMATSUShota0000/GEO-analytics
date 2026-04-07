@@ -9,8 +9,11 @@ import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -25,24 +28,38 @@ public class AsyncSgeMeasurementService {
     private final SgeResultRepository sgeResultRepository;
     private final JobPersistenceService jobPersistenceService;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
     private final String serpApiKey;
+    private AsyncSgeMeasurementService self;
 
     public AsyncSgeMeasurementService(
             SgeMeasurementPort sgeMeasurementPort,
             SgeResultRepository sgeResultRepository,
             JobPersistenceService jobPersistenceService,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            PlanBasedQuotaManager planBasedQuotaManager,
             AppProperties appProperties) {
         this.sgeMeasurementPort = sgeMeasurementPort;
         this.sgeResultRepository = sgeResultRepository;
         this.jobPersistenceService = jobPersistenceService;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
+        this.planBasedQuotaManager = planBasedQuotaManager;
         String key = appProperties.getSerpapi().getApiKey();
         this.serpApiKey = key != null ? key : "";
     }
 
-    @Async
+    @Autowired
+    @Lazy
+    void setSelf(AsyncSgeMeasurementService self) {
+        this.self = self;
+    }
+
     public void measureSgeForJob(JobEntity job, List<QueryEntity> queries) {
+        self.measureSgeForJob(job, queries, 0);
+    }
+
+    @Async
+    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries, int dailyQuotaRefundOnFailure) {
         Objects.requireNonNull(job, "job");
         UUID jobId = job.getId();
         List<QueryEntity> queryList = Objects.requireNonNull(queries, "queries");
@@ -84,11 +101,16 @@ public class AsyncSgeMeasurementService {
             if (exception instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            failJobAndBroadcast(jobId, exception);
+            failJobAndBroadcast(jobId, exception, dailyQuotaRefundOnFailure);
         }
     }
 
-    private void failJobAndBroadcast(UUID jobId, Throwable throwable) {
+    private void failJobAndBroadcast(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
+        if (dailyQuotaRefundOnFailure > 0) {
+            var je = jobPersistenceService.findJobById(jobId);
+            var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            planBasedQuotaManager.addTokens(tid, dailyQuotaRefundOnFailure);
+        }
         String trace = ExceptionStackTraceText.of(throwable);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, trace);
         log.error("SGE measurement failed jobId={}", jobId, throwable);

@@ -51,6 +51,24 @@ Java 25 (LTS) と仮想スレッドを極限まで活用し、**利益率 86.4% 
 - **Prompt Sanitization**: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とせよ。
 - **API First**: DTO は OpenAPI 3.1 仕様に準拠し、`@NotNull` や `@Size` 等の Jakarta Validation で入力境界を厳格に定義せよ。
 
+### 10. 実装の完全配線とレガシー排除 (Active Wiring & Purge)
+-**Shadow Implementation 禁止**: 新数理モデル（Ph 8.5/10等）実装時は、既存計算パス（Service/Aggregator等）を即座に新エンジンへ切り替え、旧ロジックを削除せよ 。
+-**数理の単一情報源 (SSOT)**: 統計計算やステージ判定には RobustAuditMathUtil または SomScoreCalculator の最新ロジックを強制使用せよ 。GeoVisibility 内での独自 IQR 計算等の重複実装を厳禁とする 。
+-**ライブラリ回帰禁止**: 名寄せ等で外部ライブラリ（Apache Commons等）を安易に使用せず、Ph 8.5 構築の「100% Pure Java」独自エンジンを最優先せよ 。
+
+### 11. ヒープ衛生とバッファ再利用 (Heap Hygiene & Buffer Reuse)
+-**ホットパスのアロケーション禁止**: computeBatch や forEachBigram 等のタイトなループ内での new char[], new boolean[], StringBuilder, toString() を厳禁とする 。
+-**CharSequence 優先**: 文字列生成を避けるため String への変換を最小化し、CharSequence を維持したまま処理せよ 。
+-**Buffer Pooling**: 頻繁に使用する配列は ThreadLocal（キャリアスレッド用）やバッファプールで再利用し、GC 発生を物理的に抑制せよ 。
+
+### 12. 仮想スレッド・ピン留めガード (Anti-Pinning Guard)
+-**synchronized 排除**: Sudachi の辞書生成や JNI 呼び出し箇所の synchronized を特定し、ReentrantLock 等へ置換せよ 。
+-**JNI ピン留め回避**: ネイティブコード呼び出しは Semaphore で同時実行数を厳格に制御し、キャリアスレッドの長時間占有（Pinning）を防げ 。
+
+### 13. 数理モデルの「知能と統計」の分離 (ZIB / Spike-and-slab)
+-**決定論的優先 (Spike)**: AI が false と判定したデータは統計的補正をバイパスし、強制的に 0.0 とせよ 。これを「論理的なゼロ」として統計モデル（Slab）から物理的に隔離せよ 。
+-**不確実性の可視化**: 小標本（$N < 30$）における点推定出力時は、事後分布に基づく「クレディブル区間（信頼区間）」を算出し、フロントエンドへ渡せ 。
+
 ## 【実装・出力要件】
 - **コード内にコメントは一切記述しないこと。**
 - **不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力せよ。**

@@ -42,6 +42,13 @@ public class PlanBasedQuotaManager {
         return proxyManager.builder().build(key, () -> configurationForWorkspace(workspaceId));
     }
 
+    public void addTokens(UUID workspaceId, long tokens) {
+        if (tokens <= 0L) {
+            return;
+        }
+        resolve(workspaceId).addTokens(tokens);
+    }
+
     public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
         return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
                 .map(WorkspaceEntity::getSubscriptionPlan)

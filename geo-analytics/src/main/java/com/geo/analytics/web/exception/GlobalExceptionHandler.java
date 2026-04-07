@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
         logger.warn("Threshold exceeded threshold={}", threshold);
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null));
+                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null, null));
     }
 
     @ExceptionHandler(InsufficientQuotaException.class)
@@ -48,7 +48,8 @@ public class GlobalExceptionHandler {
                         "INSUFFICIENT_QUOTA",
                         exception.getMessage(),
                         exception.getCurrentLimit(),
-                        exception.getPlanName()));
+                        exception.getPlanName(),
+                        null));
     }
 
     @ExceptionHandler(AiAnalysisTimeoutException.class)
@@ -66,6 +67,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
         var nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
         var wait = Duration.ofNanos(nanos);
+        var retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
         var hours = wait.toHours();
         var minutes = wait.minusHours(hours).toMinutes();
         var message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
@@ -76,7 +78,8 @@ public class GlobalExceptionHandler {
                         "RATE_LIMIT_EXCEEDED",
                         message,
                         exception.getCurrentLimit(),
-                        exception.getPlanName()));
+                        exception.getPlanName(),
+                        retryAfterSeconds));
     }
 
     @ExceptionHandler(EntityNotFoundException.class)

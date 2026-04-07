@@ -27,6 +27,10 @@ public enum SubscriptionPlan {
         return totalLimit;
     }
 
+    public int getRealtimeBatchMax() {
+        return realtimeBatchMax;
+    }
+
     public boolean isRealtimeAllowed(int queryCount) {
         return queryCount > 0 && queryCount <= realtimeBatchMax;
     }

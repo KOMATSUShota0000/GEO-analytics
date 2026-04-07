@@ -27,14 +27,12 @@ public class JobEntity extends BaseTenantEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "job_status", nullable = false, length = 20)
     private JobStatus jobStatus;
-    /**
-     * Plan captured when queries are registered; must not change afterward (see {@link #setAppliedPlan}).
-     * Not marked {@code updatable = false} here because the job row is inserted before queries exist;
-     * Hibernate would then skip persisting the plan on the follow-up update.
-     */
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", length = 16)
     private SubscriptionPlan appliedPlan;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "plan_limits_snapshot")
+    private String planLimitsSnapshot;
     @Column(name = "brand_name", nullable = false)
     private String brandName;
     @Column(name = "brand_color", nullable = false, length = 64)
@@ -98,6 +96,12 @@ public class JobEntity extends BaseTenantEntity {
             throw new IllegalStateException("appliedPlan is immutable once set");
         }
         this.appliedPlan = appliedPlan;
+    }
+    public String getPlanLimitsSnapshot() {
+        return planLimitsSnapshot;
+    }
+    public void setPlanLimitsSnapshot(String planLimitsSnapshot) {
+        this.planLimitsSnapshot = planLimitsSnapshot;
     }
     public String getBrandName() {
         return brandName;

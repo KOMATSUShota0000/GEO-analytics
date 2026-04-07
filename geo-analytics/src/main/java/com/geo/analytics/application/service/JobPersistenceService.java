@@ -11,6 +11,8 @@ import com.geo.analytics.domain.entity.JobCompetitorScoreEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
@@ -45,6 +47,7 @@ public class JobPersistenceService {
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate jobCreateTransactionTemplate;
     private final StrategyInsightService strategyInsightService;
+    private final JsonbOperations jsonbOperations;
     public JobPersistenceService(
             JobRepository jobRepository,
             QueryRepository queryRepository,
@@ -54,7 +57,8 @@ public class JobPersistenceService {
             ProjectManagementService projectManagementService,
             JdbcTemplate jdbcTemplate,
             PlatformTransactionManager platformTransactionManager,
-            StrategyInsightService strategyInsightService) {
+            StrategyInsightService strategyInsightService,
+            JsonbOperations jsonbOperations) {
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
@@ -65,6 +69,7 @@ public class JobPersistenceService {
         this.jobCreateTransactionTemplate = new TransactionTemplate(platformTransactionManager);
         this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.strategyInsightService = strategyInsightService;
+        this.jsonbOperations = jsonbOperations;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
         List<String> rows = jdbcTemplate.query(
@@ -324,6 +329,7 @@ public class JobPersistenceService {
                 queryRepository.save(queryEntity);
             });
             jobEntity.setAppliedPlan(subscriptionPlan);
+            jobEntity.setPlanLimitsSnapshot(jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(subscriptionPlan)));
             jobEntity.setJobStatus(nextStatus);
             jobRepository.save(jobEntity);
             jobStatusBroadcastPublisher.publish(jobEntity);

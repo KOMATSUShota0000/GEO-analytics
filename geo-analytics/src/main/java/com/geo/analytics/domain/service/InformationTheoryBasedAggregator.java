@@ -70,11 +70,11 @@ public class InformationTheoryBasedAggregator {
                     continue;
                 }
                 double cs = c.somScore() != null ? c.somScore() : 0.0;
-                sumAllBrands += clamp(cs / 100.0, 0.0, 1.0);
+                sumAllBrands += Math.clamp(cs / 100.0, 0.0, 1.0);
             }
         }
         double finalSom = sumAllBrands > EPSILON ? (sumBrandSignal / sumAllBrands) * 100.0 : 0.0;
-        finalSom = round2(clamp(finalSom, 0.0, 100.0));
+        finalSom = halfEven2(Math.clamp(finalSom, 0.0, 100.0));
         var brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
         var sumMr = 0;
         var sumRp = 0;
@@ -181,7 +181,7 @@ public class InformationTheoryBasedAggregator {
             double somVal = somPercents.get(i).doubleValue();
             merged.add(new CompetitorResult(
                     e.canonicalLabel(),
-                    round2(clamp(somVal, 0.0, 100.0)),
+                    halfEven2(Math.clamp(somVal, 0.0, 100.0)),
                     rank,
                     visStage,
                     e.aggregatedStatus()));
@@ -239,21 +239,11 @@ public class InformationTheoryBasedAggregator {
         if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
             return 1.0 + 0.5 * sentimentIntensity;
         }
-        return clamp(sentimentIntensity, 0.5, 1.5);
+        return Math.clamp(sentimentIntensity, 0.5, 1.5);
     }
 
-    private static double clamp(double value, double min, double max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
-        return value;
-    }
-
-    private static double round2(double value) {
-        return StrictMath.round(value * 100.0) / 100.0;
+    private static double halfEven2(double value) {
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
     }
 
     private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {
@@ -262,7 +252,7 @@ public class InformationTheoryBasedAggregator {
             List<String> tok = tm.tokenizeToNormalizedList(surface);
             String gk = tok.isEmpty() ? surface : String.join("", tok);
             double sc = c.somScore() != null ? c.somScore() : 0.0;
-            sc = clamp(sc, 0.0, 100.0);
+            sc = Math.clamp(sc, 0.0, 100.0);
             return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), 1L, c.matchStatus());
         }
     }

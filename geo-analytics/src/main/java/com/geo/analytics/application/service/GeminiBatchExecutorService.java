@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
@@ -25,21 +26,25 @@ public class GeminiBatchExecutorService {
     private final JobPersistenceService jobPersistenceService;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
             JobPersistenceService jobPersistenceService,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
-            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher) {
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
+            PlanBasedQuotaManager planBasedQuotaManager) {
         this.geminiBatchClient = geminiBatchClient;
         this.jobPersistenceService = jobPersistenceService;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
+        this.planBasedQuotaManager = planBasedQuotaManager;
     }
 
     @Async
     public CompletableFuture<Void> uploadAndSubmitBatchJob(JobEntity jobEntity) {
         Path jsonlPath = null;
+        int quotaRefundOnFailure = 0;
         try {
             List<QueryEntity> unprocessedQueryEntities =
                 jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
@@ -50,6 +55,7 @@ public class GeminiBatchExecutorService {
                 projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
             }
+            quotaRefundOnFailure = unprocessedQueryEntities.size();
             List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
                 .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
                 .toList();
@@ -64,6 +70,10 @@ public class GeminiBatchExecutorService {
                 jobEntity.getId(), createdBatchJob.name());
             jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
         } catch (Exception exception) {
+            if (quotaRefundOnFailure > 0) {
+                var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+                planBasedQuotaManager.addTokens(tid, quotaRefundOnFailure);
+            }
             jobPersistenceService.updateJobStatus(
                 jobEntity.getId(),
                 JobStatus.FAILED,

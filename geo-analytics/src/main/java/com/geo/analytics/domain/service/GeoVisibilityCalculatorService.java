@@ -1,7 +1,9 @@
 package com.geo.analytics.domain.service;
 
+import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -10,12 +12,9 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 
 public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE4.5_FINAL_V1";
+    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V1";
     private static final double EPSILON = 1.0E-10;
-    private static final double IQR_SCALE = 1.3489;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
-    private static final double MARKET_PRIOR_INTEGRATED_RAW = 0.42;
-    private static final double PRIOR_EQUIVALENT_N = 18.0;
     private static final double SOURCE_WEIGHT_HIGH = 1.5;
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
     private static final double SOURCE_WEIGHT_LOW = 0.3;
@@ -85,55 +84,112 @@ public final class GeoVisibilityCalculatorService {
         return List.of();
     }
 
-    public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
+    public static GbvsResult compute(
+            SomRawMetrics metrics,
+            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
         return computeBatch(List.of(metrics), lAvgJob).getFirst();
     }
 
-    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob) {
+    public static List<GbvsResult> computeBatch(
+            List<SomRawMetrics> rows,
+            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
         return computeBatch(rows, lAvgJob, rows.size());
     }
 
-    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob, int bayesSampleCardinality) {
+    public static List<GbvsResult> computeBatch(
+            List<SomRawMetrics> rows,
+            @SuppressWarnings("unused") double lAvgJob, // Reserved for Phase 11 cross-model L_avg bias correction
+            int bayesSampleCardinality) {
         int n = rows.size();
         if (n == 0) {
             return List.of();
         }
-        int blendN = Math.max(n, Math.max(1, bayesSampleCardinality));
+        int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
         double[] raw = new double[n];
         IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
         double[] work = new double[n];
         if (blendN < BAYES_SAMPLE_THRESHOLD) {
-            int finalBlend = blendN;
-            IntStream.range(0, n).parallel().forEach(i -> work[i] = rows.get(i).isSemanticallyMentioned()
-                ? bayesBlend(raw[i], finalBlend)
-                : 0.0);
+            applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
         } else {
             System.arraycopy(raw, 0, work, 0, n);
         }
+        sanitizeWorkForRobustStatistics(work);
+        double[] zScores = RobustAuditMathUtil.modifiedZScores(work);
         if (n == 1) {
-            double pct = clamp01(work[0]) * 100.0;
-            return List.of(new GbvsResult(pct, stageFromScorePercent(pct), 0.0));
+            double pct = StrictMath.fma(clamp01(work[0]), 100.0, 0.0);
+            return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
         }
         double[] sorted = Arrays.copyOf(work, n);
         Arrays.parallelSort(sorted);
-        double med = medianSorted(sorted);
-        double iq = iqrSorted(sorted);
-        double denom = iq > EPSILON ? iq / IQR_SCALE : 0.0;
         double minR = sorted[0];
         double maxR = sorted[n - 1];
         GbvsResult[] out = new GbvsResult[n];
         IntStream.range(0, n).parallel().forEach(i -> {
-            double zPrime = denom > EPSILON ? (work[i] - med) / denom : 0.0;
-            int stage = stageFromZPrime(zPrime);
-            double pct = maxR > minR + EPSILON ? 100.0 * (work[i] - minR) / (maxR - minR) : clamp01(work[i]) * 100.0;
-            out[i] = new GbvsResult(clampPercent(pct), stage, zPrime);
+            double z = zScores[i];
+            int stage = stageFromModifiedZ(z);
+            double span = StrictMath.fma(maxR, 1.0, -minR);
+            double pct = span > EPSILON
+                    ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
+                    : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
+            out[i] = new GbvsResult(clampPercent(pct), stage, z);
         });
-        return Arrays.asList(out);
+        return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
     }
 
-    private static double bayesBlend(double rawI, int n) {
-        double w = (double) n / ((double) n + PRIOR_EQUIVALENT_N);
-        return w * rawI + (1.0 - w) * MARKET_PRIOR_INTEGRATED_RAW;
+    /** NaN / Infinity must not reach median or MAD ({@link RobustAuditMathUtil#modifiedZScores(double[])}). */
+    private static void sanitizeWorkForRobustStatistics(double[] work) {
+        for (int i = 0; i < work.length; i++) {
+            if (!Double.isFinite(work[i])) {
+                work[i] = 0.0;
+            }
+        }
+    }
+
+    /**
+     * Moment-matched Beta hyperparameters with {@link RobustAuditMathUtil#betaMomentAlphaBeta(double, double)} variance clamp,
+     * then per-row Beta–Binomial posterior means (effective trials = {@code blendN}).
+     */
+    private static void applySmallSampleBetaPipeline(
+            List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
+        int mentionedCount = 0;
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            if (rows.get(i).isSemanticallyMentioned()) {
+                mentionedCount++;
+                sum = StrictMath.fma(raw[i], 1.0, sum);
+            }
+        }
+        if (mentionedCount == 0) {
+            Arrays.fill(work, 0.0);
+            return;
+        }
+        double m = sum / (double) mentionedCount;
+        double v;
+        if (mentionedCount < 2) {
+            v = StrictMath.fma(m, 1.0 - m, 0.0) / (double) StrictMath.max(1, blendN);
+        } else {
+            double ss = 0.0;
+            for (int i = 0; i < n; i++) {
+                if (rows.get(i).isSemanticallyMentioned()) {
+                    double d = StrictMath.fma(raw[i], 1.0, -m);
+                    ss = StrictMath.fma(d, d, ss);
+                }
+            }
+            v = ss / (double) (mentionedCount - 1);
+        }
+        double[] ab = RobustAuditMathUtil.betaMomentAlphaBeta(m, v);
+        double alpha = ab[0];
+        double beta = ab[1];
+        double nn = (double) blendN;
+        for (int i = 0; i < n; i++) {
+            if (!rows.get(i).isSemanticallyMentioned()) {
+                work[i] = 0.0;
+                continue;
+            }
+            double kEff = RobustAuditMathUtil.softwareFtzFlush(
+                    StrictMath.min(nn, StrictMath.max(0.0, StrictMath.fma(raw[i], nn, 0.0))));
+            work[i] = RobustAuditMathUtil.betaBinomialPosteriorMean(kEff, nn, alpha, beta);
+        }
     }
 
     public static double sourceWeightFromUrl(String url) {
@@ -209,6 +265,9 @@ public final class GeoVisibilityCalculatorService {
     }
 
     private static double clamp(double v, double lo, double hi) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) {
+            return lo;
+        }
         if (v < lo) {
             return lo;
         }
@@ -244,65 +303,34 @@ public final class GeoVisibilityCalculatorService {
         return StrictMath.subtractExact(11, inner);
     }
 
-    private static int stageFromZPrime(double z) {
+    /** Modified Z′ bands on ±3.0 tails; inner rank inverted to visibility stage (11 − inner). */
+    private static int stageFromModifiedZ(double z) {
+        if (Double.isNaN(z) || Double.isInfinite(z)) {
+            return 6;
+        }
         int inner;
-        if (z >= 2.0) {
+        if (z >= 3.0) {
             inner = 10;
-        } else if (z >= 1.5) {
+        } else if (z <= -3.0) {
+            inner = 1;
+        } else if (z >= 2.25) {
             inner = 9;
-        } else if (z >= 1.0) {
+        } else if (z >= 1.5) {
             inner = 8;
-        } else if (z >= 0.5) {
+        } else if (z >= 0.75) {
             inner = 7;
         } else if (z >= 0.0) {
             inner = 6;
-        } else if (z >= -0.5) {
+        } else if (z >= -0.75) {
             inner = 5;
-        } else if (z >= -1.0) {
-            inner = 4;
         } else if (z >= -1.5) {
+            inner = 4;
+        } else if (z >= -2.25) {
             inner = 3;
-        } else if (z >= -2.0) {
-            inner = 2;
         } else {
-            inner = 1;
+            inner = 2;
         }
         return StrictMath.subtractExact(11, inner);
-    }
-
-    private static double medianSorted(double[] sorted) {
-        int n = sorted.length;
-        if (n == 0) {
-            return 0.0;
-        }
-        if ((n & 1) == 1) {
-            return sorted[n / 2];
-        }
-        return (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
-    }
-
-    private static double iqrSorted(double[] sorted) {
-        int n = sorted.length;
-        if (n == 0) {
-            return 0.0;
-        }
-        if (n == 1) {
-            return 0.0;
-        }
-        double q1 = percentileSorted(sorted, 0.25);
-        double q3 = percentileSorted(sorted, 0.75);
-        return q3 - q1;
-    }
-
-    private static double percentileSorted(double[] sorted, double p) {
-        int n = sorted.length;
-        if (n == 1) {
-            return sorted[0];
-        }
-        double h = (n - 1) * p;
-        int lo = (int) StrictMath.floor(h);
-        int hi = (int) StrictMath.ceil(h);
-        return sorted[lo] + (sorted[hi] - sorted[lo]) * (h - (double) lo);
     }
 
     public record GbvsResult(double scorePercent, int visibilityStage, double modifiedZScore) {}
