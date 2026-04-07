@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClientResponseException;
+import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -254,14 +255,12 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
         double stuffingDensity = 0.0;
         for (String nd : needles) {
-            stuffingDensity = Math.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
+            stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
         }
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
-        boolean isProAnalysis = isProPlan;
-        boolean isSemanticallyMentioned = Boolean.TRUE.equals(full.brandMentioned());
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
-        SomRawMetrics rawMetrics = new SomRawMetrics(
-            tc, rp, si, isProAnalysis, isSemanticallyMentioned, nounCount, stuffingDensity, responseTokenLength, sourceWeight);
+        SomRawMetrics rawMetrics = metrics.toRawMetrics(
+            subscriptionPlan, si, responseTokenLength, nounCount, stuffingDensity, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
         if (verificationRequest.jobId() != null) {
@@ -272,14 +271,16 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         }
         var som = gbvs.scorePercent();
         som = japaneseNlpService.applyIntensifierBoost(nlpSource, som);
-        som = Math.clamp(som, 0.0, 100.0);
-        boolean brand = isSemanticallyMentioned;
-        int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
+        som = StrictMath.max(0.0, StrictMath.min(100.0, som));
+        boolean brand = Boolean.TRUE.equals(full.brandMentioned());
+        int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, som)));
         var compList = new ArrayList<CompetitorResult>();
         if (full.competitorComparison() != null) {
             var idx = 0;
             for (var entry : full.competitorComparison()) {
                 var label = entry.competitorName() != null ? entry.competitorName() : "";
+                List<String> compNeedles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(label, label);
+                int compNounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, compNeedles);
                 var shareSom = entry.share() != null ? entry.share() * 100.0 : 0.0;
                 var vs = gbvs.visibilityStage();
                 compList.add(new CompetitorResult(
@@ -287,7 +288,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                         shareSom,
                         idx + 1,
                         vs,
-                        MatchStatus.AUTO_MATCH));
+                        MatchStatus.AUTO_MATCH,
+                        compNounCount));
                 idx++;
             }
         }
@@ -298,7 +300,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 brand,
                 rp,
                 overall,
-                nounCount,
+                tc,
                 rp,
                 si,
                 resolved,

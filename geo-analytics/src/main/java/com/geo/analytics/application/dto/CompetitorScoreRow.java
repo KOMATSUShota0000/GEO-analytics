@@ -7,5 +7,5 @@ public record CompetitorScoreRow(
         double somScore,
         Integer rankPosition,
         Integer visibilityStage,
-        MatchStatus matchStatus
-) {}
+        MatchStatus matchStatus,
+        int nounCount) {}

@@ -2,25 +2,11 @@ package com.geo.analytics.domain.service;
 
 import com.geo.analytics.domain.model.SomRawMetrics;
 import java.lang.StrictMath;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 public final class SomScoreCalculator {
     private SomScoreCalculator() {}
-
-    private static SomRawMetrics paddedPlaceholderRow() {
-        return new SomRawMetrics(0, 0, 0.0, false, false, 0, 0.0, 0, 0.3);
-    }
-
-    private static List<SomRawMetrics> padRowsToPlanned(List<SomRawMetrics> rows, int planned) {
-        int target = StrictMath.max(1, planned);
-        ArrayList<SomRawMetrics> out = new ArrayList<>(rows);
-        while (out.size() < target) {
-            out.add(paddedPlaceholderRow());
-        }
-        return out;
-    }
 
     public static GeoVisibilityCalculatorService.GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
         return GeoVisibilityCalculatorService.compute(metrics, lAvgJob);
@@ -32,11 +18,7 @@ public final class SomScoreCalculator {
             long plannedQueryCount) {
         Objects.requireNonNull(metrics, "metrics");
         int planned = (int) StrictMath.max(1L, plannedQueryCount);
-        List<SomRawMetrics> padded = padRowsToPlanned(List.of(metrics), planned);
-        int card = StrictMath.max(padded.size(), planned);
-        List<GeoVisibilityCalculatorService.GbvsResult> all =
-            GeoVisibilityCalculatorService.computeBatch(padded, lAvgJob, card);
-        return all.getFirst();
+        return GeoVisibilityCalculatorService.computeBatch(List.of(metrics), lAvgJob, planned).getFirst();
     }
 
     public static List<GeoVisibilityCalculatorService.GbvsResult> computeBatch(
@@ -57,15 +39,10 @@ public final class SomScoreCalculator {
             double lAvgJob,
             long plannedQueryCount) {
         Objects.requireNonNull(rows, "rows");
-        int originalSize = rows.size();
-        int planned = (int) StrictMath.max(1L, plannedQueryCount);
-        List<SomRawMetrics> padded = padRowsToPlanned(rows, planned);
-        int card = StrictMath.max(padded.size(), planned);
-        List<GeoVisibilityCalculatorService.GbvsResult> all =
-            GeoVisibilityCalculatorService.computeBatch(padded, lAvgJob, card);
-        if (originalSize == 0) {
+        if (rows.isEmpty()) {
             return List.of();
         }
-        return List.copyOf(all.subList(0, originalSize));
+        int planned = (int) StrictMath.max(1L, plannedQueryCount);
+        return GeoVisibilityCalculatorService.computeBatch(rows, lAvgJob, planned);
     }
 }

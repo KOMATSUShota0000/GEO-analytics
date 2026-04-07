@@ -30,3 +30,6 @@ CREATE TABLE IF NOT EXISTS job_competitor_scores (
     match_status VARCHAR(32) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_job_competitor_scores_audit ON job_competitor_scores(audit_history_id);
+-- Phase 9.6 / Flyway V202604081200: evidence noun counts (also in db/migration).
+ALTER TABLE job_competitor_scores ADD COLUMN IF NOT EXISTS noun_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sge_results ADD COLUMN IF NOT EXISTS mention_count INTEGER NOT NULL DEFAULT 0;

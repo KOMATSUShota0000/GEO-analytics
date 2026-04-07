@@ -129,7 +129,8 @@ public class SyncVerificationService {
                         cr.somScore() != null ? cr.somScore() : 0.0,
                         cr.rankPosition(),
                         cr.visibilityStage(),
-                        cr.matchStatus()))
+                        cr.matchStatus(),
+                        cr.nounCount()))
                 .toList();
         var insightsJson = serializeInsights(verificationResponse);
         return new SyncVerificationResult(

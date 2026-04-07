@@ -6,10 +6,12 @@ import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import org.springframework.stereotype.Component;
 
+import java.lang.StrictMath;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
@@ -28,7 +30,6 @@ import java.util.stream.Collectors;
 @Component
 public class InformationTheoryBasedAggregator {
     public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
-    private static final double EPSILON = 1.0E-10;
     private static final BigDecimal HUNDRED = new BigDecimal("100.00");
     private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
     private static final Pattern LEGAL_ENTITY = Pattern.compile(
@@ -70,11 +71,13 @@ public class InformationTheoryBasedAggregator {
                     continue;
                 }
                 double cs = c.somScore() != null ? c.somScore() : 0.0;
-                sumAllBrands += Math.clamp(cs / 100.0, 0.0, 1.0);
+                sumAllBrands += clampD(cs / 100.0, 0.0, 1.0);
             }
         }
-        double finalSom = sumAllBrands > EPSILON ? (sumBrandSignal / sumAllBrands) * 100.0 : 0.0;
-        finalSom = halfEven2(Math.clamp(finalSom, 0.0, 100.0));
+        double finalSom = sumAllBrands > RobustAuditMathUtil.EPSILON
+                ? (sumBrandSignal / sumAllBrands) * 100.0
+                : 0.0;
+        finalSom = halfEven2(clampD(finalSom, 0.0, 100.0));
         var brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
         var sumMr = 0;
         var sumRp = 0;
@@ -179,12 +182,15 @@ public class InformationTheoryBasedAggregator {
             int stageRaw = StrictMath.subtractExact(11, rank);
             int visStage = stageRaw < 1 ? 1 : (stageRaw > 10 ? 10 : stageRaw);
             double somVal = somPercents.get(i).doubleValue();
+            long tm = e.totalMentions();
+            int nounAgg = tm > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) tm;
             merged.add(new CompetitorResult(
                     e.canonicalLabel(),
-                    halfEven2(Math.clamp(somVal, 0.0, 100.0)),
+                    halfEven2(clampD(somVal, 0.0, 100.0)),
                     rank,
                     visStage,
-                    e.aggregatedStatus()));
+                    e.aggregatedStatus(),
+                    nounAgg));
         }
         merged.sort(Comparator.comparing(
                 (CompetitorResult cr) -> cr.rankPosition() != null ? cr.rankPosition() : Integer.MAX_VALUE,
@@ -239,7 +245,11 @@ public class InformationTheoryBasedAggregator {
         if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
             return 1.0 + 0.5 * sentimentIntensity;
         }
-        return Math.clamp(sentimentIntensity, 0.5, 1.5);
+        return clampD(sentimentIntensity, 0.5, 1.5);
+    }
+
+    private static double clampD(double v, double lo, double hi) {
+        return StrictMath.max(lo, StrictMath.min(hi, v));
     }
 
     private static double halfEven2(double value) {
@@ -252,12 +262,16 @@ public class InformationTheoryBasedAggregator {
             List<String> tok = tm.tokenizeToNormalizedList(surface);
             String gk = tok.isEmpty() ? surface : String.join("", tok);
             double sc = c.somScore() != null ? c.somScore() : 0.0;
-            sc = Math.clamp(sc, 0.0, 100.0);
-            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), 1L, c.matchStatus());
+            sc = clampD(sc, 0.0, 100.0);
+            long mentions = c.nounCount();
+            if (mentions < 0L) {
+                mentions = 0L;
+            }
+            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), mentions, c.matchStatus());
         }
     }
 
-    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus) {
+    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus, long totalMentions) {
         static EntityAggregate fromContribs(List<BrandContrib> rows) {
             BigDecimal sumPts = rows.stream()
                     .collect(Collectors.toMap(
@@ -266,6 +280,7 @@ public class InformationTheoryBasedAggregator {
                             BigDecimal::add))
                     .values().stream()
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            long sumMentions = rows.stream().mapToLong(BrandContrib::mentions).sum();
             MatchStatus st = rows.stream().anyMatch(r -> r.status() == MatchStatus.MANUAL_REVIEW)
                     ? MatchStatus.MANUAL_REVIEW
                     : MatchStatus.AUTO_MATCH;
@@ -275,7 +290,7 @@ public class InformationTheoryBasedAggregator {
                     .distinct()
                     .min(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
                     .orElse("");
-            return new EntityAggregate(canonical, sumPts, st);
+            return new EntityAggregate(canonical, sumPts, st, sumMentions);
         }
     }
 }

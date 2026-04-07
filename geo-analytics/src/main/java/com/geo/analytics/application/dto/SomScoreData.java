@@ -9,12 +9,32 @@ import com.geo.analytics.domain.model.SomRawMetrics;
 public record SomScoreData(
     @JsonProperty("token_count") Integer tokenCount,
     @JsonProperty("rank_position") Integer rankPosition,
-    @JsonProperty("sentiment_intensity") Double sentimentIntensity
+    @JsonProperty("sentiment_intensity") Double sentimentIntensity,
+    @JsonProperty("brand_mentioned") Boolean brandMentioned
 ) {
-    public SomRawMetrics toRawMetrics(SubscriptionPlan subscriptionPlan) {
+    /**
+     * NLP-derived lengths and counts must be supplied by the Java NLP pipeline (not AI text fields).
+     * {@code normalizedSentimentIntensity} must be the coefficient after {@code JapaneseNlpService} normalization.
+     */
+    public SomRawMetrics toRawMetrics(
+            SubscriptionPlan subscriptionPlan,
+            double normalizedSentimentIntensity,
+            int nlpResponseTokenLength,
+            int nlpNounCount,
+            double stuffingDensity,
+            double sourceWeight) {
         int tc = tokenCount != null ? tokenCount : 0;
         int rp = rankPosition != null ? rankPosition : 0;
-        double si = sentimentIntensity != null ? sentimentIntensity : 0.0;
-        return new SomRawMetrics(tc, rp, si, subscriptionPlan.usesProTierFeatures(), false, 0, 0.0, 0, 0.3);
+        boolean mentioned = Boolean.TRUE.equals(brandMentioned);
+        return new SomRawMetrics(
+                tc,
+                rp,
+                normalizedSentimentIntensity,
+                subscriptionPlan.usesProTierFeatures(),
+                mentioned,
+                nlpNounCount,
+                stuffingDensity,
+                nlpResponseTokenLength,
+                sourceWeight);
     }
 }

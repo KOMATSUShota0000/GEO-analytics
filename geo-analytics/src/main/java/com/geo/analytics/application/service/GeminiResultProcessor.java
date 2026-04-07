@@ -20,6 +20,7 @@ import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
+import java.lang.StrictMath;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -96,8 +97,6 @@ public class GeminiResultProcessor {
                 String aiResponseText = extractAiResponseText(outputRecord);
                 ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(aiResponseText);
                 SomScoreData metrics = consultantOutputData.toSomScoreData();
-                int tc = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
-                int rp = metrics.rankPosition() != null ? metrics.rankPosition() : 0;
                 double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
                 String ext = consultantOutputData.extractedBrandMention();
                 String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
@@ -111,13 +110,10 @@ public class GeminiResultProcessor {
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
                 double stuffingDensity = 0.0;
                 for (String nd : needles) {
-                    stuffingDensity = Math.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
+                    stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
                 }
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
-                boolean isProAnalysis = isProPlan;
-                boolean isSemanticallyMentioned = Boolean.TRUE.equals(consultantOutputData.brandMentioned());
-                SomRawMetrics rawMetrics = new SomRawMetrics(
-                    tc, rp, si, isProAnalysis, isSemanticallyMentioned, nounCount, stuffingDensity, responseTokenLength, 0.3);
+                SomRawMetrics rawMetrics = metrics.toRawMetrics(plan, si, responseTokenLength, nounCount, stuffingDensity, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
@@ -133,8 +129,8 @@ public class GeminiResultProcessor {
                     exception);
             }
         }
-        var lAvg = parsedLines.stream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
-        var metricsList = parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
+        var lAvg = parsedLines.parallelStream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
+        var metricsList = parsedLines.parallelStream().map(BatchParsedLine::rawMetrics).toList();
         long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
         var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
@@ -144,10 +140,10 @@ public class GeminiResultProcessor {
                 ? line.consultantOutputData().response()
                 : "";
             var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
-            var somScore = Math.clamp(boostedSomScore, 0.0, 100.0);
+            var somScore = StrictMath.max(0.0, StrictMath.min(100.0, boostedSomScore));
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
-            int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
+            int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
                 jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
                     jobPersistenceService.upsertAuditHistoryForJobQuery(
                         jobEntity.getId(),

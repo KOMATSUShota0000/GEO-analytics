@@ -6,6 +6,7 @@ import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
+import java.lang.StrictMath;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -84,7 +85,7 @@ public record ResultDetailResponse(
         if (plan.usesProTierFeatures()
             && jobMedianModifiedZ != null
             && auditHistoryEntity.getModifiedZScore() != null) {
-            sig = Math.abs(auditHistoryEntity.getModifiedZScore() - jobMedianModifiedZ) >= 1.0;
+            sig = StrictMath.abs(auditHistoryEntity.getModifiedZScore() - jobMedianModifiedZ) >= 1.0;
         }
         return new ResultDetailResponse(
             auditHistoryEntity.getId(),

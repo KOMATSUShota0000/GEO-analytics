@@ -1,5 +1,8 @@
 package com.geo.analytics.domain.model;
 
+import com.geo.analytics.domain.matching.RobustAuditMathUtil;
+import java.lang.StrictMath;
+
 public final class VisibilityStageMapper {
     private VisibilityStageMapper() {}
 
@@ -11,7 +14,7 @@ public final class VisibilityStageMapper {
 
     public static StageDefinition define(Integer visibilityStage, Integer rankPosition) {
         var s = visibilityStage == null ? 10 : visibilityStage;
-        s = Math.clamp(s, 1, 10);
+        s = StrictMath.max(1, StrictMath.min(10, s));
         var t = 11 - s;
         var progress = progressRate(t, rankPosition);
         if (t <= 2) {
@@ -57,7 +60,7 @@ public final class VisibilityStageMapper {
         double currentBoundary = currentBoundary(stage);
         double nextBoundary = nextBoundary(stage);
         double denominator = StrictMath.log(nextBoundary) - StrictMath.log(currentBoundary);
-        if (StrictMath.abs(denominator) < 1.0E-10) {
+        if (StrictMath.abs(denominator) < RobustAuditMathUtil.EPSILON) {
             return 0.0;
         }
         double numerator = StrictMath.log(nextBoundary) - StrictMath.log(r);

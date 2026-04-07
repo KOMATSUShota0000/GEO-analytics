@@ -4,6 +4,7 @@ import com.worksap.nlp.sudachi.Dictionary;
 import com.worksap.nlp.sudachi.Morpheme;
 import com.worksap.nlp.sudachi.MorphemeList;
 import com.worksap.nlp.sudachi.Tokenizer;
+import java.lang.StrictMath;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
@@ -21,12 +22,16 @@ public final class JapaneseNlpService {
     private final ReentrantLock poolLock = new ReentrantLock();
 
     public JapaneseNlpService(Dictionary dictionary) {
-        this(dictionary, Math.clamp(Runtime.getRuntime().availableProcessors(), 2, 16));
+        this(dictionary, clampProc(Runtime.getRuntime().availableProcessors()));
     }
 
     public JapaneseNlpService(Dictionary dictionary, int maxConcurrentSudachi) {
         this.dictionary = dictionary;
-        this.sudachiSemaphore = new Semaphore(Math.max(2, maxConcurrentSudachi));
+        this.sudachiSemaphore = new Semaphore(StrictMath.max(2, maxConcurrentSudachi));
+    }
+
+    private static int clampProc(int p) {
+        return StrictMath.max(2, StrictMath.min(16, p));
     }
 
     public String normalizedForm(String text) {
@@ -128,7 +133,7 @@ public final class JapaneseNlpService {
             return score;
         }
         if (INTENSIFIER.matcher(text).find()) {
-            return score * 1.2;
+            return StrictMath.fma(score, 1.2, 0.0);
         }
         return score;
     }

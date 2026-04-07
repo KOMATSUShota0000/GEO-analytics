@@ -8,6 +8,7 @@ import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -71,7 +72,7 @@ public final class GapAnalysisService {
             }
             double z = row.getModifiedZScore();
             int st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 10;
-            boolean outlier = Math.abs(z - medZ) >= 1.0;
+            boolean outlier = StrictMath.abs(z - medZ) >= 1.0;
             if (!outlier) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
                 jobPersistenceService.updateAuditStrategyInsights(
@@ -155,7 +156,7 @@ public final class GapAnalysisService {
                 if (row.getModifiedZScore() == null) {
                     continue;
                 }
-                if (Math.abs(row.getModifiedZScore() - medZ) >= 1.0) {
+                if (StrictMath.abs(row.getModifiedZScore() - medZ) >= 1.0) {
                     outlierRows.add(row);
                 }
             }

@@ -1,6 +1,8 @@
 spring:
   profiles:
     default: dev
+  flyway:
+    enabled: false
   threads:
     virtual:
       enabled: true

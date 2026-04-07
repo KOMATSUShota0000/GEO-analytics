@@ -1,4 +1,7 @@
 spring:
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   datasource:
     url: "jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
     username: "${DB_USER:postgres}"

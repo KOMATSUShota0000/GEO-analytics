@@ -218,9 +218,9 @@ class SubscriptionIntegrationTest {
     void scenarioD_entityResolutionAndNoMatchExcludedFromSomAggregation() {
         var insights = new LinkedHashMap<ModelType, String>();
         insights.put(ModelType.GEMINI, "{}");
-        var aliasA = new CompetitorResult("御茶", 40.0, 2, 5, MatchStatus.AUTO_MATCH);
-        var aliasB = new CompetitorResult("お茶", 50.0, 1, 6, MatchStatus.AUTO_MATCH);
-        var noise = new CompetitorResult("TotallyUnrelatedNoise", 99.0, 1, 7, MatchStatus.NO_MATCH);
+        var aliasA = new CompetitorResult("御茶", 40.0, 2, 5, MatchStatus.AUTO_MATCH, 2);
+        var aliasB = new CompetitorResult("お茶", 50.0, 1, 6, MatchStatus.AUTO_MATCH, 3);
+        var noise = new CompetitorResult("TotallyUnrelatedNoise", 99.0, 1, 7, MatchStatus.NO_MATCH, 0);
         var modelResponse = new VerificationResponse(
                 ModelType.GEMINI,
                 "{}",

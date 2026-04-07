@@ -40,6 +40,9 @@ public class JobCompetitorScoreEntity {
     @Column(name = "match_status", nullable = false, length = 32)
     private MatchStatus matchStatus;
 
+    @Column(name = "noun_count", nullable = false)
+    private int nounCount;
+
     public JobCompetitorScoreEntity() {
     }
 
@@ -97,5 +100,13 @@ public class JobCompetitorScoreEntity {
 
     public void setMatchStatus(MatchStatus matchStatus) {
         this.matchStatus = matchStatus;
+    }
+
+    public int getNounCount() {
+        return nounCount;
+    }
+
+    public void setNounCount(int nounCount) {
+        this.nounCount = nounCount;
     }
 }

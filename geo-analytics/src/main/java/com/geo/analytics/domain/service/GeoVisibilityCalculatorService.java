@@ -12,8 +12,9 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 
 public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V1";
-    private static final double EPSILON = 1.0E-10;
+    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V2";
+    public static final double BM25_K1 = 1.2;
+    public static final double BM25_B = 0.75;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
     private static final double SOURCE_WEIGHT_HIGH = 1.5;
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
@@ -84,31 +85,55 @@ public final class GeoVisibilityCalculatorService {
         return List.of();
     }
 
-    public static GbvsResult compute(
-            SomRawMetrics metrics,
-            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
+    public static double bm25Score(double idf, double termFreq, double docLength, double avgDocLength) {
+        double lAvg = StrictMath.max(RobustAuditMathUtil.EPSILON, avgDocLength);
+        double d = StrictMath.max(RobustAuditMathUtil.EPSILON, docLength);
+        double f = StrictMath.max(0.0, termFreq);
+        double ratio = d / lAvg;
+        double inner = StrictMath.fma(BM25_B, ratio, 1.0 - BM25_B);
+        double denom = StrictMath.fma(BM25_K1, inner, f);
+        denom = StrictMath.max(RobustAuditMathUtil.EPSILON, denom);
+        double num = StrictMath.fma(idf, StrictMath.fma(f, BM25_K1 + 1.0, 0.0), 0.0);
+        return num / denom;
+    }
+
+    public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
         return computeBatch(List.of(metrics), lAvgJob).getFirst();
     }
 
-    public static List<GbvsResult> computeBatch(
-            List<SomRawMetrics> rows,
-            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
+    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob) {
         return computeBatch(rows, lAvgJob, rows.size());
     }
 
     public static List<GbvsResult> computeBatch(
             List<SomRawMetrics> rows,
-            @SuppressWarnings("unused") double lAvgJob, // Reserved for Phase 11 cross-model L_avg bias correction
+            double lAvgJob,
             int bayesSampleCardinality) {
         int n = rows.size();
         if (n == 0) {
             return List.of();
         }
         int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
+        int df = 0;
+        for (SomRawMetrics r : rows) {
+            if (r.isSemanticallyMentioned() && (r.nounCount() > 0 || r.rankPosition() > 0)) {
+                df++;
+            }
+        }
+        double idf = bm25Idf(bayesSampleCardinality, df);
+        double sumLen = 0.0;
+        for (SomRawMetrics r : rows) {
+            sumLen = StrictMath.fma(StrictMath.max(0, r.responseTokenLength()), 1.0, sumLen);
+        }
+        double lAvgUse = lAvgJob > RobustAuditMathUtil.EPSILON
+                ? lAvgJob
+                : StrictMath.max(RobustAuditMathUtil.EPSILON, sumLen / StrictMath.max(1, n));
         double[] raw = new double[n];
-        IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
+        final double idfF = idf;
+        final double lAvgF = lAvgUse;
+        IntStream.range(0, n).forEach(i -> raw[i] = weightedSom(rows.get(i), lAvgF, idfF));
         double[] work = new double[n];
-        if (blendN < BAYES_SAMPLE_THRESHOLD) {
+        if (n < BAYES_SAMPLE_THRESHOLD) {
             applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
         } else {
             System.arraycopy(raw, 0, work, 0, n);
@@ -120,15 +145,15 @@ public final class GeoVisibilityCalculatorService {
             return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
         }
         double[] sorted = Arrays.copyOf(work, n);
-        Arrays.parallelSort(sorted);
+        Arrays.sort(sorted);
         double minR = sorted[0];
         double maxR = sorted[n - 1];
         GbvsResult[] out = new GbvsResult[n];
-        IntStream.range(0, n).parallel().forEach(i -> {
+        IntStream.range(0, n).forEach(i -> {
             double z = zScores[i];
             int stage = stageFromModifiedZ(z);
             double span = StrictMath.fma(maxR, 1.0, -minR);
-            double pct = span > EPSILON
+            double pct = span > RobustAuditMathUtil.EPSILON
                     ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
                     : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
             out[i] = new GbvsResult(clampPercent(pct), stage, z);
@@ -136,7 +161,13 @@ public final class GeoVisibilityCalculatorService {
         return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
     }
 
-    /** NaN / Infinity must not reach median or MAD ({@link RobustAuditMathUtil#modifiedZScores(double[])}). */
+    private static double bm25Idf(int corpusN, int docFreq) {
+        double nn = StrictMath.max(1.0, (double) corpusN);
+        double ddf = StrictMath.max(0.0, (double) docFreq);
+        double ratio = StrictMath.fma(nn, 1.0, -ddf + 0.5) / StrictMath.max(RobustAuditMathUtil.EPSILON, ddf + 0.5);
+        return StrictMath.log(StrictMath.max(RobustAuditMathUtil.EPSILON, ratio));
+    }
+
     private static void sanitizeWorkForRobustStatistics(double[] work) {
         for (int i = 0; i < work.length; i++) {
             if (!Double.isFinite(work[i])) {
@@ -145,10 +176,6 @@ public final class GeoVisibilityCalculatorService {
         }
     }
 
-    /**
-     * Moment-matched Beta hyperparameters with {@link RobustAuditMathUtil#betaMomentAlphaBeta(double, double)} variance clamp,
-     * then per-row Beta–Binomial posterior means (effective trials = {@code blendN}).
-     */
     private static void applySmallSampleBetaPipeline(
             List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
         int mentionedCount = 0;
@@ -224,7 +251,7 @@ public final class GeoVisibilityCalculatorService {
         }
     }
 
-    private static double weightedSom(SomRawMetrics metrics) {
+    private static double weightedSom(SomRawMetrics metrics, double lAvgJob, double idf) {
         if (!metrics.isSemanticallyMentioned()) {
             return 0.0;
         }
@@ -232,13 +259,21 @@ public final class GeoVisibilityCalculatorService {
         int rank = metrics.rankPosition();
         int total = StrictMath.max(0, metrics.responseTokenLength());
         double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
-        double sourceWeight = metrics.sourceWeight() > EPSILON ? metrics.sourceWeight() : SOURCE_WEIGHT_LOW;
+        double sourceWeight = metrics.sourceWeight() > RobustAuditMathUtil.EPSILON
+                ? metrics.sourceWeight()
+                : SOURCE_WEIGHT_LOW;
         double sentiment = sentimentWeight(metrics.sentimentIntensity());
-        double brandSignal = presence * sourceWeight * sentiment;
+        double fTok = StrictMath.max(0.0, (double) f);
+        if (presence > 0 && fTok < RobustAuditMathUtil.EPSILON && rank > 0) {
+            fTok = 1.0;
+        }
+        double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
+        double bm25 = bm25Score(idf, fTok, docLen, lAvgJob);
+        double brandSignal = presence * sourceWeight * sentiment * bm25;
         double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
         double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
         double denom = brandSignal + otherSignal;
-        if (denom <= EPSILON) {
+        if (denom <= RobustAuditMathUtil.EPSILON) {
             return 0.0;
         }
         return clamp01(brandSignal / denom);
@@ -250,7 +285,7 @@ public final class GeoVisibilityCalculatorService {
         }
         if (sentimentScore < 0.5) {
             if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
-                return 1.0 + 0.5 * sentimentScore;
+                return StrictMath.fma(0.5, sentimentScore, 1.0);
             }
         }
         return clamp(sentimentScore, 0.5, 1.5);
@@ -268,13 +303,7 @@ public final class GeoVisibilityCalculatorService {
         if (Double.isNaN(v) || Double.isInfinite(v)) {
             return lo;
         }
-        if (v < lo) {
-            return lo;
-        }
-        if (v > hi) {
-            return hi;
-        }
-        return v;
+        return StrictMath.max(lo, StrictMath.min(hi, v));
     }
 
     private static int stageFromScorePercent(double pct) {
@@ -303,7 +332,6 @@ public final class GeoVisibilityCalculatorService {
         return StrictMath.subtractExact(11, inner);
     }
 
-    /** Modified Z′ bands on ±3.0 tails; inner rank inverted to visibility stage (11 − inner). */
     private static int stageFromModifiedZ(double z) {
         if (Double.isNaN(z) || Double.isInfinite(z)) {
             return 6;

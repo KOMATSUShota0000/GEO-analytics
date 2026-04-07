@@ -9,6 +9,7 @@ import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.config.AppProperties;
+import com.geo.analytics.infrastructure.ratelimit.SerpApiGlobalRequestGate;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.slf4j.Logger;
@@ -18,9 +19,11 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.StructuredTaskScope;
 
 @Service
 public class AsyncSgeMeasurementService {
@@ -30,6 +33,7 @@ public class AsyncSgeMeasurementService {
     private final JobPersistenceService jobPersistenceService;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
+    private final SerpApiGlobalRequestGate serpApiGlobalRequestGate;
     private final String serpApiKey;
     private AsyncSgeMeasurementService self;
 
@@ -39,12 +43,14 @@ public class AsyncSgeMeasurementService {
             JobPersistenceService jobPersistenceService,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             PlanBasedQuotaManager planBasedQuotaManager,
+            SerpApiGlobalRequestGate serpApiGlobalRequestGate,
             AppProperties appProperties) {
         this.sgeMeasurementPort = sgeMeasurementPort;
         this.sgeResultRepository = sgeResultRepository;
         this.jobPersistenceService = jobPersistenceService;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
+        this.serpApiGlobalRequestGate = serpApiGlobalRequestGate;
         String key = appProperties.getSerpapi().getApiKey();
         this.serpApiKey = key != null ? key : "";
     }
@@ -73,29 +79,36 @@ public class AsyncSgeMeasurementService {
                 throw new IllegalStateException("No queries for SGE measurement");
             }
             String brandName = job.getBrandName();
-            for (int i = 0; i < queryList.size(); i++) {
-                if (i > 0) {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("SGE measurement throttle interrupted", interruptedException);
-                    }
+            List<StructuredTaskScope.Subtask<SgeMentionResult>> subtasks = new ArrayList<>(queryList.size());
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
+                for (QueryEntity queryEntity : queryList) {
+                    final QueryEntity qe = queryEntity;
+                    subtasks.add(scope.fork(() -> {
+                        try {
+                            return serpApiGlobalRequestGate.execute(
+                                    () -> sgeMeasurementPort.checkSgeMention(qe.getQueryText(), brandName));
+                        } catch (Exception e) {
+                            throw new IllegalStateException(e);
+                        }
+                    }));
                 }
+                scope.join();
+            }
+            for (int i = 0; i < queryList.size(); i++) {
                 QueryEntity queryEntity = queryList.get(i);
-                String queryText = queryEntity.getQueryText();
-                SgeMentionResult sgeMentionResult = sgeMeasurementPort.checkSgeMention(queryText, brandName);
+                SgeMentionResult sgeMentionResult = subtasks.get(i).get();
                 if (sgeMentionResult == null) {
                     throw new IllegalStateException(
-                        "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryText);
+                            "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryEntity.getQueryText());
                 }
                 SgeResultEntity sgeResultEntity = new SgeResultEntity();
                 sgeResultEntity.setJobId(jobId);
                 sgeResultEntity.setWorkspaceId(job.getWorkspaceId());
                 sgeResultEntity.setQueryId(queryEntity.getId());
-                sgeResultEntity.setQuery(queryText);
+                sgeResultEntity.setQuery(queryEntity.getQueryText());
                 sgeResultEntity.setSgeRawResponse(sgeMentionResult.rawResponseJson());
                 sgeResultEntity.setSgeMentioned(sgeMentionResult.mentioned());
+                sgeResultEntity.setMentionCount(sgeMentionResult.mentionCount());
                 sgeResultRepository.save(sgeResultEntity);
             }
         } catch (Exception exception) {

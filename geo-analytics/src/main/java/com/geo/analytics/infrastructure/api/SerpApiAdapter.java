@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
+import java.lang.StrictMath;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -74,10 +75,11 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         }
         SerpApiResponse response = objectMapper.convertValue(root, SerpApiResponse.class);
         if (!hasMinimalSerpStructure(response)) {
-            return new SgeMentionResult(false, body);
+            return new SgeMentionResult(false, 0, body);
         }
-        boolean mentioned = jsonTreeContainsBrand(root, brandName);
-        return new SgeMentionResult(mentioned, body);
+        int mentionCount = jsonTreeCountBrandOccurrences(root, brandName);
+        boolean mentioned = mentionCount > 0;
+        return new SgeMentionResult(mentioned, mentionCount, body);
     }
 
     private static boolean hasMinimalSerpStructure(SerpApiResponse response) {
@@ -105,30 +107,41 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         return node.isTextual() && !node.asText().isBlank();
     }
 
-    private static boolean jsonTreeContainsBrand(JsonNode node, String brandName) {
+    private static int jsonTreeCountBrandOccurrences(JsonNode node, String brandName) {
         if (node == null || node.isNull() || brandName == null || brandName.isBlank()) {
-            return false;
+            return 0;
         }
         String needle = brandName.toLowerCase(Locale.ROOT);
+        if (needle.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
         if (node.isTextual()) {
-            return node.asText().toLowerCase(Locale.ROOT).contains(needle);
+            String t = node.asText().toLowerCase(Locale.ROOT);
+            int idx = 0;
+            int n = needle.length();
+            while (idx <= t.length() - n) {
+                int found = t.indexOf(needle, idx);
+                if (found < 0) {
+                    break;
+                }
+                count++;
+                idx = found + StrictMath.max(1, n);
+            }
+            return count;
         }
         if (node.isArray()) {
             for (JsonNode child : node) {
-                if (jsonTreeContainsBrand(child, brandName)) {
-                    return true;
-                }
+                count += jsonTreeCountBrandOccurrences(child, brandName);
             }
-            return false;
+            return count;
         }
         if (node.isObject()) {
             var iterator = node.fields();
             while (iterator.hasNext()) {
-                if (jsonTreeContainsBrand(iterator.next().getValue(), brandName)) {
-                    return true;
-                }
+                count += jsonTreeCountBrandOccurrences(iterator.next().getValue(), brandName);
             }
         }
-        return false;
+        return count;
     }
 }

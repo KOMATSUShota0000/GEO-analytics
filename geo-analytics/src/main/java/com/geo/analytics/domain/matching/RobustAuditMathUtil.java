@@ -7,8 +7,8 @@ import java.util.Arrays;
 
 public final class RobustAuditMathUtil {
 
-    public static final double EPSILON = 1e-10;
-    public static final double MAD_NORMALIZATION = 1.3489;
+    public static final double EPSILON = 1.0E-9;
+    public static final double IQR_NORMALIZATION = 1.3489;
     private static final int DEFAULT_BANK_SCALE = 10;
 
     private RobustAuditMathUtil() {
@@ -68,28 +68,52 @@ public final class RobustAuditMathUtil {
         return StrictMath.fma(0.5, copy[mid - 1], 0.5 * copy[mid]);
     }
 
-    /**
-     * Modified Z′ (Iglewicz–Hoaglin style) for each sample element: one median and one MAD-of-deviations pass over {@code sample}.
-     */
+    public static double quartileSorted(double[] sorted, double p) {
+        int n = sorted.length;
+        if (n == 0) {
+            return 0.0;
+        }
+        if (n == 1) {
+            return sorted[0];
+        }
+        double pos = StrictMath.fma(n - 1, p, 0.0);
+        int lo = (int) StrictMath.floor(pos);
+        int hi = (int) StrictMath.ceil(pos);
+        lo = StrictMath.max(0, StrictMath.min(n - 1, lo));
+        hi = StrictMath.max(0, StrictMath.min(n - 1, hi));
+        if (lo == hi) {
+            return sorted[lo];
+        }
+        double w = StrictMath.fma(pos, 1.0, -lo);
+        return StrictMath.fma(sorted[hi] - sorted[lo], w, sorted[lo]);
+    }
+
+    public static double iqr(double[] values) {
+        if (values.length < 2) {
+            return 0.0;
+        }
+        double[] sorted = Arrays.copyOf(values, values.length);
+        Arrays.sort(sorted);
+        double q1 = quartileSorted(sorted, 0.25);
+        double q3 = quartileSorted(sorted, 0.75);
+        return StrictMath.fma(q3, 1.0, -q1);
+    }
+
     public static double[] modifiedZScores(double[] sample) {
         int n = sample.length;
         if (n == 0) {
             return new double[0];
         }
         double med = median(sample);
-        double[] dev = new double[n];
-        for (int i = 0; i < n; i++) {
-            dev[i] = StrictMath.abs(StrictMath.fma(sample[i], 1.0, -med));
-        }
-        double mad = median(dev);
-        if (mad < EPSILON) {
+        double iqrVal = iqr(sample);
+        if (iqrVal < EPSILON) {
             return new double[n];
         }
-        double scale = StrictMath.fma(MAD_NORMALIZATION, mad, 0.0);
+        double denom = StrictMath.max(EPSILON, iqrVal / IQR_NORMALIZATION);
         double[] z = new double[n];
         for (int i = 0; i < n; i++) {
             double num = StrictMath.fma(sample[i], 1.0, -med);
-            z[i] = bankRoundHalfEvenDefault(softwareFtzFlush(num / scale));
+            z[i] = bankRoundHalfEvenDefault(softwareFtzFlush(num / denom));
         }
         return z;
     }

@@ -27,6 +27,8 @@ public class SgeResultEntity extends BaseTenantEntity {
     private String sgeRawResponse;
     @Column(name = "sge_mentioned", nullable = false)
     private Boolean sgeMentioned;
+    @Column(name = "mention_count", nullable = false)
+    private int mentionCount;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     public SgeResultEntity() {
@@ -66,6 +68,12 @@ public class SgeResultEntity extends BaseTenantEntity {
     }
     public void setSgeMentioned(Boolean sgeMentioned) {
         this.sgeMentioned = sgeMentioned;
+    }
+    public int getMentionCount() {
+        return mentionCount;
+    }
+    public void setMentionCount(int mentionCount) {
+        this.mentionCount = mentionCount;
     }
     public LocalDateTime getCreatedAt() {
         return createdAt;

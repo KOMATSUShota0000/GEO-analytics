@@ -3,6 +3,7 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import org.springframework.stereotype.Service;
+import java.lang.StrictMath;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -44,7 +45,7 @@ public final class StrategyInsightService {
     }
 
     public StrategyInsight fromVisibilityStage(int stage) {
-        var s = Math.clamp(stage, 1, 10);
+        var s = StrictMath.max(1, StrictMath.min(10, stage));
         if (s <= 1) {
             return new StrategyInsight(MSG_DOMINATOR, ACTIONS_HIGH, 2.0);
         }

@@ -245,6 +245,7 @@ public class JobPersistenceService {
             entity.setRankPosition(row.rankPosition());
             entity.setVisibilityStage(row.visibilityStage());
             entity.setMatchStatus(row.matchStatus());
+            entity.setNounCount(row.nounCount());
             audit.getCompetitorScores().add(entity);
         }
     }
