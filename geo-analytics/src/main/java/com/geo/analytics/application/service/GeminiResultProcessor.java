@@ -10,8 +10,8 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
@@ -38,6 +38,8 @@ public class GeminiResultProcessor {
     private final ProjectRepository projectRepository;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
+    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
+    private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
     public GeminiResultProcessor(
@@ -49,7 +51,9 @@ public class GeminiResultProcessor {
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             GapAnalysisService gapAnalysisService,
-            StrategyInsightService strategyInsightService) {
+            StrategyInsightService strategyInsightService,
+            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
+            InformationTheoryBasedAggregator informationTheoryBasedAggregator) {
         this.jobPersistenceService = jobPersistenceService;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
@@ -59,6 +63,8 @@ public class GeminiResultProcessor {
         this.japaneseNlpService = japaneseNlpService;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
+        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
+        this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
@@ -90,14 +96,19 @@ public class GeminiResultProcessor {
                     ? consultantOutputData.response()
                     : aiResponseText;
                 si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
-                String needle = mainBrand != null && !mainBrand.isBlank() ? mainBrand : rawName;
-                int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
+                var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
+                List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
+                int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
-                double stuffingDensity = japaneseNlpService.wordDensity(nlpSource, needle);
+                double stuffingDensity = 0.0;
+                for (String nd : needles) {
+                    stuffingDensity = Math.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
+                }
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
                 boolean isProAnalysis = isProPlan;
+                boolean isSemanticallyMentioned = Boolean.TRUE.equals(consultantOutputData.brandMentioned());
                 SomRawMetrics rawMetrics = new SomRawMetrics(
-                    tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength, 0.3);
+                    tc, rp, si, isProAnalysis, isSemanticallyMentioned, nounCount, stuffingDensity, responseTokenLength, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
@@ -115,7 +126,8 @@ public class GeminiResultProcessor {
         }
         var lAvg = parsedLines.stream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
         var metricsList = parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
-        var gbvsList = SomScoreCalculator.computeBatch(metricsList, lAvg);
+        long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
             var gbvs = gbvsList.get(idx);
@@ -125,7 +137,7 @@ public class GeminiResultProcessor {
             var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
             var somScore = Math.clamp(boostedSomScore, 0.0, 100.0);
             var m = line.rawMetrics();
-            boolean brand = m.nounCount() > 0 || m.rankPosition() > 0;
+            boolean brand = m.isSemanticallyMentioned();
             int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
                 jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
                 jobPersistenceService.upsertAuditHistoryForJobQuery(
@@ -138,7 +150,7 @@ public class GeminiResultProcessor {
                     m.rankPosition(),
                     overall,
                     line.resolved(),
-                    m.nounCount(),
+                    m.tokenCount(),
                     m.rankPosition(),
                     m.sentimentIntensity(),
                     gbvs.visibilityStage(),

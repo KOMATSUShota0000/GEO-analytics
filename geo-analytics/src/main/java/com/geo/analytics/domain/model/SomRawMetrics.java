@@ -5,6 +5,7 @@ public record SomRawMetrics(
     int rankPosition,
     double sentimentIntensity,
     boolean isProAnalysis,
+    boolean isSemanticallyMentioned,
     int nounCount,
     double stuffingDensity,
     int responseTokenLength,

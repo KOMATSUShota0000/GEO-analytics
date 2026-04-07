@@ -3,11 +3,13 @@ package com.geo.analytics.infrastructure.config;
 import com.geo.analytics.application.port.AiVerificationPort;
 import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
 import com.geo.analytics.application.service.AiVerificationRouter;
+import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
@@ -104,7 +106,9 @@ public class AiConfig {
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             DeepSeekAdapter deepSeekAdapter,
-            StrictSchemaValidator strictSchemaValidator) {
+            StrictSchemaValidator strictSchemaValidator,
+            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
+            JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
@@ -114,7 +118,9 @@ public class AiConfig {
                 entityNormalizer,
                 japaneseNlpService,
                 deepSeekAdapter,
-                strictSchemaValidator);
+                strictSchemaValidator,
+                geoVisibilityCalculatorService,
+                jobPersistenceService);
     }
 
     @Bean

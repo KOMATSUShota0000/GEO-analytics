@@ -1,8 +1,12 @@
 package com.geo.analytics.domain.service;
 
+import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.IntStream;
 
 public final class GeoVisibilityCalculatorService {
@@ -16,23 +20,93 @@ public final class GeoVisibilityCalculatorService {
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
     private static final double SOURCE_WEIGHT_LOW = 0.3;
 
-    private GeoVisibilityCalculatorService() {}
+    private final TokenizerManager tokenizerManager;
+
+    public GeoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
+    }
+
+    public List<String> tokenizeResponseForMentions(String text) {
+        return tokenizerManager.tokenizeToNormalizedList(text);
+    }
+
+    public int countNormalizedMentions(List<String> responseTokens, List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        List<List<String>> sequences = new ArrayList<>();
+        for (String kw : keywords) {
+            if (kw == null || kw.isBlank()) {
+                continue;
+            }
+            List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
+            if (!seq.isEmpty()) {
+                sequences.add(seq);
+            }
+        }
+        if (sequences.isEmpty()) {
+            return 0;
+        }
+        int mentions = 0;
+        int fromIndex = 0;
+        final int n = responseTokens.size();
+        while (fromIndex < n) {
+            int bestRel = Integer.MAX_VALUE;
+            int bestLen = 0;
+            for (List<String> seq : sequences) {
+                int rel = Collections.indexOfSubList(responseTokens.subList(fromIndex, n), seq);
+                if (rel < 0) {
+                    continue;
+                }
+                if (rel < bestRel || (rel == bestRel && seq.size() > bestLen)) {
+                    bestRel = rel;
+                    bestLen = seq.size();
+                }
+            }
+            if (bestRel == Integer.MAX_VALUE) {
+                break;
+            }
+            mentions++;
+            fromIndex += bestRel + bestLen;
+        }
+        return mentions;
+    }
+
+    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return Arrays.stream(primary.split("[,、]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .toList();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return List.of(fallback.strip());
+        }
+        return List.of();
+    }
 
     public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
         return computeBatch(List.of(metrics), lAvgJob).getFirst();
     }
 
     public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob) {
+        return computeBatch(rows, lAvgJob, rows.size());
+    }
+
+    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob, int bayesSampleCardinality) {
         int n = rows.size();
         if (n == 0) {
             return List.of();
         }
+        int blendN = Math.max(n, Math.max(1, bayesSampleCardinality));
         double[] raw = new double[n];
         IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
         double[] work = new double[n];
-        if (n < BAYES_SAMPLE_THRESHOLD) {
-            int finalN = n;
-            IntStream.range(0, n).parallel().forEach(i -> work[i] = bayesBlend(raw[i], finalN));
+        if (blendN < BAYES_SAMPLE_THRESHOLD) {
+            int finalBlend = blendN;
+            IntStream.range(0, n).parallel().forEach(i -> work[i] = rows.get(i).isSemanticallyMentioned()
+                ? bayesBlend(raw[i], finalBlend)
+                : 0.0);
         } else {
             System.arraycopy(raw, 0, work, 0, n);
         }
@@ -95,6 +169,9 @@ public final class GeoVisibilityCalculatorService {
     }
 
     private static double weightedSom(SomRawMetrics metrics) {
+        if (!metrics.isSemanticallyMentioned()) {
+            return 0.0;
+        }
         int f = StrictMath.max(0, metrics.nounCount());
         int rank = metrics.rankPosition();
         int total = StrictMath.max(0, metrics.responseTokenLength());

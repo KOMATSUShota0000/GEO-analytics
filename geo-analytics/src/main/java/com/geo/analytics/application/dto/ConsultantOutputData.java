@@ -11,6 +11,7 @@ public record ConsultantOutputData(
     @JsonProperty("token_count") Integer tokenCount,
     @JsonProperty("rank_position") Integer rankPosition,
     @JsonProperty("sentiment_intensity") Double sentimentIntensity,
+    @JsonProperty("brand_mentioned") Boolean brandMentioned,
     List<TaskDTO> prioritizedTasks,
     List<CompetitorShareEntry> competitorComparison,
     String reversalStrategy

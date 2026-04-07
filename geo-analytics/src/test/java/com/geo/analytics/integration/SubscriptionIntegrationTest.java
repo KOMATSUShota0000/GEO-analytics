@@ -214,7 +214,8 @@ class SubscriptionIntegrationTest {
     void scenarioD_entityResolutionAndNoMatchExcludedFromSomAggregation() {
         var insights = new LinkedHashMap<ModelType, String>();
         insights.put(ModelType.GEMINI, "{}");
-        var apple = new CompetitorResult("Apple", 88.0, 1, 7, MatchStatus.NO_MATCH);
+        var aliasA = new CompetitorResult("御茶", 40.0, 2, 5, MatchStatus.AUTO_MATCH);
+        var aliasB = new CompetitorResult("お茶", 50.0, 1, 6, MatchStatus.AUTO_MATCH);
         var noise = new CompetitorResult("TotallyUnrelatedNoise", 99.0, 1, 7, MatchStatus.NO_MATCH);
         var modelResponse = new VerificationResponse(
                 ModelType.GEMINI,
@@ -226,14 +227,14 @@ class SubscriptionIntegrationTest {
                 100,
                 1,
                 1.0,
-                "Apple",
+                "茶",
                 7,
                 0.0,
                 "pre",
-                List.of(apple, noise),
+                List.of(aliasA, aliasB, noise),
                 insights);
         var request = new VerificationRequest(
-                "Apple",
+                "茶",
                 "Q",
                 "https://prtimes.jp/release",
                 null,
@@ -242,17 +243,20 @@ class SubscriptionIntegrationTest {
                 null,
                 null,
                 null,
-                List.of("Apple Inc."),
+                List.of("御茶", "お茶"),
                 null);
         var aggregated = informationTheoryBasedAggregator.aggregate(List.of(modelResponse), request);
         assertThat(aggregated.calculationVersion()).isEqualTo("TEST_CALC_V4");
-        var matched = aggregated.competitorResults().stream()
-                .filter(r -> "Apple Inc.".equals(r.competitorLabel()))
-                .findFirst()
-                .orElseThrow();
+        assertThat(aggregated.competitorResults()).hasSize(1);
+        var matched = aggregated.competitorResults().getFirst();
+        assertThat(matched.competitorLabel()).isEqualTo("お茶");
         assertThat(matched.matchStatus()).isEqualTo(MatchStatus.AUTO_MATCH);
-        assertThat(matched.somScore()).isCloseTo(88.0, org.assertj.core.data.Offset.offset(0.05));
-        assertThat(aggregated.somScore()).isEqualTo(100.0);
+        assertThat(matched.rankPosition()).isEqualTo(1);
+        assertThat(matched.visibilityStage()).isEqualTo(10);
+        assertThat(matched.somScore()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(aggregated.competitorResults().stream().map(CompetitorResult::competitorLabel))
+                .noneMatch("TotallyUnrelatedNoise"::equals);
+        assertThat(aggregated.somScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.06));
     }
 
     @Test

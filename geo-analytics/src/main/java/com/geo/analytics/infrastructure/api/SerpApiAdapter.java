@@ -35,6 +35,9 @@ public class SerpApiAdapter implements SgeMeasurementPort {
 
     @Override
     public SgeMentionResult checkSgeMention(String query, String brandName) {
+        if (serpApiKey.isBlank()) {
+            throw new IllegalStateException("SerpApi API key is not configured");
+        }
         URI uri = UriComponentsBuilder
             .fromUriString(SERPAPI_SEARCH_URL)
             .queryParam("engine", "google")

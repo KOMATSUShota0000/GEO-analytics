@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class ConsultantOutputSchema {
+    public static final String BRAND_MENTIONED_SCHEMA_DESCRIPTION =
+        "対象ブランドが実質的に言及されているかを示すboolean。判定基準はシステムプロンプトの指示に厳密に従うこと。";
+
     private ConsultantOutputSchema() {
     }
 
@@ -110,6 +113,7 @@ public final class ConsultantOutputSchema {
             .addIntegerProperty("token_count")
             .addIntegerProperty("rank_position")
             .addNumberProperty("sentiment_intensity")
+            .addBooleanProperty("brand_mentioned", BRAND_MENTIONED_SCHEMA_DESCRIPTION)
             .addProperty(
                 "prioritizedTasks",
                 JsonArraySchema.builder().items(prioritizedTaskItemSchema()).build());
@@ -124,6 +128,7 @@ public final class ConsultantOutputSchema {
                 "token_count",
                 "rank_position",
                 "sentiment_intensity",
+                "brand_mentioned",
                 "prioritizedTasks",
                 "competitorComparison",
                 "reversalStrategy");
@@ -134,6 +139,7 @@ public final class ConsultantOutputSchema {
                 "token_count",
                 "rank_position",
                 "sentiment_intensity",
+                "brand_mentioned",
                 "prioritizedTasks");
         }
         return builder.additionalProperties(false).build();
@@ -165,6 +171,10 @@ public final class ConsultantOutputSchema {
         properties.put("token_count", Map.of("type", "INTEGER"));
         properties.put("rank_position", Map.of("type", "INTEGER"));
         properties.put("sentiment_intensity", Map.of("type", "NUMBER"));
+        Map<String, Object> brandMentionedProp = new LinkedHashMap<>();
+        brandMentionedProp.put("type", "BOOLEAN");
+        brandMentionedProp.put("description", BRAND_MENTIONED_SCHEMA_DESCRIPTION);
+        properties.put("brand_mentioned", brandMentionedProp);
         properties.put("prioritizedTasks", tasksArray);
         List<String> required = new ArrayList<>(List.of(
             "response",
@@ -172,6 +182,7 @@ public final class ConsultantOutputSchema {
             "token_count",
             "rank_position",
             "sentiment_intensity",
+            "brand_mentioned",
             "prioritizedTasks"));
         if (subscriptionPlan.usesProTierFeatures()) {
             Map<String, Object> entryProps = new LinkedHashMap<>();

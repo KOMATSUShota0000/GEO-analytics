@@ -8,6 +8,7 @@ import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
+import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -30,7 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestClientResponseException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,6 +52,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final JapaneseNlpService japaneseNlpService;
     private final DeepSeekAdapter deepSeekAdapter;
     private final StrictSchemaValidator strictSchemaValidator;
+    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
+    private final JobPersistenceService jobPersistenceService;
 
     public GeminiVerificationAdapter(
             @Qualifier(AiConfig.GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
@@ -62,7 +64,9 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             DeepSeekAdapter deepSeekAdapter,
-            StrictSchemaValidator strictSchemaValidator) {
+            StrictSchemaValidator strictSchemaValidator,
+            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
+            JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.jobStreamRegistryService = jobStreamRegistryService;
@@ -72,6 +76,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         this.japaneseNlpService = japaneseNlpService;
         this.deepSeekAdapter = deepSeekAdapter;
         this.strictSchemaValidator = strictSchemaValidator;
+        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
+        this.jobPersistenceService = jobPersistenceService;
     }
 
     @Override
@@ -125,10 +131,23 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         }
     }
 
-    private List<ChatMessage> chatMessagesForPlan(SubscriptionPlan plan, PreparedHandoff handoff) {
+    private static String evaluatedBrandLabel(VerificationRequest verificationRequest) {
+        String main = verificationRequest.canonicalMainBrand();
+        if (main != null && !main.isBlank()) {
+            return main.trim();
+        }
+        String brand = verificationRequest.brandName();
+        return brand != null ? brand : "";
+    }
+
+    private List<ChatMessage> chatMessagesForPlan(
+            SubscriptionPlan plan,
+            PreparedHandoff handoff,
+            VerificationRequest verificationRequest) {
+        String brandLabel = evaluatedBrandLabel(verificationRequest);
         var system = handoff.structured()
-            ? ConsultantPrompts.systemTextGbvsStructured(plan)
-            : ConsultantPrompts.systemText(plan);
+            ? ConsultantPrompts.systemTextGbvsStructured(plan, brandLabel)
+            : ConsultantPrompts.systemText(plan, brandLabel);
         return List.of(SystemMessage.from(system), UserMessage.from(handoff.userMessage()));
     }
 
@@ -136,7 +155,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         try {
             var handoff = prepareHandoff(verificationRequest);
             String rawAiResponseJson = geminiGbvsChatModel.chat(ChatRequest.builder()
-                .messages(chatMessagesForPlan(plan, handoff))
+                .messages(chatMessagesForPlan(plan, handoff, verificationRequest))
                 .responseFormat(ConsultantOutputSchema.responseFormat(plan))
                 .build()).aiMessage().text();
             return buildVerificationResponse(rawAiResponseJson, plan, verificationRequest);
@@ -156,7 +175,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         PreparedHandoff handoff = prepareHandoff(verificationRequest);
         try {
             GoogleAiGeminiStreamingChatModel streamingChatModel = streamingModelForPlan(plan);
-            List<ChatMessage> chatMessages = chatMessagesForPlan(plan, handoff);
+            List<ChatMessage> chatMessages = chatMessagesForPlan(plan, handoff, verificationRequest);
             streamingChatModel.generate(chatMessages, new StreamingResponseHandler<AiMessage>() {
                 @Override
                 public void onNext(String token) {
@@ -229,21 +248,32 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             ? full.response()
             : rawAiResponseJson;
         si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
-        String needle = main != null && !main.isBlank() ? main : rawName;
-        int nounCount = japaneseNlpService.countTargetPhraseOccurrences(nlpSource, needle);
+        var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
+        List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(main, rawName);
+        int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
-        double stuffingDensity = japaneseNlpService.wordDensity(nlpSource, needle);
+        double stuffingDensity = 0.0;
+        for (String nd : needles) {
+            stuffingDensity = Math.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
+        }
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         boolean isProAnalysis = isProPlan;
+        boolean isSemanticallyMentioned = Boolean.TRUE.equals(full.brandMentioned());
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = new SomRawMetrics(
-            tc, rp, si, isProAnalysis, nounCount, stuffingDensity, responseTokenLength, sourceWeight);
+            tc, rp, si, isProAnalysis, isSemanticallyMentioned, nounCount, stuffingDensity, responseTokenLength, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
-        var gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
+        GeoVisibilityCalculatorService.GbvsResult gbvs;
+        if (verificationRequest.jobId() != null) {
+            long pq = jobPersistenceService.countQueriesByJobId(verificationRequest.jobId());
+            gbvs = SomScoreCalculator.computeWithPlannedQueries(rawMetrics, lAvgSingle, pq);
+        } else {
+            gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
+        }
         var som = gbvs.scorePercent();
         som = japaneseNlpService.applyIntensifierBoost(nlpSource, som);
         som = Math.clamp(som, 0.0, 100.0);
-        boolean brand = nounCount > 0 || rp > 0;
+        boolean brand = isSemanticallyMentioned;
         int overall = (int) Math.round(Math.clamp(som, 0.0, 100.0));
         var compList = new ArrayList<CompetitorResult>();
         if (full.competitorComparison() != null) {

@@ -28,7 +28,7 @@ app:
       api-key: "${DEEPSEEK_API_KEY:}"
       base-url: "https://api.deepseek.com"
   serpapi:
-    api-key: "dummy_serp_key"
+    api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
   pdf:
     base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
     temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"

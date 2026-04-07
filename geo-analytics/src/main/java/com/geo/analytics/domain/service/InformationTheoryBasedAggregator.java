@@ -6,32 +6,45 @@ import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.model.SomRawMetrics;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.SequencedMap;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Component
 public class InformationTheoryBasedAggregator {
     public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
     private static final double EPSILON = 1.0E-10;
-    private static final double P_WINKLER = 0.1;
-    private static final int WINKLER_PREFIX_MAX = 4;
+    private static final BigDecimal HUNDRED = new BigDecimal("100.00");
+    private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
     private static final Pattern LEGAL_ENTITY = Pattern.compile(
             "^(株式会社|有限会社|合同会社|一般社団法人|財団法人)\\s*(.+)$|(.+?)\\s*(株式会社|有限会社|合同会社|一般社団法人|財団法人)$");
-    private final ReentrantLock indexLock = new ReentrantLock();
+    private final TokenizerManager tokenizerManager;
+
+    public InformationTheoryBasedAggregator(TokenizerManager tokenizerManager) {
+        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
+    }
+
+    public List<GeoVisibilityCalculatorService.GbvsResult> finalizeGbvsBatchForJob(
+            List<SomRawMetrics> rows,
+            double lAvgJob,
+            long plannedQueryCount) {
+        return SomScoreCalculator.computeBatchForJob(rows, lAvgJob, plannedQueryCount);
+    }
 
     public VerificationResponse aggregate(List<VerificationResponse> successes, VerificationRequest request) {
         if (successes == null || successes.isEmpty()) {
@@ -99,57 +112,87 @@ public class InformationTheoryBasedAggregator {
         var first = successes.getFirst();
         Integer avgVs = countVs > 0 ? sumVs / countVs : first.visibilityStage();
         Double avgMz = countMz > 0 ? sumMz / countMz : first.modifiedZScore();
-        var inverted = new ConcurrentHashMap<String, Set<String>>();
-        var registered = request.registeredCompetitorBrands() == null
-                ? List.<String>of()
-                : request.registeredCompetitorBrands().stream().limit(3).toList();
-        for (var reg : registered) {
-            var key = pipeline(reg);
-            for (var bg : bigrams(key)) {
-                indexLock.lock();
-                try {
-                    inverted.computeIfAbsent(bg, b -> ConcurrentHashMap.newKeySet()).add(key);
-                } finally {
-                    indexLock.unlock();
+        Map<String, EntityAggregate> byEntity = successes.stream()
+                .flatMap(v -> v.competitorResults().stream()
+                        .filter(c -> c.matchStatus() != MatchStatus.NO_MATCH)
+                        .map(c -> BrandContrib.from(tokenizerManager, c)))
+                .collect(Collectors.groupingBy(
+                        BrandContrib::groupingKey,
+                        Collectors.collectingAndThen(Collectors.toList(), EntityAggregate::fromContribs)));
+        List<EntityAggregate> entities = byEntity.values().stream()
+                .sorted(Comparator.comparing(EntityAggregate::totalPoints, Comparator.reverseOrder())
+                        .thenComparing(EntityAggregate::canonicalLabel))
+                .toList();
+        int entityCount = entities.size();
+        int[] competitionRanks = new int[entityCount];
+        for (int i = 0; i < entityCount; i++) {
+            BigDecimal pi = entities.get(i).totalPoints();
+            int better = 0;
+            for (int j = 0; j < entityCount; j++) {
+                if (entities.get(j).totalPoints().compareTo(pi) > 0) {
+                    better++;
                 }
+            }
+            competitionRanks[i] = better + 1;
+        }
+        BigDecimal totalPoints = entities.stream()
+                .map(EntityAggregate::totalPoints)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<BigDecimal> somPercents = new ArrayList<>(entityCount);
+        if (totalPoints.compareTo(BigDecimal.ZERO) == 0) {
+            for (int i = 0; i < entityCount; i++) {
+                somPercents.add(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            }
+        } else {
+            for (int i = 0; i < entityCount; i++) {
+                somPercents.add(entities.get(i).totalPoints()
+                        .multiply(HUNDRED)
+                        .divide(totalPoints, 2, RoundingMode.HALF_UP));
+            }
+            BigDecimal sumPct = somPercents.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal drift = TARGET_TOTAL_PCT.subtract(sumPct);
+            if (drift.compareTo(BigDecimal.ZERO) != 0) {
+                int absorbIdx = 0;
+                for (int i = 1; i < entityCount; i++) {
+                    BigDecimal pi = entities.get(i).totalPoints();
+                    BigDecimal pa = entities.get(absorbIdx).totalPoints();
+                    int cmpPts = pi.compareTo(pa);
+                    if (cmpPts > 0) {
+                        absorbIdx = i;
+                    } else if (cmpPts == 0) {
+                        String a = entities.get(absorbIdx).canonicalLabel();
+                        String b = entities.get(i).canonicalLabel();
+                        if (a == null) {
+                            absorbIdx = i;
+                        } else if (b != null && b.compareTo(a) < 0) {
+                            absorbIdx = i;
+                        }
+                    }
+                }
+                somPercents.set(absorbIdx, somPercents.get(absorbIdx).add(drift));
             }
         }
-        var merged = new ArrayList<CompetitorResult>();
-        for (var regDisplay : registered) {
-            var regNorm = pipeline(regDisplay);
-            var matchedSoms = new ArrayList<Double>();
-            var matchedRanks = new ArrayList<Integer>();
-            var matchedVs = new ArrayList<Integer>();
-            var statusBands = new ArrayList<MatchStatus>();
-            for (var resp : successes) {
-                var pick = pickCompetitorForRegistered(resp, regNorm, inverted);
-                if (pick == null) {
-                    continue;
-                }
-                var jw = jaroWinkler(regNorm, pipeline(pick.competitorLabel()));
-                if (jw < 0.80) {
-                    continue;
-                }
-                var ms = jw >= 0.92 ? MatchStatus.AUTO_MATCH : MatchStatus.MANUAL_REVIEW;
-                statusBands.add(ms);
-                matchedSoms.add(pick.somScore() != null ? pick.somScore() : 0.0);
-                matchedRanks.add(pick.rankPosition() != null ? pick.rankPosition() : 0);
-                matchedVs.add(pick.visibilityStage() != null ? pick.visibilityStage() : 10);
-            }
-            if (matchedSoms.isEmpty()) {
-                merged.add(new CompetitorResult(regDisplay, 0.0, 0, null, MatchStatus.NO_MATCH));
-            } else {
-                var avgC = matchedSoms.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-                avgC = round2(avgC);
-                avgC = clamp(avgC, 0.0, 100.0);
-                var aggRank = (int) StrictMath.round(matchedRanks.stream().mapToInt(Integer::intValue).average().orElse(0.0));
-                var aggVs = (int) StrictMath.round(matchedVs.stream().mapToInt(Integer::intValue).average().orElse(0.0));
-                var aggMs = statusBands.contains(MatchStatus.MANUAL_REVIEW)
-                        ? MatchStatus.MANUAL_REVIEW
-                        : MatchStatus.AUTO_MATCH;
-                merged.add(new CompetitorResult(regDisplay, avgC, aggRank, aggVs, aggMs));
-            }
+        List<CompetitorResult> merged = new ArrayList<>(entityCount);
+        for (int i = 0; i < entityCount; i++) {
+            EntityAggregate e = entities.get(i);
+            int rank = competitionRanks[i];
+            int stageRaw = StrictMath.subtractExact(11, rank);
+            int visStage = stageRaw < 1 ? 1 : (stageRaw > 10 ? 10 : stageRaw);
+            double somVal = somPercents.get(i).doubleValue();
+            merged.add(new CompetitorResult(
+                    e.canonicalLabel(),
+                    round2(clamp(somVal, 0.0, 100.0)),
+                    rank,
+                    visStage,
+                    e.aggregatedStatus()));
         }
+        merged.sort(Comparator.comparing(
+                (CompetitorResult cr) -> cr.rankPosition() != null ? cr.rankPosition() : Integer.MAX_VALUE,
+                Comparator.naturalOrder())
+                .thenComparing(
+                        (CompetitorResult cr) -> cr.somScore() != null ? cr.somScore() : 0.0,
+                        Comparator.reverseOrder())
+                .thenComparing(CompetitorResult::competitorLabel, Comparator.nullsFirst(Comparator.naturalOrder())));
         return new VerificationResponse(
                 first.modelType(),
                 first.rawResponseJson(),
@@ -164,57 +207,8 @@ public class InformationTheoryBasedAggregator {
                 avgVs,
                 avgMz,
                 AGGREGATION_CALCULATION_VERSION,
-                merged,
+                List.copyOf(merged),
                 insightView);
-    }
-
-    private CompetitorResult pickCompetitorForRegistered(
-            VerificationResponse resp,
-            String regNorm,
-            ConcurrentHashMap<String, Set<String>> inverted) {
-        CompetitorResult best = null;
-        var bestJw = -1.0;
-        for (var cr : resp.competitorResults()) {
-            var aiNorm = pipeline(cr.competitorLabel());
-            if (inverted.isEmpty()) {
-                var jw = jaroWinkler(regNorm, aiNorm);
-                if (jw > bestJw) {
-                    bestJw = jw;
-                    best = cr;
-                }
-                continue;
-            }
-            var cand = blockingCandidates(aiNorm, inverted);
-            if (cand.isEmpty() || !cand.contains(regNorm)) {
-                continue;
-            }
-            var jw = jaroWinkler(regNorm, aiNorm);
-            if (jw > bestJw) {
-                bestJw = jw;
-                best = cr;
-            }
-        }
-        return best;
-    }
-
-    private Set<String> blockingCandidates(String normalizedAi, ConcurrentHashMap<String, Set<String>> inverted) {
-        var votes = new HashMap<String, Integer>();
-        for (var bg : bigrams(normalizedAi)) {
-            var bucket = inverted.get(bg);
-            if (bucket == null) {
-                continue;
-            }
-            for (var regKey : bucket) {
-                votes.merge(regKey, 1, Integer::sum);
-            }
-        }
-        var out = new HashSet<String>();
-        for (var e : votes.entrySet()) {
-            if (e.getValue() >= 2) {
-                out.add(e.getKey());
-            }
-        }
-        return out;
     }
 
     public String pipeline(String input) {
@@ -233,86 +227,6 @@ public class InformationTheoryBasedAggregator {
             }
         }
         return n;
-    }
-
-    private List<String> bigrams(String s) {
-        if (s == null || s.length() < 2) {
-            return List.of();
-        }
-        var cps = s.codePoints().toArray();
-        if (cps.length < 2) {
-            return List.of();
-        }
-        var out = new ArrayList<String>();
-        for (var i = 0; i < cps.length - 1; i++) {
-            out.add(new String(new int[]{cps[i], cps[i + 1]}, 0, 2));
-        }
-        return out;
-    }
-
-    private double jaroWinkler(String s1, String s2) {
-        var j = jaro(s1, s2);
-        var prefix = 0;
-        var maxP = StrictMath.min(WINKLER_PREFIX_MAX, StrictMath.min(s1.length(), s2.length()));
-        for (var i = 0; i < maxP; i++) {
-            if (s1.charAt(i) == s2.charAt(i)) {
-                prefix++;
-            } else {
-                break;
-            }
-        }
-        return j + prefix * P_WINKLER * (1.0 - j);
-    }
-
-    private static double jaro(String s1, String s2) {
-        if (s1.isEmpty() && s2.isEmpty()) {
-            return 1.0;
-        }
-        if (s1.isEmpty() || s2.isEmpty()) {
-            return 0.0;
-        }
-        var m = StrictMath.max(s1.length(), s2.length()) / 2 - 1;
-        if (m < 0) {
-            m = 0;
-        }
-        var s1Matches = new boolean[s1.length()];
-        var s2Matches = new boolean[s2.length()];
-        var matches = 0;
-        for (var i = 0; i < s1.length(); i++) {
-            var start = StrictMath.max(0, i - m);
-            var end = StrictMath.min(i + m + 1, s2.length());
-            for (var j = start; j < end; j++) {
-                if (s2Matches[j] || s1.charAt(i) != s2.charAt(j)) {
-                    continue;
-                }
-                s1Matches[i] = true;
-                s2Matches[j] = true;
-                matches++;
-                break;
-            }
-        }
-        if (matches == 0) {
-            return 0.0;
-        }
-        var t = 0;
-        var k = 0;
-        for (var i = 0; i < s1.length(); i++) {
-            if (!s1Matches[i]) {
-                continue;
-            }
-            while (k < s2.length() && !s2Matches[k]) {
-                k++;
-            }
-            if (k < s2.length() && s1.charAt(i) != s2.charAt(k)) {
-                t++;
-            }
-            k++;
-        }
-        t /= 2;
-        return ((matches / (double) s1.length())
-                + (matches / (double) s2.length())
-                + (matches - t) / matches)
-                / 3.0;
     }
 
     private static double normalizeSentiment(double sentimentIntensity) {
@@ -340,5 +254,38 @@ public class InformationTheoryBasedAggregator {
 
     private static double round2(double value) {
         return StrictMath.round(value * 100.0) / 100.0;
+    }
+
+    private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {
+        static BrandContrib from(TokenizerManager tm, CompetitorResult c) {
+            String surface = c.competitorLabel() != null ? c.competitorLabel() : "";
+            List<String> tok = tm.tokenizeToNormalizedList(surface);
+            String gk = tok.isEmpty() ? surface : String.join("", tok);
+            double sc = c.somScore() != null ? c.somScore() : 0.0;
+            sc = clamp(sc, 0.0, 100.0);
+            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), 1L, c.matchStatus());
+        }
+    }
+
+    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus) {
+        static EntityAggregate fromContribs(List<BrandContrib> rows) {
+            BigDecimal sumPts = rows.stream()
+                    .collect(Collectors.toMap(
+                            BrandContrib::surfaceLabel,
+                            BrandContrib::points,
+                            BigDecimal::add))
+                    .values().stream()
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            MatchStatus st = rows.stream().anyMatch(r -> r.status() == MatchStatus.MANUAL_REVIEW)
+                    ? MatchStatus.MANUAL_REVIEW
+                    : MatchStatus.AUTO_MATCH;
+            String canonical = rows.stream()
+                    .map(BrandContrib::surfaceLabel)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .min(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
+                    .orElse("");
+            return new EntityAggregate(canonical, sumPts, st);
+        }
     }
 }

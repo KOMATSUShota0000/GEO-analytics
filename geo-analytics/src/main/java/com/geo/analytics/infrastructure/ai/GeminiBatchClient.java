@@ -482,7 +482,7 @@ public class GeminiBatchClient {
         Map<String, Object> textPart = new LinkedHashMap<>();
         textPart.put(
             "text",
-            ConsultantPrompts.systemText(subscriptionPlan)
+            ConsultantPrompts.systemText(subscriptionPlan, brandName)
                 + "\n\n"
                 + ConsultantPrompts.userTextBrandQueryOnly(brandName, batchQueryLine.queryText()));
         Map<String, Object> content = new LinkedHashMap<>();
