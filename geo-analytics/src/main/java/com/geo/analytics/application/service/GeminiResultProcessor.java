@@ -7,6 +7,7 @@ import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
@@ -24,8 +25,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 @Service
 public class GeminiResultProcessor {
@@ -42,6 +45,7 @@ public class GeminiResultProcessor {
     private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
     public GeminiResultProcessor(
             JobPersistenceService jobPersistenceService,
             ObjectMapper objectMapper,
@@ -53,7 +57,8 @@ public class GeminiResultProcessor {
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            InformationTheoryBasedAggregator informationTheoryBasedAggregator) {
+            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
+            PlanBasedQuotaManager planBasedQuotaManager) {
         this.jobPersistenceService = jobPersistenceService;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
@@ -65,6 +70,7 @@ public class GeminiResultProcessor {
         this.strategyInsightService = strategyInsightService;
         this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
+        this.planBasedQuotaManager = planBasedQuotaManager;
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
@@ -72,6 +78,8 @@ public class GeminiResultProcessor {
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         boolean isProPlan = plan.usesProTierFeatures();
         String mainBrand = jobEntity.getBrandName();
+        UUID tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        Set<UUID> quotaSettled = new HashSet<>();
         var parsedLines = new ArrayList<BatchParsedLine>();
         for (String outputLine : outputJsonlContent.split("\n")) {
             if (outputLine.isBlank()) {
@@ -81,6 +89,7 @@ public class GeminiResultProcessor {
                 GeminiBatchOutputRecord outputRecord =
                     objectMapper.readValue(outputLine, GeminiBatchOutputRecord.class);
                 if (outputRecord.status() != null && outputRecord.status().code() != 0) {
+                    markBatchQuotaRefundOnError(tid, outputRecord.key(), quotaSettled);
                     continue;
                 }
                 UUID queryId = UUID.fromString(outputRecord.key());
@@ -139,25 +148,43 @@ public class GeminiResultProcessor {
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
             int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
-                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
-                jobPersistenceService.upsertAuditHistoryForJobQuery(
-                    jobEntity.getId(),
-                    line.queryId(),
-                    queryEntity.getQueryText(),
-                    jsonbOperations.serialize(line.consultantOutputData()),
-                    somScore,
-                    brand,
-                    m.rankPosition(),
-                    overall,
-                    line.resolved(),
-                    m.tokenCount(),
-                    m.rankPosition(),
-                    m.sentimentIntensity(),
-                    gbvs.visibilityStage(),
-                    GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                    gbvs.modifiedZScore(),
-                    List.of(),
-                    null));
+                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
+                    jobPersistenceService.upsertAuditHistoryForJobQuery(
+                        jobEntity.getId(),
+                        line.queryId(),
+                        queryEntity.getQueryText(),
+                        jsonbOperations.serialize(line.consultantOutputData()),
+                        somScore,
+                        brand,
+                        m.rankPosition(),
+                        overall,
+                        line.resolved(),
+                        m.tokenCount(),
+                        m.rankPosition(),
+                        m.sentimentIntensity(),
+                        gbvs.visibilityStage(),
+                        GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                        gbvs.modifiedZScore(),
+                        List.of(),
+                        null);
+                    if (quotaSettled.add(line.queryId())) {
+                        long textLen = (long) queryEntity.getQueryText().length()
+                            + (mainBrand != null ? mainBrand.length() : 0);
+                        long actual = QuotaCreditCalculator.actualCreditsGeminiBatchLine(textLen);
+                        long refund = QuotaCreditCalculator.refundAfterDeposit(
+                            QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
+                        if (refund > 0L) {
+                            planBasedQuotaManager.addTokens(tid, refund);
+                        }
+                    }
+                });
+        }
+        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
+            if (!quotaSettled.contains(qe.getId())) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
         }
         var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
         var rollup = strategyInsightService.rollupJob(auditsAfter);
@@ -186,6 +213,20 @@ public class GeminiResultProcessor {
             .map(EntityNormalizer::hostLabelFromUrl)
             .filter(s -> !s.isBlank())
             .toList());
+    }
+    private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        try {
+            UUID qid = UUID.fromString(key);
+            if (quotaSettled.add(qid)) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
+        } catch (IllegalArgumentException ignored) {
+        }
     }
     private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
         JsonNode responseNode = outputRecord.response();

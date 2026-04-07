@@ -7,6 +7,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
@@ -109,7 +110,8 @@ public class AsyncSgeMeasurementService {
         if (dailyQuotaRefundOnFailure > 0) {
             var je = jobPersistenceService.findJobById(jobId);
             var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-            planBasedQuotaManager.addTokens(tid, dailyQuotaRefundOnFailure);
+            planBasedQuotaManager.addTokens(
+                    tid, (long) dailyQuotaRefundOnFailure * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         }
         String trace = ExceptionStackTraceText.of(throwable);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, trace);

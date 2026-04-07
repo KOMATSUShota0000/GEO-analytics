@@ -9,6 +9,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
@@ -92,7 +93,8 @@ public class JobQuerySubmissionService {
                     planEnum.name());
         }
         var batchTenantId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        var batchProbe = quotaManager.resolve(batchTenantId).tryConsumeAndReturnRemaining(keywordCount);
+        long batchDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        var batchProbe = quotaManager.resolve(batchTenantId).tryConsumeAndReturnRemaining(batchDeposit);
         if (!batchProbe.isConsumed()) {
             var workspacePlan = quotaManager.resolveWorkspacePlan(batchTenantId);
             throw new RateLimitExceededException(batchProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
@@ -100,7 +102,7 @@ public class JobQuerySubmissionService {
         try {
             jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, planEnum);
         } catch (RuntimeException e) {
-            quotaManager.addTokens(batchTenantId, keywordCount);
+            quotaManager.addTokens(batchTenantId, batchDeposit);
             throw e;
         }
         startDeepAnalysisBatchPlaceholder(jobId);
@@ -138,7 +140,8 @@ public class JobQuerySubmissionService {
         var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         var bucket = quotaManager.resolve(tenantId);
         int n = queryEntities.size();
-        var probe = bucket.tryConsumeAndReturnRemaining(n);
+        long realtimeDeposit = (long) n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        var probe = bucket.tryConsumeAndReturnRemaining(realtimeDeposit);
         if (!probe.isConsumed()) {
             var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
             throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
@@ -148,8 +151,18 @@ public class JobQuerySubmissionService {
                 .map(qe -> CompletableFuture.runAsync(
                         () -> TenantContext.executeWithTenant(
                                 tenantId,
-                                () -> processOneQueryRealtimeCore(
-                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan)),
+                                () -> {
+                                    try {
+                                        processOneQueryRealtimeCore(
+                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                    } catch (Throwable x) {
+                                        quotaManager.addTokens(
+                                                tenantId,
+                                                QuotaCreditCalculator.refundAfterDeposit(
+                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                        throw x;
+                                    }
+                                }),
                         streamDeliveryVirtualExecutor))
                 .toArray(CompletableFuture[]::new);
         try {
@@ -159,7 +172,6 @@ public class JobQuerySubmissionService {
             jobStatusBroadcastPublisher.publish(completedJobEntity);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
         } catch (Throwable t) {
-            quotaManager.addTokens(tenantId, n);
             if (t instanceof CompletionException ce) {
                 var c = ce.getCause();
                 if (c instanceof RuntimeException re) {
@@ -212,28 +224,36 @@ public class JobQuerySubmissionService {
                 queryEntity.getId(),
                 brandName,
                 competitorHosts);
-        var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-        var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
-        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-        var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
-        var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
-        jobPersistenceService.upsertAuditHistoryForJobQuery(
-                jobId,
-                queryEntity.getId(),
-                queryEntity.getQueryText(),
-                jsonbOperations.serialize(consultantOutputData),
-                somScore,
-                brand,
-                mr,
-                ov,
-                syncVerificationResult.resolvedEntityLabel(),
-                syncVerificationResult.tokenCount(),
-                syncVerificationResult.rankPosition(),
-                syncVerificationResult.sentimentIntensity(),
-                syncVerificationResult.visibilityStage(),
-                syncVerificationResult.calculationVersion(),
-                syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
-                syncVerificationResult.competitorScoreRows(),
-                syncVerificationResult.modelInsightsJson());
+        long actual = QuotaCreditCalculator.actualCredits(syncVerificationResult.analysisTextLength(), appliedPlan);
+        try {
+            var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
+            var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
+            var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+            var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
+            var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
+            jobPersistenceService.upsertAuditHistoryForJobQuery(
+                    jobId,
+                    queryEntity.getId(),
+                    queryEntity.getQueryText(),
+                    jsonbOperations.serialize(consultantOutputData),
+                    somScore,
+                    brand,
+                    mr,
+                    ov,
+                    syncVerificationResult.resolvedEntityLabel(),
+                    syncVerificationResult.tokenCount(),
+                    syncVerificationResult.rankPosition(),
+                    syncVerificationResult.sentimentIntensity(),
+                    syncVerificationResult.visibilityStage(),
+                    syncVerificationResult.calculationVersion(),
+                    syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+                    syncVerificationResult.competitorScoreRows(),
+                    syncVerificationResult.modelInsightsJson());
+        } finally {
+            long refund = QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
+            if (refund > 0L) {
+                quotaManager.addTokens(tenantId, refund);
+            }
+        }
     }
 }

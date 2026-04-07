@@ -17,5 +17,6 @@ public record SyncVerificationResult(
         Double modifiedZScore,
         String calculationVersion,
         List<CompetitorScoreRow> competitorScoreRows,
-        String modelInsightsJson
+        String modelInsightsJson,
+        int analysisTextLength
 ) {}

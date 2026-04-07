@@ -71,7 +71,7 @@ public class SyncVerificationService {
                 registeredCompetitorBrands,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
-        return toResult(verificationResponse);
+        return toResult(verificationRequest, verificationResponse);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -115,10 +115,12 @@ public class SyncVerificationService {
                 registeredCompetitorBrands,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
-        return toResult(verificationResponse);
+        return toResult(verificationRequest, verificationResponse);
     }
 
-    private SyncVerificationResult toResult(VerificationResponse verificationResponse) {
+    private SyncVerificationResult toResult(VerificationRequest appliedRequest, VerificationResponse verificationResponse) {
+        var content = appliedRequest.crawledContent();
+        int analysisTextLength = content != null ? content.length() : 0;
         var consultantOutputData =
                 somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
         var rows = verificationResponse.competitorResults().stream()
@@ -145,7 +147,8 @@ public class SyncVerificationService {
                 verificationResponse.modifiedZScore(),
                 verificationResponse.calculationVersion(),
                 rows,
-                insightsJson);
+                insightsJson,
+                analysisTextLength);
     }
 
     private String serializeInsights(VerificationResponse verificationResponse) {

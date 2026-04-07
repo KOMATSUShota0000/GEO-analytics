@@ -13,6 +13,7 @@ import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
@@ -129,7 +130,8 @@ class SubscriptionIntegrationTest {
                 0.0,
                 "TEST_CALC_V4",
                 List.of(),
-                "{}"));
+                "{}",
+                0));
     }
 
     @AfterEach
@@ -176,7 +178,8 @@ class SubscriptionIntegrationTest {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        var probe = planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(limit);
+        var probe = planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(
+                (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         assertThat(probe.isConsumed()).isTrue();
         var jobId = createJob("SubscriptionB");
         webTestClient.post()
@@ -198,7 +201,8 @@ class SubscriptionIntegrationTest {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        assertThat(planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(limit).isConsumed()).isTrue();
+        assertThat(planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(
+                (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD).isConsumed()).isTrue();
         subscriptionManagementService.changePlan(WID, SubscriptionPlan.EXPERT);
         var jobId = createJob("SubscriptionC");
         webTestClient.post()

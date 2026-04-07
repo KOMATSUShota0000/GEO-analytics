@@ -5,6 +5,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
@@ -55,7 +56,7 @@ public class GeminiBatchExecutorService {
                 projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
             }
-            quotaRefundOnFailure = unprocessedQueryEntities.size();
+            quotaRefundOnFailure = unprocessedQueryEntities.size() * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
             List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
                 .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
                 .toList();

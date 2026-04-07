@@ -3,6 +3,8 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import org.slf4j.Logger;
@@ -11,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -26,6 +29,7 @@ public class AsyncBatchService {
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final GapAnalysisBatchProcessor gapAnalysisBatchProcessor;
     private final GapAnalysisService gapAnalysisService;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public AsyncBatchService(
             JobPersistenceService jobPersistenceService,
@@ -35,7 +39,8 @@ public class AsyncBatchService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
-            GapAnalysisService gapAnalysisService) {
+            GapAnalysisService gapAnalysisService,
+            PlanBasedQuotaManager planBasedQuotaManager) {
         this.jobPersistenceService = jobPersistenceService;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
@@ -44,6 +49,7 @@ public class AsyncBatchService {
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.gapAnalysisBatchProcessor = gapAnalysisBatchProcessor;
         this.gapAnalysisService = gapAnalysisService;
+        this.planBasedQuotaManager = planBasedQuotaManager;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
@@ -117,6 +123,7 @@ public class AsyncBatchService {
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobEntity.getId()));
                 } else {
+                    refundBatchQuotaDeposit(jobEntity);
                     String stateDescription = batchJobState == null ? "null" : batchJobState;
                     jobPersistenceService.updateJobStatus(
                         jobEntity.getId(),
@@ -125,19 +132,29 @@ public class AsyncBatchService {
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 }
             } catch (Exception exception) {
-                jobPersistenceService.updateJobStatus(
-                    jobEntity.getId(),
-                    JobStatus.FAILED,
-                    ExceptionStackTraceText.of(exception));
-                broadcastJobStatusOverStomp(jobEntity.getId());
+                refundBatchQuotaDeposit(jobEntity);
+                try {
+                    jobPersistenceService.updateJobStatus(
+                        jobEntity.getId(),
+                        JobStatus.FAILED,
+                        ExceptionStackTraceText.of(exception));
+                    broadcastJobStatusOverStomp(jobEntity.getId());
+                } catch (RuntimeException secondary) {
+                    logger.error("[Job:{}] persist FAILED after quota refund", jobEntity.getId(), secondary);
+                }
             }
         }).exceptionally(throwable -> {
             logger.error("[Job:{}] Batch polling async failure", jobEntity.getId(), throwable);
-            jobPersistenceService.updateJobStatus(
-                jobEntity.getId(),
-                JobStatus.FAILED,
-                ExceptionStackTraceText.of(throwable));
-            broadcastJobStatusOverStomp(jobEntity.getId());
+            refundBatchQuotaDeposit(jobEntity);
+            try {
+                jobPersistenceService.updateJobStatus(
+                    jobEntity.getId(),
+                    JobStatus.FAILED,
+                    ExceptionStackTraceText.of(throwable));
+                broadcastJobStatusOverStomp(jobEntity.getId());
+            } catch (RuntimeException secondary) {
+                logger.error("[Job:{}] persist FAILED after quota refund", jobEntity.getId(), secondary);
+            }
             return null;
         }));
         logger.info("Batch polling task dispatched all jobs");
@@ -177,6 +194,13 @@ public class AsyncBatchService {
         }));
     }
 
+    private void refundBatchQuotaDeposit(JobEntity jobEntity) {
+        var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        long n = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        if (n > 0L) {
+            planBasedQuotaManager.addTokens(tid, n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
+        }
+    }
     private void pollOneGapAnalysisJob(JobEntity jobEntity) {
         String gapJobName = jobEntity.getGapAnalysisGeminiJobName();
         if (gapJobName == null || gapJobName.isBlank()) {

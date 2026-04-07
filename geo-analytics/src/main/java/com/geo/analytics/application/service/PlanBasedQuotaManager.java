@@ -2,6 +2,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
@@ -63,9 +64,10 @@ public class PlanBasedQuotaManager {
                     .filter(Objects::nonNull)
                     .orElse(SubscriptionPlan.STANDARD);
             var daily = plan.getDailyLimit();
+            long capacity = (long) daily * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
             var bandwidth = Bandwidth.builder()
-                    .capacity(daily)
-                    .refillIntervally(daily, Duration.ofDays(1))
+                    .capacity(capacity)
+                    .refillIntervally(capacity, Duration.ofDays(1))
                     .build();
             return BucketConfiguration.builder().addLimit(bandwidth).build();
         });

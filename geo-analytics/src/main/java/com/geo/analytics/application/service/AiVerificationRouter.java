@@ -19,7 +19,6 @@ public final class AiVerificationRouter implements AiVerificationPort {
     private final List<ModelTypedAiVerificationPort> adapters;
     private final InformationTheoryBasedAggregator aggregator;
     private final Semaphore concurrencyLimiter;
-
     public AiVerificationRouter(
             List<ModelTypedAiVerificationPort> adapters,
             InformationTheoryBasedAggregator aggregator,
@@ -28,7 +27,6 @@ public final class AiVerificationRouter implements AiVerificationPort {
         this.aggregator = Objects.requireNonNull(aggregator);
         this.concurrencyLimiter = Objects.requireNonNull(concurrencyLimiter);
     }
-
     @Override
     public VerificationResponse verify(VerificationRequest verificationRequest) {
         var plan = verificationRequest.subscriptionPlan();
@@ -37,7 +35,17 @@ public final class AiVerificationRouter implements AiVerificationPort {
             throw new IllegalStateException("no adapters for plan");
         }
         if (active.size() == 1) {
-            return active.getFirst().verify(verificationRequest);
+            try {
+                concurrencyLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+            try {
+                return active.getFirst().verify(verificationRequest);
+            } finally {
+                concurrencyLimiter.release();
+            }
         }
         try (StructuredTaskScope<VerificationResponse, Void> scope = StructuredTaskScope.open(
                 StructuredTaskScope.Joiner.<VerificationResponse>awaitAll(),
@@ -46,7 +54,12 @@ public final class AiVerificationRouter implements AiVerificationPort {
             var tasks = new ArrayList<StructuredTaskScope.Subtask<VerificationResponse>>();
             for (var adapter : active) {
                 tasks.add(scope.fork(() -> {
-                    concurrencyLimiter.acquire();
+                    try {
+                        concurrencyLimiter.acquire();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
                     try {
                         return adapter.verify(verificationRequest);
                     } finally {

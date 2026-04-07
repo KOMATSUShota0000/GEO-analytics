@@ -44,6 +44,7 @@ geo-analytics/.cursorrules
 geo-analytics/.gitignore
 geo-analytics/.mvn/wrapper/maven-wrapper.jar
 geo-analytics/.mvn/wrapper/maven-wrapper.properties
+geo-analytics/data/pdf-temp/e9a4a054-5be3-4741-b034-9a186ec334df.pdf
 geo-analytics/docs/PDF_DOCKER_NOTES.md
 geo-analytics/frontend/.env.development
 geo-analytics/frontend/index.html
@@ -183,6 +184,7 @@ geo-analytics/src/main/java/com/geo/analytics/domain/matching/RobustAuditMathUti
 geo-analytics/src/main/java/com/geo/analytics/domain/matching/TokenizerManager.java
 geo-analytics/src/main/java/com/geo/analytics/domain/matching/ZeroAllocationTokenizer.java
 geo-analytics/src/main/java/com/geo/analytics/domain/model/PlanLimitsSnapshot.java
+geo-analytics/src/main/java/com/geo/analytics/domain/model/QuotaCreditCalculator.java
 geo-analytics/src/main/java/com/geo/analytics/domain/model/ResolvableEntity.java
 geo-analytics/src/main/java/com/geo/analytics/domain/model/SomRawMetrics.java
 geo-analytics/src/main/java/com/geo/analytics/domain/model/VisibilityStageMapper.java
@@ -315,25 +317,39 @@ geo-analytics/src/test/resources/application-test.yml
 <files>
 This section contains the contents of the repository's files.
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/model/PlanLimitsSnapshot.java">
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/model/QuotaCreditCalculator.java">
 package com.geo.analytics.domain.model;
 
+import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 
-public record PlanLimitsSnapshot(int dailyLimit, int totalLimit, int realtimeBatchMax, String limitsVersion) {
-    public static PlanLimitsSnapshot fromPlan(SubscriptionPlan plan) {
-        return new PlanLimitsSnapshot(
-                plan.getDailyLimit(), plan.getTotalLimit(), plan.getRealtimeBatchMax(), SubscriptionPlan.LIMITS_CALCULATION_VERSION);
+public final class QuotaCreditCalculator {
+    public static final int DEPOSIT_PER_KEYWORD = 10;
+    private QuotaCreditCalculator() {
     }
-
-    public boolean isRealtimeAllowed(int queryCount) {
-        return queryCount > 0 && queryCount <= realtimeBatchMax;
+    public static long actualCredits(long textLength, SubscriptionPlan plan) {
+        int mult = combinedModelMultiplier(plan);
+        long tier = textLength <= 0L ? 0L : (long) Math.ceil(textLength / 1000.0);
+        return Math.max(1L, 1L + tier * mult);
+    }
+    public static long actualCreditsGeminiBatchLine(long textLength) {
+        long tier = textLength <= 0L ? 0L : (long) Math.ceil(textLength / 1000.0);
+        return Math.max(1L, 1L + tier);
+    }
+    public static long refundAfterDeposit(long deposit, long actualCost) {
+        long d = deposit - actualCost;
+        return d > 0L ? d : 0L;
+    }
+    public static int combinedModelMultiplier(SubscriptionPlan plan) {
+        int s = 0;
+        for (ModelType mt : ModelType.values()) {
+            if (plan.hasModelAccess(mt)) {
+                s += mt.quotaMultiplier();
+            }
+        }
+        return Math.max(1, s);
     }
 }
-</file>
-
-<file path="geo-analytics/src/main/resources/db/manual/V20260407_job_plan_limits_snapshot.sql">
-ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_limits_snapshot jsonb;
 </file>
 
 <file path="geo-analytics/.gitignore">
@@ -1687,82 +1703,6 @@ public class MonthlyAuditJobLauncher {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/PlanBasedQuotaManager.java">
-package com.geo.analytics.application.service;
-
-import com.geo.analytics.domain.entity.WorkspaceEntity;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
-import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.BucketConfiguration;
-import io.github.bucket4j.caffeine.CaffeineProxyManager;
-import io.github.bucket4j.distributed.proxy.ProxyManager;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Component;
-
-import java.time.Duration;
-import java.util.Objects;
-import java.util.UUID;
-
-@Component
-public class PlanBasedQuotaManager {
-    private final ProxyManager<String> proxyManager;
-    private final CaffeineProxyManager<String> planQuotaCaffeineProxyManager;
-    private final WorkspaceRepository workspaceRepository;
-
-    public PlanBasedQuotaManager(
-            @Qualifier("planQuotaProxyManager") ProxyManager<String> proxyManager,
-            @Qualifier(Bucket4jConfiguration.PLAN_QUOTA_CAFFEINE_PROXY_MANAGER)
-                    CaffeineProxyManager<String> planQuotaCaffeineProxyManager,
-            WorkspaceRepository workspaceRepository) {
-        this.proxyManager = Objects.requireNonNull(proxyManager);
-        this.planQuotaCaffeineProxyManager = Objects.requireNonNull(planQuotaCaffeineProxyManager);
-        this.workspaceRepository = Objects.requireNonNull(workspaceRepository);
-    }
-
-    public void invalidateTenantBucket(UUID workspaceId) {
-        planQuotaCaffeineProxyManager.getCache().invalidate(workspaceId.toString());
-    }
-
-    public Bucket resolve(UUID workspaceId) {
-        var key = workspaceId.toString();
-        return proxyManager.builder().build(key, () -> configurationForWorkspace(workspaceId));
-    }
-
-    public void addTokens(UUID workspaceId, long tokens) {
-        if (tokens <= 0L) {
-            return;
-        }
-        resolve(workspaceId).addTokens(tokens);
-    }
-
-    public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
-                .map(WorkspaceEntity::getSubscriptionPlan)
-                .filter(Objects::nonNull)
-                .orElse(SubscriptionPlan.STANDARD));
-    }
-
-    private BucketConfiguration configurationForWorkspace(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> {
-            var plan = workspaceRepository.findById(workspaceId)
-                    .map(WorkspaceEntity::getSubscriptionPlan)
-                    .filter(Objects::nonNull)
-                    .orElse(SubscriptionPlan.STANDARD);
-            var daily = plan.getDailyLimit();
-            var bandwidth = Bandwidth.builder()
-                    .capacity(daily)
-                    .refillIntervally(daily, Duration.ofDays(1))
-                    .build();
-            return BucketConfiguration.builder().addLimit(bandwidth).build();
-        });
-    }
-}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/application/service/ProjectAuditEventListener.java">
 package com.geo.analytics.application.service;
 
@@ -2324,7 +2264,14 @@ package com.geo.analytics.domain.enums;
 public enum ModelType {
     GEMINI,
     CHATGPT,
-    CLAUDE
+    CLAUDE;
+    public int quotaMultiplier() {
+        return switch (this) {
+            case GEMINI -> 1;
+            case CHATGPT -> 2;
+            case CLAUDE -> 3;
+        };
+    }
 }
 </file>
 
@@ -4490,143 +4437,6 @@ public final class PrimitiveInvertedIndex {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/RobustAuditMathUtil.java">
-package com.geo.analytics.domain.matching;
-
-import java.lang.StrictMath;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.Arrays;
-
-public final class RobustAuditMathUtil {
-
-    public static final double EPSILON = 1e-10;
-    public static final double MAD_NORMALIZATION = 1.3489;
-    private static final int DEFAULT_BANK_SCALE = 10;
-
-    private RobustAuditMathUtil() {
-    }
-
-    public static double softwareFtzFlush(double x) {
-        double ax = StrictMath.abs(x);
-        if (ax < EPSILON) {
-            return StrictMath.copySign(0.0, x);
-        }
-        return x;
-    }
-
-    public static double[] betaMomentAlphaBeta(double mean, double variance) {
-        double m = softwareFtzFlush(mean);
-        m = StrictMath.min(StrictMath.max(m, EPSILON), 1.0 - EPSILON);
-        double cap = StrictMath.fma(m, 1.0 - m, -EPSILON);
-        double v = variance;
-        if (v >= cap) {
-            v = cap;
-        }
-        if (v < EPSILON) {
-            v = EPSILON;
-        }
-        double s = StrictMath.fma(m, 1.0 - m, 0.0) / v - 1.0;
-        if (s <= EPSILON) {
-            s = EPSILON;
-        }
-        double alpha = StrictMath.fma(m, s, 0.0);
-        double beta = StrictMath.fma(1.0 - m, s, 0.0);
-        return new double[]{bankRoundHalfEvenDefault(alpha), bankRoundHalfEvenDefault(beta)};
-    }
-
-    public static double betaBinomialPosteriorMean(double k, double n, double alpha, double beta) {
-        double kk = softwareFtzFlush(k);
-        double nn = softwareFtzFlush(n);
-        double a = softwareFtzFlush(alpha);
-        double b = softwareFtzFlush(beta);
-        double den = StrictMath.fma(nn, 1.0, StrictMath.fma(a, 1.0, b));
-        if (StrictMath.abs(den) < EPSILON) {
-            return bankRoundHalfEven(0.0, DEFAULT_BANK_SCALE);
-        }
-        double num = StrictMath.fma(kk, 1.0, a);
-        return bankRoundHalfEven(softwareFtzFlush(num / den), DEFAULT_BANK_SCALE);
-    }
-
-    public static double median(double[] values) {
-        if (values.length == 0) {
-            return 0.0;
-        }
-        double[] copy = Arrays.copyOf(values, values.length);
-        Arrays.sort(copy);
-        int mid = copy.length >>> 1;
-        if ((copy.length & 1) == 1) {
-            return copy[mid];
-        }
-        return StrictMath.fma(0.5, copy[mid - 1], 0.5 * copy[mid]);
-    }
-
-    /**
-     * Modified Z′ (Iglewicz–Hoaglin style) for each sample element: one median and one MAD-of-deviations pass over {@code sample}.
-     */
-    public static double[] modifiedZScores(double[] sample) {
-        int n = sample.length;
-        if (n == 0) {
-            return new double[0];
-        }
-        double med = median(sample);
-        double[] dev = new double[n];
-        for (int i = 0; i < n; i++) {
-            dev[i] = StrictMath.abs(StrictMath.fma(sample[i], 1.0, -med));
-        }
-        double mad = median(dev);
-        if (mad < EPSILON) {
-            return new double[n];
-        }
-        double scale = StrictMath.fma(MAD_NORMALIZATION, mad, 0.0);
-        double[] z = new double[n];
-        for (int i = 0; i < n; i++) {
-            double num = StrictMath.fma(sample[i], 1.0, -med);
-            z[i] = bankRoundHalfEvenDefault(softwareFtzFlush(num / scale));
-        }
-        return z;
-    }
-
-    public static double logSigmoidStable(double x) {
-        if (x >= 0.0) {
-            double ex = StrictMath.exp(-x);
-            return bankRoundHalfEvenDefault(-StrictMath.log1p(ex));
-        }
-        double ex = StrictMath.exp(x);
-        return bankRoundHalfEvenDefault(StrictMath.fma(x, 1.0, -StrictMath.log1p(ex)));
-    }
-
-    public static double tanhStable(double x) {
-        if (x > 20.0) {
-            return bankRoundHalfEvenDefault(1.0);
-        }
-        if (x < -20.0) {
-            return bankRoundHalfEvenDefault(-1.0);
-        }
-        double e2x = StrictMath.exp(StrictMath.fma(2.0, x, 0.0));
-        return bankRoundHalfEvenDefault((e2x - 1.0) / (e2x + 1.0));
-    }
-
-    public static double bankRoundHalfEven(double value, int scale) {
-        if (Double.isNaN(value)) {
-            return 0.0;
-        }
-        if (!Double.isFinite(value)) {
-            return StrictMath.copySign(1.0, value);
-        }
-        return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_EVEN).doubleValue();
-    }
-
-    public static double bankRoundHalfEvenDefault(double value) {
-        return bankRoundHalfEven(value, DEFAULT_BANK_SCALE);
-    }
-
-    public static double finalizeScore(double score) {
-        return bankRoundHalfEvenDefault(softwareFtzFlush(score));
-    }
-}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/ZeroAllocationTokenizer.java">
 package com.geo.analytics.domain.matching;
 
@@ -4658,6 +4468,23 @@ public final class ZeroAllocationTokenizer {
             int c2 = text[i + 1];
             consumer.accept((c1 << 16) | c2);
         }
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/model/PlanLimitsSnapshot.java">
+package com.geo.analytics.domain.model;
+
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+
+public record PlanLimitsSnapshot(int dailyLimit, int totalLimit, int realtimeBatchMax, String limitsVersion) {
+    public static PlanLimitsSnapshot fromPlan(SubscriptionPlan plan) {
+        return new PlanLimitsSnapshot(
+                plan.getDailyLimit(), plan.getTotalLimit(), plan.getRealtimeBatchMax(), SubscriptionPlan.LIMITS_CALCULATION_VERSION);
+    }
+
+    public boolean isRealtimeAllowed(int queryCount) {
+        return queryCount > 0 && queryCount <= realtimeBatchMax;
     }
 }
 </file>
@@ -6697,6 +6524,10 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS gap_analysis_gemini_job_name VARCHAR(5
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS gap_analysis_completed BOOLEAN NOT NULL DEFAULT FALSE;
 </file>
 
+<file path="geo-analytics/src/main/resources/db/manual/V20260407_job_plan_limits_snapshot.sql">
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_limits_snapshot jsonb;
+</file>
+
 <file path="geo-analytics/src/main/resources/db/rls/tenant_isolation.sql">
 ALTER TABLE projects RENAME COLUMN workspace_id TO tenant_id;
 ALTER TABLE projects ALTER COLUMN tenant_id TYPE varchar(36) USING trim(tenant_id::text);
@@ -7223,7 +7054,17 @@ public final class AiVerificationRouter implements AiVerificationPort {
             throw new IllegalStateException("no adapters for plan");
         }
         if (active.size() == 1) {
-            return active.getFirst().verify(verificationRequest);
+            try {
+                concurrencyLimiter.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+            try {
+                return active.getFirst().verify(verificationRequest);
+            } finally {
+                concurrencyLimiter.release();
+            }
         }
         try (StructuredTaskScope<VerificationResponse, Void> scope = StructuredTaskScope.open(
                 StructuredTaskScope.Joiner.<VerificationResponse>awaitAll(),
@@ -7232,7 +7073,12 @@ public final class AiVerificationRouter implements AiVerificationPort {
             var tasks = new ArrayList<StructuredTaskScope.Subtask<VerificationResponse>>();
             for (var adapter : active) {
                 tasks.add(scope.fork(() -> {
-                    concurrencyLimiter.acquire();
+                    try {
+                        concurrencyLimiter.acquire();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
                     try {
                         return adapter.verify(verificationRequest);
                     } finally {
@@ -7821,6 +7667,84 @@ public class NotificationService {
     }
 
     private record VarianceLine(String keyword, double currentSom, Double previousSom, double delta) {
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/PlanBasedQuotaManager.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.domain.entity.WorkspaceEntity;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.BucketConfiguration;
+import io.github.bucket4j.caffeine.CaffeineProxyManager;
+import io.github.bucket4j.distributed.proxy.ProxyManager;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
+
+import java.time.Duration;
+import java.util.Objects;
+import java.util.UUID;
+
+@Component
+public class PlanBasedQuotaManager {
+    private final ProxyManager<String> proxyManager;
+    private final CaffeineProxyManager<String> planQuotaCaffeineProxyManager;
+    private final WorkspaceRepository workspaceRepository;
+
+    public PlanBasedQuotaManager(
+            @Qualifier("planQuotaProxyManager") ProxyManager<String> proxyManager,
+            @Qualifier(Bucket4jConfiguration.PLAN_QUOTA_CAFFEINE_PROXY_MANAGER)
+                    CaffeineProxyManager<String> planQuotaCaffeineProxyManager,
+            WorkspaceRepository workspaceRepository) {
+        this.proxyManager = Objects.requireNonNull(proxyManager);
+        this.planQuotaCaffeineProxyManager = Objects.requireNonNull(planQuotaCaffeineProxyManager);
+        this.workspaceRepository = Objects.requireNonNull(workspaceRepository);
+    }
+
+    public void invalidateTenantBucket(UUID workspaceId) {
+        planQuotaCaffeineProxyManager.getCache().invalidate(workspaceId.toString());
+    }
+
+    public Bucket resolve(UUID workspaceId) {
+        var key = workspaceId.toString();
+        return proxyManager.builder().build(key, () -> configurationForWorkspace(workspaceId));
+    }
+
+    public void addTokens(UUID workspaceId, long tokens) {
+        if (tokens <= 0L) {
+            return;
+        }
+        resolve(workspaceId).addTokens(tokens);
+    }
+
+    public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
+        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
+                .map(WorkspaceEntity::getSubscriptionPlan)
+                .filter(Objects::nonNull)
+                .orElse(SubscriptionPlan.STANDARD));
+    }
+
+    private BucketConfiguration configurationForWorkspace(UUID workspaceId) {
+        return TenantContext.executeWithTenant(workspaceId, () -> {
+            var plan = workspaceRepository.findById(workspaceId)
+                    .map(WorkspaceEntity::getSubscriptionPlan)
+                    .filter(Objects::nonNull)
+                    .orElse(SubscriptionPlan.STANDARD);
+            var daily = plan.getDailyLimit();
+            long capacity = (long) daily * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+            var bandwidth = Bandwidth.builder()
+                    .capacity(capacity)
+                    .refillIntervally(capacity, Duration.ofDays(1))
+                    .build();
+            return BucketConfiguration.builder().addLimit(bandwidth).build();
+        });
     }
 }
 </file>
@@ -8493,58 +8417,139 @@ public class UserEntity {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/enums/SubscriptionPlan.java">
-package com.geo.analytics.domain.enums;
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/RobustAuditMathUtil.java">
+package com.geo.analytics.domain.matching;
 
-import java.util.List;
+import java.lang.StrictMath;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Arrays;
 
-public enum SubscriptionPlan {
-    STANDARD(10, 10, 10),
-    PRO(100, 500, 50),
-    EXPERT(200, 2000, 50);
+public final class RobustAuditMathUtil {
 
-    public static final String LIMITS_CALCULATION_VERSION = "SUBSCRIPTION_LIMITS_V2.8";
+    public static final double EPSILON = 1e-10;
+    public static final double MAD_NORMALIZATION = 1.3489;
+    private static final int DEFAULT_BANK_SCALE = 10;
 
-    private final int dailyLimit;
-    private final int totalLimit;
-    private final int realtimeBatchMax;
-
-    SubscriptionPlan(int dailyLimit, int totalLimit, int realtimeBatchMax) {
-        this.dailyLimit = dailyLimit;
-        this.totalLimit = totalLimit;
-        this.realtimeBatchMax = realtimeBatchMax;
+    private RobustAuditMathUtil() {
     }
 
-    public int getDailyLimit() {
-        return dailyLimit;
+    public static double softwareFtzFlush(double x) {
+        double ax = StrictMath.abs(x);
+        if (ax < EPSILON) {
+            return StrictMath.copySign(0.0, x);
+        }
+        return x;
     }
 
-    public int getTotalLimit() {
-        return totalLimit;
+    public static double[] betaMomentAlphaBeta(double mean, double variance) {
+        double m = softwareFtzFlush(mean);
+        m = StrictMath.min(StrictMath.max(m, EPSILON), 1.0 - EPSILON);
+        double cap = StrictMath.fma(m, 1.0 - m, -EPSILON);
+        double v = variance;
+        if (v >= cap) {
+            v = cap;
+        }
+        if (v < EPSILON) {
+            v = EPSILON;
+        }
+        double s = StrictMath.fma(m, 1.0 - m, 0.0) / v - 1.0;
+        if (s <= EPSILON) {
+            s = EPSILON;
+        }
+        double alpha = StrictMath.fma(m, s, 0.0);
+        double beta = StrictMath.fma(1.0 - m, s, 0.0);
+        return new double[]{bankRoundHalfEvenDefault(alpha), bankRoundHalfEvenDefault(beta)};
     }
 
-    public int getRealtimeBatchMax() {
-        return realtimeBatchMax;
+    public static double betaBinomialPosteriorMean(double k, double n, double alpha, double beta) {
+        double kk = softwareFtzFlush(k);
+        double nn = softwareFtzFlush(n);
+        double a = softwareFtzFlush(alpha);
+        double b = softwareFtzFlush(beta);
+        double den = StrictMath.fma(nn, 1.0, StrictMath.fma(a, 1.0, b));
+        if (StrictMath.abs(den) < EPSILON) {
+            return bankRoundHalfEven(0.0, DEFAULT_BANK_SCALE);
+        }
+        double num = StrictMath.fma(kk, 1.0, a);
+        return bankRoundHalfEven(softwareFtzFlush(num / den), DEFAULT_BANK_SCALE);
     }
 
-    public boolean isRealtimeAllowed(int queryCount) {
-        return queryCount > 0 && queryCount <= realtimeBatchMax;
+    public static double median(double[] values) {
+        if (values.length == 0) {
+            return 0.0;
+        }
+        double[] copy = Arrays.copyOf(values, values.length);
+        Arrays.sort(copy);
+        int mid = copy.length >>> 1;
+        if ((copy.length & 1) == 1) {
+            return copy[mid];
+        }
+        return StrictMath.fma(0.5, copy[mid - 1], 0.5 * copy[mid]);
     }
 
-    public boolean usesProTierFeatures() {
-        return this == PRO || this == EXPERT;
+    /**
+     * Modified Z′ (Iglewicz–Hoaglin style) for each sample element: one median and one MAD-of-deviations pass over {@code sample}.
+     */
+    public static double[] modifiedZScores(double[] sample) {
+        int n = sample.length;
+        if (n == 0) {
+            return new double[0];
+        }
+        double med = median(sample);
+        double[] dev = new double[n];
+        for (int i = 0; i < n; i++) {
+            dev[i] = StrictMath.abs(StrictMath.fma(sample[i], 1.0, -med));
+        }
+        double mad = median(dev);
+        if (mad < EPSILON) {
+            return new double[n];
+        }
+        double scale = StrictMath.fma(MAD_NORMALIZATION, mad, 0.0);
+        double[] z = new double[n];
+        for (int i = 0; i < n; i++) {
+            double num = StrictMath.fma(sample[i], 1.0, -med);
+            z[i] = bankRoundHalfEvenDefault(softwareFtzFlush(num / scale));
+        }
+        return z;
     }
 
-    public boolean hasModelAccess(ModelType modelType) {
-        return switch (modelType) {
-            case GEMINI -> true;
-            case CHATGPT -> this != STANDARD;
-            case CLAUDE -> this == EXPERT;
-        };
+    public static double logSigmoidStable(double x) {
+        if (x >= 0.0) {
+            double ex = StrictMath.exp(-x);
+            return bankRoundHalfEvenDefault(-StrictMath.log1p(ex));
+        }
+        double ex = StrictMath.exp(x);
+        return bankRoundHalfEvenDefault(StrictMath.fma(x, 1.0, -StrictMath.log1p(ex)));
     }
 
-    public static List<SubscriptionPlan> proTierPlans() {
-        return List.of(PRO, EXPERT);
+    public static double tanhStable(double x) {
+        if (x > 20.0) {
+            return bankRoundHalfEvenDefault(1.0);
+        }
+        if (x < -20.0) {
+            return bankRoundHalfEvenDefault(-1.0);
+        }
+        double e2x = StrictMath.exp(StrictMath.fma(2.0, x, 0.0));
+        return bankRoundHalfEvenDefault((e2x - 1.0) / (e2x + 1.0));
+    }
+
+    public static double bankRoundHalfEven(double value, int scale) {
+        if (Double.isNaN(value)) {
+            return 0.0;
+        }
+        if (!Double.isFinite(value)) {
+            return StrictMath.copySign(1.0, value);
+        }
+        return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_EVEN).doubleValue();
+    }
+
+    public static double bankRoundHalfEvenDefault(double value) {
+        return bankRoundHalfEven(value, DEFAULT_BANK_SCALE);
+    }
+
+    public static double finalizeScore(double score) {
+        return bankRoundHalfEvenDefault(softwareFtzFlush(score));
     }
 }
 </file>
@@ -9614,17 +9619,6 @@ public record CreateJobRequest(
 ) {}
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/web/dto/ErrorResponse.java">
-package com.geo.analytics.web.dto;
-
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
-
-@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public record ErrorResponse(
-        String errorCode, String message, Integer currentLimit, String planName, Long retryAfterSeconds) {}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/web/dto/ProjectSettingsResponse.java">
 package com.geo.analytics.web.dto;
 
@@ -9716,6 +9710,7 @@ import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
@@ -9832,7 +9827,8 @@ class SubscriptionIntegrationTest {
                 0.0,
                 "TEST_CALC_V4",
                 List.of(),
-                "{}"));
+                "{}",
+                0));
     }
 
     @AfterEach
@@ -9879,7 +9875,8 @@ class SubscriptionIntegrationTest {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        var probe = planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(limit);
+        var probe = planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(
+                (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         assertThat(probe.isConsumed()).isTrue();
         var jobId = createJob("SubscriptionB");
         webTestClient.post()
@@ -9901,7 +9898,8 @@ class SubscriptionIntegrationTest {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        assertThat(planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(limit).isConsumed()).isTrue();
+        assertThat(planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(
+                (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD).isConsumed()).isTrue();
         subscriptionManagementService.changePlan(WID, SubscriptionPlan.EXPERT);
         var jobId = createJob("SubscriptionC");
         webTestClient.post()
@@ -11411,6 +11409,62 @@ public enum JobStatus {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/enums/SubscriptionPlan.java">
+package com.geo.analytics.domain.enums;
+
+import java.util.List;
+
+public enum SubscriptionPlan {
+    STANDARD(10, 10, 10),
+    PRO(100, 500, 50),
+    EXPERT(200, 2000, 50);
+
+    public static final String LIMITS_CALCULATION_VERSION = "SUBSCRIPTION_LIMITS_V2.8";
+
+    private final int dailyLimit;
+    private final int totalLimit;
+    private final int realtimeBatchMax;
+
+    SubscriptionPlan(int dailyLimit, int totalLimit, int realtimeBatchMax) {
+        this.dailyLimit = dailyLimit;
+        this.totalLimit = totalLimit;
+        this.realtimeBatchMax = realtimeBatchMax;
+    }
+
+    public int getDailyLimit() {
+        return dailyLimit;
+    }
+
+    public int getTotalLimit() {
+        return totalLimit;
+    }
+
+    public int getRealtimeBatchMax() {
+        return realtimeBatchMax;
+    }
+
+    public boolean isRealtimeAllowed(int queryCount) {
+        return queryCount > 0 && queryCount <= realtimeBatchMax;
+    }
+
+    public boolean usesProTierFeatures() {
+        return this == PRO || this == EXPERT;
+    }
+
+    public boolean hasModelAccess(ModelType modelType) {
+        return switch (modelType) {
+            case GEMINI -> true;
+            case CHATGPT -> this != STANDARD;
+            case CLAUDE -> this == EXPERT;
+        };
+    }
+
+    public static List<SubscriptionPlan> proTierPlans() {
+        return List.of(PRO, EXPERT);
+    }
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/model/VisibilityStageMapper.java">
 package com.geo.analytics.domain.model;
 
@@ -12210,6 +12264,17 @@ public class TenantContextFilter extends OncePerRequestFilter {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/web/dto/ErrorResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record ErrorResponse(
+        String errorCode, String message, Integer currentLimit, String planName, Long retryAfterSeconds) {}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/web/dto/JobProjectResponse.java">
 package com.geo.analytics.web.dto;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -12592,6 +12657,8 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import org.slf4j.Logger;
@@ -12600,6 +12667,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -12615,6 +12683,7 @@ public class AsyncBatchService {
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final GapAnalysisBatchProcessor gapAnalysisBatchProcessor;
     private final GapAnalysisService gapAnalysisService;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public AsyncBatchService(
             JobPersistenceService jobPersistenceService,
@@ -12624,7 +12693,8 @@ public class AsyncBatchService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
-            GapAnalysisService gapAnalysisService) {
+            GapAnalysisService gapAnalysisService,
+            PlanBasedQuotaManager planBasedQuotaManager) {
         this.jobPersistenceService = jobPersistenceService;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
@@ -12633,6 +12703,7 @@ public class AsyncBatchService {
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.gapAnalysisBatchProcessor = gapAnalysisBatchProcessor;
         this.gapAnalysisService = gapAnalysisService;
+        this.planBasedQuotaManager = planBasedQuotaManager;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
@@ -12706,6 +12777,7 @@ public class AsyncBatchService {
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobEntity.getId()));
                 } else {
+                    refundBatchQuotaDeposit(jobEntity);
                     String stateDescription = batchJobState == null ? "null" : batchJobState;
                     jobPersistenceService.updateJobStatus(
                         jobEntity.getId(),
@@ -12766,6 +12838,13 @@ public class AsyncBatchService {
         }));
     }
 
+    private void refundBatchQuotaDeposit(JobEntity jobEntity) {
+        var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        long n = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        if (n > 0L) {
+            planBasedQuotaManager.addTokens(tid, n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
+        }
+    }
     private void pollOneGapAnalysisJob(JobEntity jobEntity) {
         String gapJobName = jobEntity.getGapAnalysisGeminiJobName();
         if (gapJobName == null || gapJobName.isBlank()) {
@@ -13029,6 +13108,207 @@ public record SomRawMetrics(
     double stuffingDensity,
     int responseTokenLength,
     double sourceWeight) {}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/AsyncConfig.java">
+package com.geo.analytics.infrastructure.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.annotation.AsyncConfigurer;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+@Configuration
+@EnableAsync
+public class AsyncConfig implements AsyncConfigurer {
+    private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
+
+    @Bean
+    @Primary
+    public TaskScheduler taskScheduler() {
+        ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+        taskScheduler.setPoolSize(1);
+        taskScheduler.setThreadNamePrefix("taskScheduler-");
+        return taskScheduler;
+    }
+
+    @Override
+    public Executor getAsyncExecutor() {
+        return Executors.newVirtualThreadPerTaskExecutor();
+    }
+
+    @Override
+    public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+        return new AsyncUncaughtExceptionHandler() {
+            @Override
+            public void handleUncaughtException(Throwable throwable, Method method, Object... params) {
+                log.error(
+                    "Uncaught async exception declaringClass={} method={} parameterTypes={} arguments={}",
+                    method.getDeclaringClass().getName(),
+                    method.getName(),
+                    Arrays.toString(method.getParameterTypes()),
+                    Arrays.deepToString(params),
+                    throwable);
+            }
+        };
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/SudachiConfig.java">
+package com.geo.analytics.infrastructure.config;
+
+import com.geo.analytics.domain.matching.NormalizationLayer;
+import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.worksap.nlp.sudachi.Dictionary;
+import com.worksap.nlp.sudachi.DictionaryFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.util.ResourceUtils;
+import java.io.File;
+import java.io.IOException;
+
+@Configuration
+public class SudachiConfig {
+    @Bean(destroyMethod = "close")
+    public Dictionary sudachiDictionary() throws IOException {
+        File dictFile = ResourceUtils.getFile("classpath:system_core.dic");
+        String dictPath = dictFile.getAbsolutePath().replace("\\", "/");
+        String settings = "{\"systemDict\":\"" + dictPath + "\"}";
+        return new DictionaryFactory().create(settings);
+    }
+
+    @Bean
+    public JapaneseNlpService japaneseNlpService(Dictionary sudachiDictionary) {
+        return new JapaneseNlpService(sudachiDictionary);
+    }
+
+    @Bean
+    public TokenizerManager tokenizerManager(Dictionary sudachiDictionary) {
+        return new TokenizerManager(sudachiDictionary);
+    }
+
+    @Bean
+    public NormalizationLayer normalizationLayer(TokenizerManager tokenizerManager) {
+        return new NormalizationLayer(tokenizerManager);
+    }
+
+    @Bean
+    public GeoVisibilityCalculatorService geoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+        return new GeoVisibilityCalculatorService(tokenizerManager);
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/repository/ProjectRepository.java">
+package com.geo.analytics.infrastructure.repository;
+
+import com.geo.analytics.domain.entity.ProjectEntity;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface ProjectRepository extends JpaRepository<ProjectEntity, UUID> {
+    Optional<ProjectEntity> findByTenantIdAndName(String tenantId, String name);
+
+    List<ProjectEntity> findByAutoAuditEnabledIsTrue();
+
+    @EntityGraph(attributePaths = {"competitorUrls"})
+    @Query("SELECT p FROM ProjectEntity p WHERE p.id = :id")
+    Optional<ProjectEntity> findByIdWithCompetitorUrls(@Param("id") UUID id);
+
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("update ProjectEntity p set p.lastAuditAt = :lastAuditAt where p.id = :id")
+    void updateLastAuditAt(@Param("id") UUID id, @Param("lastAuditAt") LocalDateTime lastAuditAt);
+}
+</file>
+
+<file path="geo-analytics/frontend/package.json">
+{
+  "name": "geo-analytics-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "lucide-react": "^0.460.0",
+    "recharts": "^2.13.3",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.15.10",
+    "@mui/material": "^5.15.10",
+    "@stomp/stompjs": "^7.0.0",
+    "partial-json": "^0.1.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "sockjs-client": "^1.6.1"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@types/sockjs-client": "^1.5.4",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0"
+  }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/dto/SyncVerificationResult.java">
+package com.geo.analytics.application.dto;
+
+import java.util.List;
+
+public record SyncVerificationResult(
+        String rawResponseJson,
+        Double somScore,
+        Boolean brandMentioned,
+        Integer mentionRank,
+        Integer overallScore,
+        int tokenCount,
+        int rankPosition,
+        double sentimentIntensity,
+        String naturalLanguageResponse,
+        String resolvedEntityLabel,
+        Integer visibilityStage,
+        Double modifiedZScore,
+        String calculationVersion,
+        List<CompetitorScoreRow> competitorScoreRows,
+        String modelInsightsJson,
+        int analysisTextLength
+) {}
 </file>
 
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/InformationTheoryBasedAggregator.java">
@@ -13386,750 +13666,6 @@ public final class SomScoreCalculator {
         }
         return List.copyOf(all.subList(0, originalSize));
     }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/AsyncConfig.java">
-package com.geo.analytics.infrastructure.config;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.annotation.AsyncConfigurer;
-import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-
-@Configuration
-@EnableAsync
-public class AsyncConfig implements AsyncConfigurer {
-    private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
-
-    @Bean
-    @Primary
-    public TaskScheduler taskScheduler() {
-        ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
-        taskScheduler.setPoolSize(1);
-        taskScheduler.setThreadNamePrefix("taskScheduler-");
-        return taskScheduler;
-    }
-
-    @Override
-    public Executor getAsyncExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
-    }
-
-    @Override
-    public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
-        return new AsyncUncaughtExceptionHandler() {
-            @Override
-            public void handleUncaughtException(Throwable throwable, Method method, Object... params) {
-                log.error(
-                    "Uncaught async exception declaringClass={} method={} parameterTypes={} arguments={}",
-                    method.getDeclaringClass().getName(),
-                    method.getName(),
-                    Arrays.toString(method.getParameterTypes()),
-                    Arrays.deepToString(params),
-                    throwable);
-            }
-        };
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/SudachiConfig.java">
-package com.geo.analytics.infrastructure.config;
-
-import com.geo.analytics.domain.matching.NormalizationLayer;
-import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.worksap.nlp.sudachi.Dictionary;
-import com.worksap.nlp.sudachi.DictionaryFactory;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.util.ResourceUtils;
-import java.io.File;
-import java.io.IOException;
-
-@Configuration
-public class SudachiConfig {
-    @Bean(destroyMethod = "close")
-    public Dictionary sudachiDictionary() throws IOException {
-        File dictFile = ResourceUtils.getFile("classpath:system_core.dic");
-        String dictPath = dictFile.getAbsolutePath().replace("\\", "/");
-        String settings = "{\"systemDict\":\"" + dictPath + "\"}";
-        return new DictionaryFactory().create(settings);
-    }
-
-    @Bean
-    public JapaneseNlpService japaneseNlpService(Dictionary sudachiDictionary) {
-        return new JapaneseNlpService(sudachiDictionary);
-    }
-
-    @Bean
-    public TokenizerManager tokenizerManager(Dictionary sudachiDictionary) {
-        return new TokenizerManager(sudachiDictionary);
-    }
-
-    @Bean
-    public NormalizationLayer normalizationLayer(TokenizerManager tokenizerManager) {
-        return new NormalizationLayer(tokenizerManager);
-    }
-
-    @Bean
-    public GeoVisibilityCalculatorService geoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
-        return new GeoVisibilityCalculatorService(tokenizerManager);
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/repository/ProjectRepository.java">
-package com.geo.analytics.infrastructure.repository;
-
-import com.geo.analytics.domain.entity.ProjectEntity;
-import org.springframework.data.jpa.repository.EntityGraph;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-public interface ProjectRepository extends JpaRepository<ProjectEntity, UUID> {
-    Optional<ProjectEntity> findByTenantIdAndName(String tenantId, String name);
-
-    List<ProjectEntity> findByAutoAuditEnabledIsTrue();
-
-    @EntityGraph(attributePaths = {"competitorUrls"})
-    @Query("SELECT p FROM ProjectEntity p WHERE p.id = :id")
-    Optional<ProjectEntity> findByIdWithCompetitorUrls(@Param("id") UUID id);
-
-    @Transactional
-    @Modifying(clearAutomatically = true)
-    @Query("update ProjectEntity p set p.lastAuditAt = :lastAuditAt where p.id = :id")
-    void updateLastAuditAt(@Param("id") UUID id, @Param("lastAuditAt") LocalDateTime lastAuditAt);
-}
-</file>
-
-<file path="geo-analytics/.cursorrules">
-# GEO Analytics: Senior Architect & Lead Engineer Rules (v2026.04)
-
-あなたはシニアソリューションアーキテクト兼リードエンジニアです。
-Java 25 (LTS) と仮想スレッドを極限まで活用し、**利益率 86.4% とデータ隔離 100%** を両立する「GEOアナリティクス」を開発します。
-
-## 【技術スタック】
-- **Backend**: Java 25 (LTS), Spring Boot 3.5.13, LangChain4j 0.36.2, Playwright Java 1.48.0
-- **Database (Hybrid)**: PostgreSQL 17 (SoT / RLS 隔離), Oracle 23ai (Vector Search / Duality Views)
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
-- **Security**: WebAuthn (Passkeys), APPI 2026 (改正個人情報保護法) 準拠
-
-## 【アーキテクチャ厳守事項】
-
-### 1. 仮想スレッド時代のコンテキスト隔離 (Java 25 準拠)
-- **脱 ThreadLocal**: 仮想スレッド環境でのメモリリークとデータ汚染を防ぐため ThreadLocal は禁止。
-- **ScopedValue (Carrier API)**: テナント情報の伝搬には `ScopedValue` を使用。複数情報の伝搬は `ScopedValue.where(K1, v1).where(K2, v2).run(() -> ...)` の Carrier チェーン形式を徹底せよ。
-- **DB層の隔離 (RLS)**: アプリケーション層の `TenantContext` と PostgreSQL の **Row Level Security (RLS)** を連動させ、物理レベルでの 100% 隔離を担保せよ。
-
-### 2. ハイブリッド・データベース戦略
-- **PostgreSQL 17**: 地理空間演算（PostGIS 相当）と基本データの SoT（真実のソース）として運用。
-- **Oracle 23ai**: AI 拡張機能（ベクトル検索、JSON Relational Duality Views）に特化。開発環境（dev）では 12GB 制限を考慮し、空間演算は Postgres に寄せるプロファイル制御を行うこと。
-- **JSONB vs Duality**: AI の生出力は Postgres の JSONB に保存。高速レポート生成には Oracle の Duality Views をアダプター経由で利用せよ。
-
-### 3. 構造的並行処理 (Structured Concurrency)
-- **StructuredTaskScope (Joiner API)**: Java 25 の `StructuredTaskScope.open(Joiner.awaitAll(), ...)` を使用し、サブタスクのライフサイクルを厳格に管理せよ。
-- **synchronized 禁止**: キャリアスレッドのピン留め（Pinning）を防ぐため、排他制御は必ず `ReentrantLock` または `StampedLock` を使用せよ。
-- **物理制限 (Semaphore)**: Playwright や Sudachi、重い AI 演算には `Semaphore` を適用し、物理メモリに基づいた同時実行制御（バックプレッシャー）を実装せよ。
-
-### 4. 数理エンジンの極限最適化 (Phase 8.5 指針)
-- **ゼロアロケーション**: 企業名インデックスには `int` へのビットパッキング (`(c1 << 16) | c2`) とプリミティブ配列 (`int[]`) を使用し、オブジェクト生成を抹殺して $O(1)$ 検索を実現せよ。
-- **ハイブリッド・スコアリング**: 名寄せには `Double Metaphone` (音素) と `Jaro-Winkler` (前方一致重視) の加重平均を採用せよ。
-- **数理的再現性**: スコア計算には `StrictMath` を強制し、CPU アーキテクチャに依存しない演算結果を保証せよ。微小誤差は `EPSILON` 定数で防衛せよ。
-
-### 5. AI 通信とストリーミング
-- **冪等性**: Gemini/Batch API 等への全 POST には `Idempotency-Key` (UUID) を付与し、DB 行ロック (`FOR UPDATE`) と組み合わせて Exactly-once を担保せよ。
-- **SSE 送信**: `SseEmitter.send()` 前に `ObjectMapper` で JSON 文字列化を必須とし、`completeWithError` は使用禁止。エラーも JSON 形式のイベントとして送信せよ。
-
-### 6. 利益死守と品質保証 (Profit Guard & Gatekeeper)
-- **Profit Guard**: LLM コストが `単価 * 0.14` を超過するクエリに対し、動的にモデルをダウングレードする「赤字阻止ロジック」を徹底せよ。
-- **Gatekeeper**: `SubscriptionIntegrationTest` を自動門番とし、クォータ・429 回復・スレッド健全性を担保せよ。テストなしのコアロジック変更は厳禁とする。
-
-### 7. 日本語 NLP と労働錯覚 (NLP & UX)
-- **感情補正**: `JapaneseNlpService` では二重否定の打消しや強調副詞によるスコアブースト（1.2倍等）を正規表現と数理モデルで実装せよ。
-- **Labor Illusion**: 長時間処理時は `SseEmitter` を通じて「専門的な解析プロセス」を視覚化し、ユーザーに労働の対価を実感させよ。
-
-### 8. 性能限界突破と可観測性 (Performance & Observability)
-- **性能最優先**: Phase 8.5 の数理エンジンでは、OOP よりもキャッシュ効率を優先。`int[]` 配列やビット演算を駆使し、メモリアロケーションをゼロに近づけよ。
-- **スレッド監視**: 仮想スレッドには必ずテナント識別子を含む名前を付与。JFR や Micrometer でピン留め（Pinning）を監視し、スループットの「サイレントな低下」を許さない設計を徹底せよ。
-
-### 9. AI セキュリティと入力完全性 (Security & Integrity)
-- **Prompt Sanitization**: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とせよ。
-- **API First**: DTO は OpenAPI 3.1 仕様に準拠し、`@NotNull` や `@Size` 等の Jakarta Validation で入力境界を厳格に定義せよ。
-
-### 10. 実装の完全配線とレガシー排除 (Active Wiring & Purge)
--**Shadow Implementation 禁止**: 新数理モデル（Ph 8.5/10等）実装時は、既存計算パス（Service/Aggregator等）を即座に新エンジンへ切り替え、旧ロジックを削除せよ 。
--**数理の単一情報源 (SSOT)**: 統計計算やステージ判定には RobustAuditMathUtil または SomScoreCalculator の最新ロジックを強制使用せよ 。GeoVisibility 内での独自 IQR 計算等の重複実装を厳禁とする 。
--**ライブラリ回帰禁止**: 名寄せ等で外部ライブラリ（Apache Commons等）を安易に使用せず、Ph 8.5 構築の「100% Pure Java」独自エンジンを最優先せよ 。
-
-### 11. ヒープ衛生とバッファ再利用 (Heap Hygiene & Buffer Reuse)
--**ホットパスのアロケーション禁止**: computeBatch や forEachBigram 等のタイトなループ内での new char[], new boolean[], StringBuilder, toString() を厳禁とする 。
--**CharSequence 優先**: 文字列生成を避けるため String への変換を最小化し、CharSequence を維持したまま処理せよ 。
--**Buffer Pooling**: 頻繁に使用する配列は ThreadLocal（キャリアスレッド用）やバッファプールで再利用し、GC 発生を物理的に抑制せよ 。
-
-### 12. 仮想スレッド・ピン留めガード (Anti-Pinning Guard)
--**synchronized 排除**: Sudachi の辞書生成や JNI 呼び出し箇所の synchronized を特定し、ReentrantLock 等へ置換せよ 。
--**JNI ピン留め回避**: ネイティブコード呼び出しは Semaphore で同時実行数を厳格に制御し、キャリアスレッドの長時間占有（Pinning）を防げ 。
-
-### 13. 数理モデルの「知能と統計」の分離 (ZIB / Spike-and-slab)
--**決定論的優先 (Spike)**: AI が false と判定したデータは統計的補正をバイパスし、強制的に 0.0 とせよ 。これを「論理的なゼロ」として統計モデル（Slab）から物理的に隔離せよ 。
--**不確実性の可視化**: 小標本（$N < 30$）における点推定出力時は、事後分布に基づく「クレディブル区間（信頼区間）」を算出し、フロントエンドへ渡せ 。
-
-## 【実装・出力要件】
-- **コード内にコメントは一切記述しないこと。**
-- **不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力せよ。**
-- **Java Record**: DTO や不変データモデルには積極的に Java 25 の `record` を活用せよ。
-- **命名規則**: 
-  - Java/TypeScript: `camelCase`
-  - Database/JSON: `snake_case` (JPA の `@Column` や Jackson の `@JsonProperty` で明示)
-- **例外処理**: スタックトレースは 20,000 文字で切り詰め、DB に保存。`SLF4J (@Slf4j)` を使用し、`sysout` や `printStackTrace` は厳禁。
-</file>
-
-<file path="geo-analytics/frontend/package.json">
-{
-  "name": "geo-analytics-ui",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "dompurify": "^3.2.4",
-    "lucide-react": "^0.460.0",
-    "recharts": "^2.13.3",
-    "@microsoft/fetch-event-source": "^2.0.1",
-    "@emotion/react": "^11.11.3",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.15.10",
-    "@mui/material": "^5.15.10",
-    "@stomp/stompjs": "^7.0.0",
-    "partial-json": "^0.1.7",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0",
-    "sockjs-client": "^1.6.1"
-  },
-  "devDependencies": {
-    "@types/dompurify": "^3.0.5",
-    "@types/react": "^18.2.55",
-    "@types/react-dom": "^18.2.19",
-    "@types/sockjs-client": "^1.5.4",
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.17",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3",
-    "vite": "^5.1.0"
-  }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/dto/SyncVerificationResult.java">
-package com.geo.analytics.application.dto;
-
-import java.util.List;
-
-public record SyncVerificationResult(
-        String rawResponseJson,
-        Double somScore,
-        Boolean brandMentioned,
-        Integer mentionRank,
-        Integer overallScore,
-        int tokenCount,
-        int rankPosition,
-        double sentimentIntensity,
-        String naturalLanguageResponse,
-        String resolvedEntityLabel,
-        Integer visibilityStage,
-        Double modifiedZScore,
-        String calculationVersion,
-        List<CompetitorScoreRow> competitorScoreRows,
-        String modelInsightsJson
-) {}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/AsyncSgeMeasurementService.java">
-package com.geo.analytics.application.service;
-
-import com.geo.analytics.application.dto.SgeMentionResult;
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
-import com.geo.analytics.application.port.SgeMeasurementPort;
-import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.entity.SgeResultEntity;
-import com.geo.analytics.domain.enums.JobStatus;
-import com.geo.analytics.infrastructure.config.AppProperties;
-import com.geo.analytics.infrastructure.repository.SgeResultRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
-@Service
-public class AsyncSgeMeasurementService {
-    private static final Logger log = LoggerFactory.getLogger(AsyncSgeMeasurementService.class);
-    private final SgeMeasurementPort sgeMeasurementPort;
-    private final SgeResultRepository sgeResultRepository;
-    private final JobPersistenceService jobPersistenceService;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
-    private final PlanBasedQuotaManager planBasedQuotaManager;
-    private final String serpApiKey;
-    private AsyncSgeMeasurementService self;
-
-    public AsyncSgeMeasurementService(
-            SgeMeasurementPort sgeMeasurementPort,
-            SgeResultRepository sgeResultRepository,
-            JobPersistenceService jobPersistenceService,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
-            PlanBasedQuotaManager planBasedQuotaManager,
-            AppProperties appProperties) {
-        this.sgeMeasurementPort = sgeMeasurementPort;
-        this.sgeResultRepository = sgeResultRepository;
-        this.jobPersistenceService = jobPersistenceService;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
-        this.planBasedQuotaManager = planBasedQuotaManager;
-        String key = appProperties.getSerpapi().getApiKey();
-        this.serpApiKey = key != null ? key : "";
-    }
-
-    @Autowired
-    @Lazy
-    void setSelf(AsyncSgeMeasurementService self) {
-        this.self = self;
-    }
-
-    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries) {
-        self.measureSgeForJob(job, queries, 0);
-    }
-
-    @Async
-    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries, int dailyQuotaRefundOnFailure) {
-        Objects.requireNonNull(job, "job");
-        UUID jobId = job.getId();
-        List<QueryEntity> queryList = Objects.requireNonNull(queries, "queries");
-        log.info("SGE measurement started jobId={} queryCount={}", jobId, queryList.size());
-        try {
-            if (serpApiKey.isBlank()) {
-                throw new IllegalStateException("SerpApi API key is not configured");
-            }
-            if (queryList.isEmpty()) {
-                throw new IllegalStateException("No queries for SGE measurement");
-            }
-            String brandName = job.getBrandName();
-            for (int i = 0; i < queryList.size(); i++) {
-                if (i > 0) {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException interruptedException) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("SGE measurement throttle interrupted", interruptedException);
-                    }
-                }
-                QueryEntity queryEntity = queryList.get(i);
-                String queryText = queryEntity.getQueryText();
-                SgeMentionResult sgeMentionResult = sgeMeasurementPort.checkSgeMention(queryText, brandName);
-                if (sgeMentionResult == null) {
-                    throw new IllegalStateException(
-                        "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryText);
-                }
-                SgeResultEntity sgeResultEntity = new SgeResultEntity();
-                sgeResultEntity.setJobId(jobId);
-                sgeResultEntity.setWorkspaceId(job.getWorkspaceId());
-                sgeResultEntity.setQueryId(queryEntity.getId());
-                sgeResultEntity.setQuery(queryText);
-                sgeResultEntity.setSgeRawResponse(sgeMentionResult.rawResponseJson());
-                sgeResultEntity.setSgeMentioned(sgeMentionResult.mentioned());
-                sgeResultRepository.save(sgeResultEntity);
-            }
-        } catch (Exception exception) {
-            if (exception instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            failJobAndBroadcast(jobId, exception, dailyQuotaRefundOnFailure);
-        }
-    }
-
-    private void failJobAndBroadcast(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
-        if (dailyQuotaRefundOnFailure > 0) {
-            var je = jobPersistenceService.findJobById(jobId);
-            var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-            planBasedQuotaManager.addTokens(tid, dailyQuotaRefundOnFailure);
-        }
-        String trace = ExceptionStackTraceText.of(throwable);
-        jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, trace);
-        log.error("SGE measurement failed jobId={}", jobId, throwable);
-        jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorService.java">
-package com.geo.analytics.domain.service;
-
-import com.geo.analytics.domain.matching.RobustAuditMathUtil;
-import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.model.SomRawMetrics;
-import java.lang.StrictMath;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.IntStream;
-
-public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V1";
-    private static final double EPSILON = 1.0E-10;
-    private static final int BAYES_SAMPLE_THRESHOLD = 30;
-    private static final double SOURCE_WEIGHT_HIGH = 1.5;
-    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
-    private static final double SOURCE_WEIGHT_LOW = 0.3;
-
-    private final TokenizerManager tokenizerManager;
-
-    public GeoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
-        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
-    }
-
-    public List<String> tokenizeResponseForMentions(String text) {
-        return tokenizerManager.tokenizeToNormalizedList(text);
-    }
-
-    public int countNormalizedMentions(List<String> responseTokens, List<String> keywords) {
-        if (keywords == null || keywords.isEmpty()) {
-            return 0;
-        }
-        List<List<String>> sequences = new ArrayList<>();
-        for (String kw : keywords) {
-            if (kw == null || kw.isBlank()) {
-                continue;
-            }
-            List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
-            if (!seq.isEmpty()) {
-                sequences.add(seq);
-            }
-        }
-        if (sequences.isEmpty()) {
-            return 0;
-        }
-        int mentions = 0;
-        int fromIndex = 0;
-        final int n = responseTokens.size();
-        while (fromIndex < n) {
-            int bestRel = Integer.MAX_VALUE;
-            int bestLen = 0;
-            for (List<String> seq : sequences) {
-                int rel = Collections.indexOfSubList(responseTokens.subList(fromIndex, n), seq);
-                if (rel < 0) {
-                    continue;
-                }
-                if (rel < bestRel || (rel == bestRel && seq.size() > bestLen)) {
-                    bestRel = rel;
-                    bestLen = seq.size();
-                }
-            }
-            if (bestRel == Integer.MAX_VALUE) {
-                break;
-            }
-            mentions++;
-            fromIndex += bestRel + bestLen;
-        }
-        return mentions;
-    }
-
-    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
-        if (primary != null && !primary.isBlank()) {
-            return Arrays.stream(primary.split("[,、]"))
-                    .map(String::trim)
-                    .filter(s -> !s.isBlank())
-                    .toList();
-        }
-        if (fallback != null && !fallback.isBlank()) {
-            return List.of(fallback.strip());
-        }
-        return List.of();
-    }
-
-    public static GbvsResult compute(
-            SomRawMetrics metrics,
-            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
-        return computeBatch(List.of(metrics), lAvgJob).getFirst();
-    }
-
-    public static List<GbvsResult> computeBatch(
-            List<SomRawMetrics> rows,
-            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
-        return computeBatch(rows, lAvgJob, rows.size());
-    }
-
-    public static List<GbvsResult> computeBatch(
-            List<SomRawMetrics> rows,
-            @SuppressWarnings("unused") double lAvgJob, // Reserved for Phase 11 cross-model L_avg bias correction
-            int bayesSampleCardinality) {
-        int n = rows.size();
-        if (n == 0) {
-            return List.of();
-        }
-        int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
-        double[] raw = new double[n];
-        IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
-        double[] work = new double[n];
-        if (blendN < BAYES_SAMPLE_THRESHOLD) {
-            applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
-        } else {
-            System.arraycopy(raw, 0, work, 0, n);
-        }
-        sanitizeWorkForRobustStatistics(work);
-        double[] zScores = RobustAuditMathUtil.modifiedZScores(work);
-        if (n == 1) {
-            double pct = StrictMath.fma(clamp01(work[0]), 100.0, 0.0);
-            return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
-        }
-        double[] sorted = Arrays.copyOf(work, n);
-        Arrays.parallelSort(sorted);
-        double minR = sorted[0];
-        double maxR = sorted[n - 1];
-        GbvsResult[] out = new GbvsResult[n];
-        IntStream.range(0, n).parallel().forEach(i -> {
-            double z = zScores[i];
-            int stage = stageFromModifiedZ(z);
-            double span = StrictMath.fma(maxR, 1.0, -minR);
-            double pct = span > EPSILON
-                    ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
-                    : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
-            out[i] = new GbvsResult(clampPercent(pct), stage, z);
-        });
-        return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
-    }
-
-    /** NaN / Infinity must not reach median or MAD ({@link RobustAuditMathUtil#modifiedZScores(double[])}). */
-    private static void sanitizeWorkForRobustStatistics(double[] work) {
-        for (int i = 0; i < work.length; i++) {
-            if (!Double.isFinite(work[i])) {
-                work[i] = 0.0;
-            }
-        }
-    }
-
-    /**
-     * Moment-matched Beta hyperparameters with {@link RobustAuditMathUtil#betaMomentAlphaBeta(double, double)} variance clamp,
-     * then per-row Beta–Binomial posterior means (effective trials = {@code blendN}).
-     */
-    private static void applySmallSampleBetaPipeline(
-            List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
-        int mentionedCount = 0;
-        double sum = 0.0;
-        for (int i = 0; i < n; i++) {
-            if (rows.get(i).isSemanticallyMentioned()) {
-                mentionedCount++;
-                sum = StrictMath.fma(raw[i], 1.0, sum);
-            }
-        }
-        if (mentionedCount == 0) {
-            Arrays.fill(work, 0.0);
-            return;
-        }
-        double m = sum / (double) mentionedCount;
-        double v;
-        if (mentionedCount < 2) {
-            v = StrictMath.fma(m, 1.0 - m, 0.0) / (double) StrictMath.max(1, blendN);
-        } else {
-            double ss = 0.0;
-            for (int i = 0; i < n; i++) {
-                if (rows.get(i).isSemanticallyMentioned()) {
-                    double d = StrictMath.fma(raw[i], 1.0, -m);
-                    ss = StrictMath.fma(d, d, ss);
-                }
-            }
-            v = ss / (double) (mentionedCount - 1);
-        }
-        double[] ab = RobustAuditMathUtil.betaMomentAlphaBeta(m, v);
-        double alpha = ab[0];
-        double beta = ab[1];
-        double nn = (double) blendN;
-        for (int i = 0; i < n; i++) {
-            if (!rows.get(i).isSemanticallyMentioned()) {
-                work[i] = 0.0;
-                continue;
-            }
-            double kEff = RobustAuditMathUtil.softwareFtzFlush(
-                    StrictMath.min(nn, StrictMath.max(0.0, StrictMath.fma(raw[i], nn, 0.0))));
-            work[i] = RobustAuditMathUtil.betaBinomialPosteriorMean(kEff, nn, alpha, beta);
-        }
-    }
-
-    public static double sourceWeightFromUrl(String url) {
-        if (url == null || url.isBlank()) {
-            return SOURCE_WEIGHT_LOW;
-        }
-        var normalized = url.strip().toLowerCase();
-        if (!normalized.contains("://")) {
-            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        }
-        try {
-            var host = java.net.URI.create(normalized).getHost();
-            if (host == null || host.isBlank()) {
-                return SOURCE_WEIGHT_LOW;
-            }
-            var h = host.toLowerCase();
-            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        } catch (Exception ignored) {
-            return SOURCE_WEIGHT_LOW;
-        }
-    }
-
-    private static double weightedSom(SomRawMetrics metrics) {
-        if (!metrics.isSemanticallyMentioned()) {
-            return 0.0;
-        }
-        int f = StrictMath.max(0, metrics.nounCount());
-        int rank = metrics.rankPosition();
-        int total = StrictMath.max(0, metrics.responseTokenLength());
-        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
-        double sourceWeight = metrics.sourceWeight() > EPSILON ? metrics.sourceWeight() : SOURCE_WEIGHT_LOW;
-        double sentiment = sentimentWeight(metrics.sentimentIntensity());
-        double brandSignal = presence * sourceWeight * sentiment;
-        double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
-        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
-        double denom = brandSignal + otherSignal;
-        if (denom <= EPSILON) {
-            return 0.0;
-        }
-        return clamp01(brandSignal / denom);
-    }
-
-    private static double sentimentWeight(double sentimentScore) {
-        if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
-            return 1.0;
-        }
-        if (sentimentScore < 0.5) {
-            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
-                return 1.0 + 0.5 * sentimentScore;
-            }
-        }
-        return clamp(sentimentScore, 0.5, 1.5);
-    }
-
-    private static double clamp01(double v) {
-        return clamp(v, 0.0, 1.0);
-    }
-
-    private static double clampPercent(double v) {
-        return clamp(v, 0.0, 100.0);
-    }
-
-    private static double clamp(double v, double lo, double hi) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) {
-            return lo;
-        }
-        if (v < lo) {
-            return lo;
-        }
-        if (v > hi) {
-            return hi;
-        }
-        return v;
-    }
-
-    private static int stageFromScorePercent(double pct) {
-        int inner;
-        if (pct >= 90.0) {
-            inner = 10;
-        } else if (pct >= 80.0) {
-            inner = 9;
-        } else if (pct >= 70.0) {
-            inner = 8;
-        } else if (pct >= 60.0) {
-            inner = 7;
-        } else if (pct >= 50.0) {
-            inner = 6;
-        } else if (pct >= 40.0) {
-            inner = 5;
-        } else if (pct >= 30.0) {
-            inner = 4;
-        } else if (pct >= 20.0) {
-            inner = 3;
-        } else if (pct >= 10.0) {
-            inner = 2;
-        } else {
-            inner = 1;
-        }
-        return StrictMath.subtractExact(11, inner);
-    }
-
-    /** Modified Z′ bands on ±3.0 tails; inner rank inverted to visibility stage (11 − inner). */
-    private static int stageFromModifiedZ(double z) {
-        if (Double.isNaN(z) || Double.isInfinite(z)) {
-            return 6;
-        }
-        int inner;
-        if (z >= 3.0) {
-            inner = 10;
-        } else if (z <= -3.0) {
-            inner = 1;
-        } else if (z >= 2.25) {
-            inner = 9;
-        } else if (z >= 1.5) {
-            inner = 8;
-        } else if (z >= 0.75) {
-            inner = 7;
-        } else if (z >= 0.0) {
-            inner = 6;
-        } else if (z >= -0.75) {
-            inner = 5;
-        } else if (z >= -1.5) {
-            inner = 4;
-        } else if (z >= -2.25) {
-            inner = 3;
-        } else {
-            inner = 2;
-        }
-        return StrictMath.subtractExact(11, inner);
-    }
-
-    public record GbvsResult(double scorePercent, int visibilityStage, double modifiedZScore) {}
 }
 </file>
 
@@ -14527,188 +14063,86 @@ public record JobStatusResponse(
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/web/exception/GlobalExceptionHandler.java">
-package com.geo.analytics.web.exception;
+<file path="geo-analytics/.cursorrules">
+# GEO Analytics: Senior Architect & Lead Engineer Rules (v2026.04)
 
-import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
-import com.geo.analytics.domain.exception.InsufficientQuotaException;
-import com.geo.analytics.domain.exception.RateLimitExceededException;
-import com.geo.analytics.domain.exception.ThresholdExceededException;
-import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.web.dto.ErrorResponse;
-import jakarta.persistence.EntityNotFoundException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotWritableException;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.server.ResponseStatusException;
+あなたはシニアソリューションアーキテクト兼リードエンジニアです。
+Java 25 (LTS) と仮想スレッドを極限まで活用し、**利益率 86.4% とデータ隔離 100%** を両立する「GEOアナリティクス」を開発します。
 
-import java.time.Duration;
-import java.util.Map;
-import java.util.stream.Collectors;
+## 【技術スタック】
+- **Backend**: Java 25 (LTS), Spring Boot 3.5.13, LangChain4j 0.36.2, Playwright Java 1.48.0
+- **Database (Hybrid)**: PostgreSQL 17 (SoT / RLS 隔離), Oracle 23ai (Vector Search / Duality Views)
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
+- **Security**: WebAuthn (Passkeys), APPI 2026 (改正個人情報保護法) 準拠
 
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+## 【アーキテクチャ厳守事項】
 
-    @ExceptionHandler(ThresholdExceededException.class)
-    public ResponseEntity<ErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
-        var threshold = exception.getThreshold();
-        var message =
-                "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
-        logger.warn("Threshold exceeded threshold={}", threshold);
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null, null));
-    }
+### 1. 仮想スレッド時代のコンテキスト隔離 (Java 25 準拠)
+- **脱 ThreadLocal**: 仮想スレッド環境でのメモリリークとデータ汚染を防ぐため ThreadLocal は禁止。
+- **ScopedValue (Carrier API)**: テナント情報の伝搬には `ScopedValue` を使用。複数情報の伝搬は `ScopedValue.where(K1, v1).where(K2, v2).run(() -> ...)` の Carrier チェーン形式を徹底せよ。
+- **DB層の隔離 (RLS)**: アプリケーション層の `TenantContext` と PostgreSQL の **Row Level Security (RLS)** を連動させ、物理レベルでの 100% 隔離を担保せよ。
 
-    @ExceptionHandler(InsufficientQuotaException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
-        logger.warn("Insufficient quota plan={} limit={}", exception.getPlanName(), exception.getCurrentLimit());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "INSUFFICIENT_QUOTA",
-                        exception.getMessage(),
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        null));
-    }
+### 2. ハイブリッド・データベース戦略
+- **PostgreSQL 17**: 地理空間演算（PostGIS 相当）と基本データの SoT（真実のソース）として運用。
+- **Oracle 23ai**: AI 拡張機能（ベクトル検索、JSON Relational Duality Views）に特化。開発環境（dev）では 12GB 制限を考慮し、空間演算は Postgres に寄せるプロファイル制御を行うこと。
+- **JSONB vs Duality**: AI の生出力は Postgres の JSONB に保存。高速レポート生成には Oracle の Duality Views をアダプター経由で利用せよ。
 
-    @ExceptionHandler(AiAnalysisTimeoutException.class)
-    public ResponseEntity<ProblemDetail> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
-        logger.warn("AI analysis timeout", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
-        problemDetail.setTitle("AI Analysis Timeout");
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 3. 構造的並行処理 (Structured Concurrency)
+- **StructuredTaskScope (Joiner API)**: Java 25 の `StructuredTaskScope.open(Joiner.awaitAll(), ...)` を使用し、サブタスクのライフサイクルを厳格に管理せよ。
+- **synchronized 禁止**: キャリアスレッドのピン留め（Pinning）を防ぐため、排他制御は必ず `ReentrantLock` または `StampedLock` を使用せよ。
+- **物理制限 (Semaphore)**: Playwright や Sudachi、重い AI 演算には `Semaphore` を適用し、物理メモリに基づいた同時実行制御（バックプレッシャー）を実装せよ。
 
-    @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
-        var nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
-        var wait = Duration.ofNanos(nanos);
-        var retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
-        var hours = wait.toHours();
-        var minutes = wait.minusHours(hours).toMinutes();
-        var message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
-        logger.warn("Rate limit exceeded plan={}", exception.getPlanName());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "RATE_LIMIT_EXCEEDED",
-                        message,
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        retryAfterSeconds));
-    }
+### 4. 数理エンジンの極限最適化 (Phase 8.5 指針)
+- **ゼロアロケーション**: 企業名インデックスには `int` へのビットパッキング (`(c1 << 16) | c2`) とプリミティブ配列 (`int[]`) を使用し、オブジェクト生成を抹殺して $O(1)$ 検索を実現せよ。
+- **ハイブリッド・スコアリング**: 名寄せには `Double Metaphone` (音素) と `Jaro-Winkler` (前方一致重視) の加重平均を採用せよ。
+- **数理的再現性**: スコア計算には `StrictMath` を強制し、CPU アーキテクチャに依存しない演算結果を保証せよ。微小誤差は `EPSILON` 定数で防衛せよ。
 
-    @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<ProblemDetail> handleEntityNotFound(EntityNotFoundException exception) {
-        logger.warn("Resource not found", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
-        problemDetail.setTitle("Resource Not Found");
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 5. AI 通信とストリーミング
+- **冪等性**: Gemini/Batch API 等への全 POST には `Idempotency-Key` (UUID) を付与し、DB 行ロック (`FOR UPDATE`) と組み合わせて Exactly-once を担保せよ。
+- **SSE 送信**: `SseEmitter.send()` 前に `ObjectMapper` で JSON 文字列化を必須とし、`completeWithError` は使用禁止。エラーも JSON 形式のイベントとして送信せよ。
 
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException exception) {
-        logger.warn("Invalid state transition", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, exception.getMessage());
-        problemDetail.setTitle("Invalid State Transition");
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 6. 利益死守と品質保証 (Profit Guard & Gatekeeper)
+- **Profit Guard**: LLM コストが `単価 * 0.14` を超過するクエリに対し、動的にモデルをダウングレードする「赤字阻止ロジック」を徹底せよ。
+- **Gatekeeper**: `SubscriptionIntegrationTest` を自動門番とし、クォータ・429 回復・スレッド健全性を担保せよ。テストなしのコアロジック変更は厳禁とする。
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception) {
-        logger.warn("Invalid argument", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, exception.getMessage());
-        problemDetail.setTitle("Invalid Argument");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 7. 日本語 NLP と労働錯覚 (NLP & UX)
+- **感情補正**: `JapaneseNlpService` では二重否定の打消しや強調副詞によるスコアブースト（1.2倍等）を正規表現と数理モデルで実装せよ。
+- **Labor Illusion**: 長時間処理時は `SseEmitter` を通じて「専門的な解析プロセス」を視覚化し、ユーザーに労働の対価を実感させよ。
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ProblemDetail> handleValidationFailure(MethodArgumentNotValidException exception) {
-        logger.warn("Request validation failed", exception);
-        Map<String, String> fieldValidationErrors = exception.getBindingResult().getFieldErrors().stream()
-                .collect(Collectors.toMap(
-                        FieldError::getField,
-                        fieldError -> fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
-                        (existingMessage, duplicateMessage) -> existingMessage
-                ));
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Request validation failed");
-        problemDetail.setTitle("Validation Error");
-        problemDetail.setProperty("fieldErrors", fieldValidationErrors);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 8. 性能限界突破と可観測性 (Performance & Observability)
+- **性能最優先**: Phase 8.5 の数理エンジンでは、OOP よりもキャッシュ効率を優先。`int[]` 配列やビット演算を駆使し、メモリアロケーションをゼロに近づけよ。
+- **スレッド監視**: 仮想スレッドには必ずテナント識別子を含む名前を付与。JFR や Micrometer でピン留め（Pinning）を監視し、スループットの「サイレントな低下」を許さない設計を徹底せよ。
 
-    @ExceptionHandler(HttpMessageNotWritableException.class)
-    public ResponseEntity<Void> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
-        logger.debug(exception.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
-    }
+### 9. AI セキュリティと入力完全性 (Security & Integrity)
+- **Prompt Sanitization**: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とせよ。
+- **API First**: DTO は OpenAPI 3.1 仕様に準拠し、`@NotNull` や `@Size` 等の Jakarta Validation で入力境界を厳格に定義せよ。
 
-    @ExceptionHandler(JsonbSerializationException.class)
-    public ResponseEntity<ProblemDetail> handleJsonbSerializationFailure(JsonbSerializationException exception) {
-        logger.error("AI response JSON parse failure", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
-        problemDetail.setTitle("AI Response Parse Failure");
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 10. 実装の完全配線とレガシー排除 (Active Wiring & Purge)
+-**Shadow Implementation 禁止**: 新数理モデル（Ph 8.5/10等）実装時は、既存計算パス（Service/Aggregator等）を即座に新エンジンへ切り替え、旧ロジックを削除せよ 。
+-**数理の単一情報源 (SSOT)**: 統計計算やステージ判定には RobustAuditMathUtil または SomScoreCalculator の最新ロジックを強制使用せよ 。GeoVisibility 内での独自 IQR 計算等の重複実装を厳禁とする 。
+-**ライブラリ回帰禁止**: 名寄せ等で外部ライブラリ（Apache Commons等）を安易に使用せず、Ph 8.5 構築の「100% Pure Java」独自エンジンを最優先せよ 。
 
-    @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
-        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
-        if (status == null) {
-            status = HttpStatus.INTERNAL_SERVER_ERROR;
-        }
-        String detail = exception.getReason() != null ? exception.getReason() : status.getReasonPhrase();
-        if (status.is5xxServerError()) {
-            logger.error("Response status exception status={} detail={}", status.value(), detail, exception);
-        } else {
-            logger.warn("Response status exception status={} detail={}", status.value(), detail);
-        }
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
-        problemDetail.setTitle(status.getReasonPhrase());
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
+### 11. ヒープ衛生とバッファ再利用 (Heap Hygiene & Buffer Reuse)
+-**ホットパスのアロケーション禁止**: computeBatch や forEachBigram 等のタイトなループ内での new char[], new boolean[], StringBuilder, toString() を厳禁とする 。
+-**CharSequence 優先**: 文字列生成を避けるため String への変換を最小化し、CharSequence を維持したまま処理せよ 。
+-**Buffer Pooling**: 頻繁に使用する配列は ThreadLocal（キャリアスレッド用）やバッファプールで再利用し、GC 発生を物理的に抑制せよ 。
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ProblemDetail> handleUnexpectedException(Exception exception) {
-        logger.error("Unhandled exception", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        problemDetail.setTitle("Internal Server Error");
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
-    }
-}
+### 12. 仮想スレッド・ピン留めガード (Anti-Pinning Guard)
+-**synchronized 排除**: Sudachi の辞書生成や JNI 呼び出し箇所の synchronized を特定し、ReentrantLock 等へ置換せよ 。
+-**JNI ピン留め回避**: ネイティブコード呼び出しは Semaphore で同時実行数を厳格に制御し、キャリアスレッドの長時間占有（Pinning）を防げ 。
+
+### 13. 数理モデルの「知能と統計」の分離 (ZIB / Spike-and-slab)
+-**決定論的優先 (Spike)**: AI が false と判定したデータは統計的補正をバイパスし、強制的に 0.0 とせよ 。これを「論理的なゼロ」として統計モデル（Slab）から物理的に隔離せよ 。
+-**不確実性の可視化**: 小標本（$N < 30$）における点推定出力時は、事後分布に基づく「クレディブル区間（信頼区間）」を算出し、フロントエンドへ渡せ 。
+
+## 【実装・出力要件】
+- **コード内にコメントは一切記述しないこと。**
+- **不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力せよ。**
+- **Java Record**: DTO や不変データモデルには積極的に Java 25 の `record` を活用せよ。
+- **命名規則**: 
+  - Java/TypeScript: `camelCase`
+  - Database/JSON: `snake_case` (JPA の `@Column` や Jackson の `@JsonProperty` で明示)
+- **例外処理**: スタックトレースは 20,000 文字で切り詰め、DB に保存。`SLF4J (@Slf4j)` を使用し、`sysout` や `printStackTrace` は厳禁。
 </file>
 
 <file path="geo-analytics/frontend/src/hooks/useJobNotification.ts">
@@ -15269,134 +14703,126 @@ public class AsyncPdfReportService {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/GeminiBatchExecutorService.java">
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/AsyncSgeMeasurementService.java">
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
+import com.geo.analytics.application.port.SgeMeasurementPort;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.infrastructure.config.AppProperties;
+import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.ai.LlmModelNames;
-import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
-import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
-import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 
 @Service
-public class GeminiBatchExecutorService {
-    private final GeminiBatchClient geminiBatchClient;
+public class AsyncSgeMeasurementService {
+    private static final Logger log = LoggerFactory.getLogger(AsyncSgeMeasurementService.class);
+    private final SgeMeasurementPort sgeMeasurementPort;
+    private final SgeResultRepository sgeResultRepository;
     private final JobPersistenceService jobPersistenceService;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
-    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
+    private final String serpApiKey;
+    private AsyncSgeMeasurementService self;
 
-    public GeminiBatchExecutorService(
-            GeminiBatchClient geminiBatchClient,
+    public AsyncSgeMeasurementService(
+            SgeMeasurementPort sgeMeasurementPort,
+            SgeResultRepository sgeResultRepository,
             JobPersistenceService jobPersistenceService,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
-            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
-            PlanBasedQuotaManager planBasedQuotaManager) {
-        this.geminiBatchClient = geminiBatchClient;
+            PlanBasedQuotaManager planBasedQuotaManager,
+            AppProperties appProperties) {
+        this.sgeMeasurementPort = sgeMeasurementPort;
+        this.sgeResultRepository = sgeResultRepository;
         this.jobPersistenceService = jobPersistenceService;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
-        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
+        String key = appProperties.getSerpapi().getApiKey();
+        this.serpApiKey = key != null ? key : "";
+    }
+
+    @Autowired
+    @Lazy
+    void setSelf(AsyncSgeMeasurementService self) {
+        this.self = self;
+    }
+
+    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries) {
+        self.measureSgeForJob(job, queries, 0);
     }
 
     @Async
-    public CompletableFuture<Void> uploadAndSubmitBatchJob(JobEntity jobEntity) {
-        Path jsonlPath = null;
-        int quotaRefundOnFailure = 0;
+    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries, int dailyQuotaRefundOnFailure) {
+        Objects.requireNonNull(job, "job");
+        UUID jobId = job.getId();
+        List<QueryEntity> queryList = Objects.requireNonNull(queries, "queries");
+        log.info("SGE measurement started jobId={} queryCount={}", jobId, queryList.size());
         try {
-            List<QueryEntity> unprocessedQueryEntities =
-                jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
-            if (unprocessedQueryEntities.isEmpty()) {
-                jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
-                JobEntity emptyJobEntity = jobPersistenceService.findJobById(jobEntity.getId());
-                jobStatusBroadcastPublisher.publish(emptyJobEntity);
-                projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
-                return CompletableFuture.completedFuture(null);
+            if (serpApiKey.isBlank()) {
+                throw new IllegalStateException("SerpApi API key is not configured");
             }
-            quotaRefundOnFailure = unprocessedQueryEntities.size();
-            List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
-                .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
-                .toList();
-            SubscriptionPlan subscriptionPlan =
-                Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-            jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
-                jobEntity.getBrandName(), batchQueryLines, subscriptionPlan);
-            GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
-            String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
-            GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
-            jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(
-                jobEntity.getId(), createdBatchJob.name());
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
-        } catch (Exception exception) {
-            if (quotaRefundOnFailure > 0) {
-                var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-                planBasedQuotaManager.addTokens(tid, quotaRefundOnFailure);
+            if (queryList.isEmpty()) {
+                throw new IllegalStateException("No queries for SGE measurement");
             }
-            jobPersistenceService.updateJobStatus(
-                jobEntity.getId(),
-                JobStatus.FAILED,
-                ExceptionStackTraceText.of(exception));
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
-        } finally {
-            if (jsonlPath != null) {
-                try {
-                    Files.deleteIfExists(jsonlPath);
-                } catch (IOException ignored) {
+            String brandName = job.getBrandName();
+            for (int i = 0; i < queryList.size(); i++) {
+                if (i > 0) {
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException interruptedException) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("SGE measurement throttle interrupted", interruptedException);
+                    }
                 }
+                QueryEntity queryEntity = queryList.get(i);
+                String queryText = queryEntity.getQueryText();
+                SgeMentionResult sgeMentionResult = sgeMeasurementPort.checkSgeMention(queryText, brandName);
+                if (sgeMentionResult == null) {
+                    throw new IllegalStateException(
+                        "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryText);
+                }
+                SgeResultEntity sgeResultEntity = new SgeResultEntity();
+                sgeResultEntity.setJobId(jobId);
+                sgeResultEntity.setWorkspaceId(job.getWorkspaceId());
+                sgeResultEntity.setQueryId(queryEntity.getId());
+                sgeResultEntity.setQuery(queryText);
+                sgeResultEntity.setSgeRawResponse(sgeMentionResult.rawResponseJson());
+                sgeResultEntity.setSgeMentioned(sgeMentionResult.mentioned());
+                sgeResultRepository.save(sgeResultEntity);
             }
-        }
-        return CompletableFuture.completedFuture(null);
-    }
-
-    private String chooseModelForProfitGuard(List<QueryEntity> queryEntities, SubscriptionPlan subscriptionPlan) {
-        long totalTokens = estimateTotalTokens(queryEntities);
-        double unitPrice = planUnitPrice(subscriptionPlan);
-        double guardBudget = unitPrice * 0.14;
-        double predictedPrimary = estimateApiCost(totalTokens, LlmModelNames.GEMINI_25_PRO);
-        if (predictedPrimary > guardBudget) {
-            return LlmModelNames.GEMINI_25_FLASH;
-        }
-        return LlmModelNames.GEMINI_25_PRO;
-    }
-
-    private static long estimateTotalTokens(List<QueryEntity> queryEntities) {
-        long tokens = 0L;
-        for (var q : queryEntities) {
-            var text = q.getQueryText();
-            if (text == null || text.isBlank()) {
-                continue;
+        } catch (Exception exception) {
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
             }
-            long approx = StrictMath.max(1L, text.strip().length() / 4L);
-            tokens += approx;
+            failJobAndBroadcast(jobId, exception, dailyQuotaRefundOnFailure);
         }
-        return StrictMath.max(tokens, 1L);
     }
 
-    private static double estimateApiCost(long totalTokens, String modelName) {
-        double per1k = LlmModelNames.GEMINI_25_FLASH.equals(modelName) ? 0.0012 : 0.006;
-        return ((double) totalTokens / 1000.0) * per1k;
-    }
-
-    private static double planUnitPrice(SubscriptionPlan subscriptionPlan) {
-        return switch (subscriptionPlan) {
-            case STANDARD -> 29.0;
-            case PRO -> 149.0;
-            case EXPERT -> 499.0;
-        };
+    private void failJobAndBroadcast(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
+        if (dailyQuotaRefundOnFailure > 0) {
+            var je = jobPersistenceService.findJobById(jobId);
+            var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            planBasedQuotaManager.addTokens(
+                    tid, (long) dailyQuotaRefundOnFailure * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
+        }
+        String trace = ExceptionStackTraceText.of(throwable);
+        jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, trace);
+        log.error("SGE measurement failed jobId={}", jobId, throwable);
+        jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
     }
 }
 </file>
@@ -15583,7 +15009,7 @@ public class SyncVerificationService {
                 registeredCompetitorBrands,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
-        return toResult(verificationResponse);
+        return toResult(verificationRequest, verificationResponse);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -15627,10 +15053,12 @@ public class SyncVerificationService {
                 registeredCompetitorBrands,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
-        return toResult(verificationResponse);
+        return toResult(verificationRequest, verificationResponse);
     }
 
-    private SyncVerificationResult toResult(VerificationResponse verificationResponse) {
+    private SyncVerificationResult toResult(VerificationRequest appliedRequest, VerificationResponse verificationResponse) {
+        var content = appliedRequest.crawledContent();
+        int analysisTextLength = content != null ? content.length() : 0;
         var consultantOutputData =
                 somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
         var rows = verificationResponse.competitorResults().stream()
@@ -15657,7 +15085,8 @@ public class SyncVerificationService {
                 verificationResponse.modifiedZScore(),
                 verificationResponse.calculationVersion(),
                 rows,
-                insightsJson);
+                insightsJson,
+                analysisTextLength);
     }
 
     private String serializeInsights(VerificationResponse verificationResponse) {
@@ -15898,6 +15327,346 @@ public class AuditHistoryEntity extends BaseTenantEntity {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorService.java">
+package com.geo.analytics.domain.service;
+
+import com.geo.analytics.domain.matching.RobustAuditMathUtil;
+import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.model.SomRawMetrics;
+import java.lang.StrictMath;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.IntStream;
+
+public final class GeoVisibilityCalculatorService {
+    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V1";
+    private static final double EPSILON = 1.0E-10;
+    private static final int BAYES_SAMPLE_THRESHOLD = 30;
+    private static final double SOURCE_WEIGHT_HIGH = 1.5;
+    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
+    private static final double SOURCE_WEIGHT_LOW = 0.3;
+
+    private final TokenizerManager tokenizerManager;
+
+    public GeoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
+    }
+
+    public List<String> tokenizeResponseForMentions(String text) {
+        return tokenizerManager.tokenizeToNormalizedList(text);
+    }
+
+    public int countNormalizedMentions(List<String> responseTokens, List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        List<List<String>> sequences = new ArrayList<>();
+        for (String kw : keywords) {
+            if (kw == null || kw.isBlank()) {
+                continue;
+            }
+            List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
+            if (!seq.isEmpty()) {
+                sequences.add(seq);
+            }
+        }
+        if (sequences.isEmpty()) {
+            return 0;
+        }
+        int mentions = 0;
+        int fromIndex = 0;
+        final int n = responseTokens.size();
+        while (fromIndex < n) {
+            int bestRel = Integer.MAX_VALUE;
+            int bestLen = 0;
+            for (List<String> seq : sequences) {
+                int rel = Collections.indexOfSubList(responseTokens.subList(fromIndex, n), seq);
+                if (rel < 0) {
+                    continue;
+                }
+                if (rel < bestRel || (rel == bestRel && seq.size() > bestLen)) {
+                    bestRel = rel;
+                    bestLen = seq.size();
+                }
+            }
+            if (bestRel == Integer.MAX_VALUE) {
+                break;
+            }
+            mentions++;
+            fromIndex += bestRel + bestLen;
+        }
+        return mentions;
+    }
+
+    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return Arrays.stream(primary.split("[,、]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .toList();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return List.of(fallback.strip());
+        }
+        return List.of();
+    }
+
+    public static GbvsResult compute(
+            SomRawMetrics metrics,
+            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
+        return computeBatch(List.of(metrics), lAvgJob).getFirst();
+    }
+
+    public static List<GbvsResult> computeBatch(
+            List<SomRawMetrics> rows,
+            @SuppressWarnings("unused") double lAvgJob) { // Reserved for Phase 11 cross-model L_avg bias correction
+        return computeBatch(rows, lAvgJob, rows.size());
+    }
+
+    public static List<GbvsResult> computeBatch(
+            List<SomRawMetrics> rows,
+            @SuppressWarnings("unused") double lAvgJob, // Reserved for Phase 11 cross-model L_avg bias correction
+            int bayesSampleCardinality) {
+        int n = rows.size();
+        if (n == 0) {
+            return List.of();
+        }
+        int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
+        double[] raw = new double[n];
+        IntStream.range(0, n).parallel().forEach(i -> raw[i] = weightedSom(rows.get(i)));
+        double[] work = new double[n];
+        if (blendN < BAYES_SAMPLE_THRESHOLD) {
+            applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
+        } else {
+            System.arraycopy(raw, 0, work, 0, n);
+        }
+        sanitizeWorkForRobustStatistics(work);
+        double[] zScores = RobustAuditMathUtil.modifiedZScores(work);
+        if (n == 1) {
+            double pct = StrictMath.fma(clamp01(work[0]), 100.0, 0.0);
+            return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
+        }
+        double[] sorted = Arrays.copyOf(work, n);
+        Arrays.parallelSort(sorted);
+        double minR = sorted[0];
+        double maxR = sorted[n - 1];
+        GbvsResult[] out = new GbvsResult[n];
+        IntStream.range(0, n).parallel().forEach(i -> {
+            double z = zScores[i];
+            int stage = stageFromModifiedZ(z);
+            double span = StrictMath.fma(maxR, 1.0, -minR);
+            double pct = span > EPSILON
+                    ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
+                    : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
+            out[i] = new GbvsResult(clampPercent(pct), stage, z);
+        });
+        return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
+    }
+
+    /** NaN / Infinity must not reach median or MAD ({@link RobustAuditMathUtil#modifiedZScores(double[])}). */
+    private static void sanitizeWorkForRobustStatistics(double[] work) {
+        for (int i = 0; i < work.length; i++) {
+            if (!Double.isFinite(work[i])) {
+                work[i] = 0.0;
+            }
+        }
+    }
+
+    /**
+     * Moment-matched Beta hyperparameters with {@link RobustAuditMathUtil#betaMomentAlphaBeta(double, double)} variance clamp,
+     * then per-row Beta–Binomial posterior means (effective trials = {@code blendN}).
+     */
+    private static void applySmallSampleBetaPipeline(
+            List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
+        int mentionedCount = 0;
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            if (rows.get(i).isSemanticallyMentioned()) {
+                mentionedCount++;
+                sum = StrictMath.fma(raw[i], 1.0, sum);
+            }
+        }
+        if (mentionedCount == 0) {
+            Arrays.fill(work, 0.0);
+            return;
+        }
+        double m = sum / (double) mentionedCount;
+        double v;
+        if (mentionedCount < 2) {
+            v = StrictMath.fma(m, 1.0 - m, 0.0) / (double) StrictMath.max(1, blendN);
+        } else {
+            double ss = 0.0;
+            for (int i = 0; i < n; i++) {
+                if (rows.get(i).isSemanticallyMentioned()) {
+                    double d = StrictMath.fma(raw[i], 1.0, -m);
+                    ss = StrictMath.fma(d, d, ss);
+                }
+            }
+            v = ss / (double) (mentionedCount - 1);
+        }
+        double[] ab = RobustAuditMathUtil.betaMomentAlphaBeta(m, v);
+        double alpha = ab[0];
+        double beta = ab[1];
+        double nn = (double) blendN;
+        for (int i = 0; i < n; i++) {
+            if (!rows.get(i).isSemanticallyMentioned()) {
+                work[i] = 0.0;
+                continue;
+            }
+            double kEff = RobustAuditMathUtil.softwareFtzFlush(
+                    StrictMath.min(nn, StrictMath.max(0.0, StrictMath.fma(raw[i], nn, 0.0))));
+            work[i] = RobustAuditMathUtil.betaBinomialPosteriorMean(kEff, nn, alpha, beta);
+        }
+    }
+
+    public static double sourceWeightFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return SOURCE_WEIGHT_LOW;
+        }
+        var normalized = url.strip().toLowerCase();
+        if (!normalized.contains("://")) {
+            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        }
+        try {
+            var host = java.net.URI.create(normalized).getHost();
+            if (host == null || host.isBlank()) {
+                return SOURCE_WEIGHT_LOW;
+            }
+            var h = host.toLowerCase();
+            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        } catch (Exception ignored) {
+            return SOURCE_WEIGHT_LOW;
+        }
+    }
+
+    private static double weightedSom(SomRawMetrics metrics) {
+        if (!metrics.isSemanticallyMentioned()) {
+            return 0.0;
+        }
+        int f = StrictMath.max(0, metrics.nounCount());
+        int rank = metrics.rankPosition();
+        int total = StrictMath.max(0, metrics.responseTokenLength());
+        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
+        double sourceWeight = metrics.sourceWeight() > EPSILON ? metrics.sourceWeight() : SOURCE_WEIGHT_LOW;
+        double sentiment = sentimentWeight(metrics.sentimentIntensity());
+        double brandSignal = presence * sourceWeight * sentiment;
+        double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
+        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
+        double denom = brandSignal + otherSignal;
+        if (denom <= EPSILON) {
+            return 0.0;
+        }
+        return clamp01(brandSignal / denom);
+    }
+
+    private static double sentimentWeight(double sentimentScore) {
+        if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
+            return 1.0;
+        }
+        if (sentimentScore < 0.5) {
+            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
+                return 1.0 + 0.5 * sentimentScore;
+            }
+        }
+        return clamp(sentimentScore, 0.5, 1.5);
+    }
+
+    private static double clamp01(double v) {
+        return clamp(v, 0.0, 1.0);
+    }
+
+    private static double clampPercent(double v) {
+        return clamp(v, 0.0, 100.0);
+    }
+
+    private static double clamp(double v, double lo, double hi) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) {
+            return lo;
+        }
+        if (v < lo) {
+            return lo;
+        }
+        if (v > hi) {
+            return hi;
+        }
+        return v;
+    }
+
+    private static int stageFromScorePercent(double pct) {
+        int inner;
+        if (pct >= 90.0) {
+            inner = 10;
+        } else if (pct >= 80.0) {
+            inner = 9;
+        } else if (pct >= 70.0) {
+            inner = 8;
+        } else if (pct >= 60.0) {
+            inner = 7;
+        } else if (pct >= 50.0) {
+            inner = 6;
+        } else if (pct >= 40.0) {
+            inner = 5;
+        } else if (pct >= 30.0) {
+            inner = 4;
+        } else if (pct >= 20.0) {
+            inner = 3;
+        } else if (pct >= 10.0) {
+            inner = 2;
+        } else {
+            inner = 1;
+        }
+        return StrictMath.subtractExact(11, inner);
+    }
+
+    /** Modified Z′ bands on ±3.0 tails; inner rank inverted to visibility stage (11 − inner). */
+    private static int stageFromModifiedZ(double z) {
+        if (Double.isNaN(z) || Double.isInfinite(z)) {
+            return 6;
+        }
+        int inner;
+        if (z >= 3.0) {
+            inner = 10;
+        } else if (z <= -3.0) {
+            inner = 1;
+        } else if (z >= 2.25) {
+            inner = 9;
+        } else if (z >= 1.5) {
+            inner = 8;
+        } else if (z >= 0.75) {
+            inner = 7;
+        } else if (z >= 0.0) {
+            inner = 6;
+        } else if (z >= -0.75) {
+            inner = 5;
+        } else if (z >= -1.5) {
+            inner = 4;
+        } else if (z >= -2.25) {
+            inner = 3;
+        } else {
+            inner = 2;
+        }
+        return StrictMath.subtractExact(11, inner);
+    }
+
+    public record GbvsResult(double scorePercent, int visibilityStage, double modifiedZScore) {}
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/ai/ConsultantPrompts.java">
 package com.geo.analytics.infrastructure.ai;
 
@@ -16036,6 +15805,190 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
     List<JobEntity> findProJobsAwaitingGapBatchCreation(
             @Param("st") JobStatus jobStatus,
             @Param("plans") List<SubscriptionPlan> plans);
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/web/exception/GlobalExceptionHandler.java">
+package com.geo.analytics.web.exception;
+
+import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.exception.InsufficientQuotaException;
+import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.exception.ThresholdExceededException;
+import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
+import com.geo.analytics.web.dto.ErrorResponse;
+import jakarta.persistence.EntityNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Duration;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(ThresholdExceededException.class)
+    public ResponseEntity<ErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
+        var threshold = exception.getThreshold();
+        var message =
+                "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
+        logger.warn("Threshold exceeded threshold={}", threshold);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null, null));
+    }
+
+    @ExceptionHandler(InsufficientQuotaException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
+        logger.warn("Insufficient quota plan={} limit={}", exception.getPlanName(), exception.getCurrentLimit());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse(
+                        "INSUFFICIENT_QUOTA",
+                        exception.getMessage(),
+                        exception.getCurrentLimit(),
+                        exception.getPlanName(),
+                        null));
+    }
+
+    @ExceptionHandler(AiAnalysisTimeoutException.class)
+    public ResponseEntity<ProblemDetail> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
+        logger.warn("AI analysis timeout", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+        problemDetail.setTitle("AI Analysis Timeout");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
+        var nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
+        var wait = Duration.ofNanos(nanos);
+        var retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
+        var hours = wait.toHours();
+        var minutes = wait.minusHours(hours).toMinutes();
+        var message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
+        logger.warn("Rate limit exceeded plan={}", exception.getPlanName());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse(
+                        "RATE_LIMIT_EXCEEDED",
+                        message,
+                        exception.getCurrentLimit(),
+                        exception.getPlanName(),
+                        retryAfterSeconds));
+    }
+
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleEntityNotFound(EntityNotFoundException exception) {
+        logger.warn("Resource not found", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        problemDetail.setTitle("Resource Not Found");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException exception) {
+        logger.warn("Invalid state transition", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT, exception.getMessage());
+        problemDetail.setTitle("Invalid State Transition");
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception) {
+        logger.warn("Invalid argument", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, exception.getMessage());
+        problemDetail.setTitle("Invalid Argument");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ProblemDetail> handleValidationFailure(MethodArgumentNotValidException exception) {
+        logger.warn("Request validation failed", exception);
+        Map<String, String> fieldValidationErrors = exception.getBindingResult().getFieldErrors().stream()
+                .collect(Collectors.toMap(
+                        FieldError::getField,
+                        fieldError -> fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
+                        (existingMessage, duplicateMessage) -> existingMessage
+                ));
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Request validation failed");
+        problemDetail.setTitle("Validation Error");
+        problemDetail.setProperty("fieldErrors", fieldValidationErrors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(HttpMessageNotWritableException.class)
+    public ResponseEntity<Void> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
+        logger.debug(exception.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+    }
+
+    @ExceptionHandler(JsonbSerializationException.class)
+    public ResponseEntity<ProblemDetail> handleJsonbSerializationFailure(JsonbSerializationException exception) {
+        logger.error("AI response JSON parse failure", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
+        problemDetail.setTitle("AI Response Parse Failure");
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
+        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        String detail = exception.getReason() != null ? exception.getReason() : status.getReasonPhrase();
+        if (status.is5xxServerError()) {
+            logger.error("Response status exception status={} detail={}", status.value(), detail, exception);
+        } else {
+            logger.warn("Response status exception status={} detail={}", status.value(), detail);
+        }
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
+        problemDetail.setTitle(status.getReasonPhrase());
+        return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ProblemDetail> handleUnexpectedException(Exception exception) {
+        logger.error("Unhandled exception", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
+        problemDetail.setTitle("Internal Server Error");
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
 }
 </file>
 
@@ -16546,6 +16499,139 @@ public record SomScoreData(
         int rp = rankPosition != null ? rankPosition : 0;
         double si = sentimentIntensity != null ? sentimentIntensity : 0.0;
         return new SomRawMetrics(tc, rp, si, subscriptionPlan.usesProTierFeatures(), false, 0, 0.0, 0, 0.3);
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/GeminiBatchExecutorService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.ai.LlmModelNames;
+import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
+import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
+import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class GeminiBatchExecutorService {
+    private final GeminiBatchClient geminiBatchClient;
+    private final JobPersistenceService jobPersistenceService;
+    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
+    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
+
+    public GeminiBatchExecutorService(
+            GeminiBatchClient geminiBatchClient,
+            JobPersistenceService jobPersistenceService,
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
+            PlanBasedQuotaManager planBasedQuotaManager) {
+        this.geminiBatchClient = geminiBatchClient;
+        this.jobPersistenceService = jobPersistenceService;
+        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
+        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
+        this.planBasedQuotaManager = planBasedQuotaManager;
+    }
+
+    @Async
+    public CompletableFuture<Void> uploadAndSubmitBatchJob(JobEntity jobEntity) {
+        Path jsonlPath = null;
+        int quotaRefundOnFailure = 0;
+        try {
+            List<QueryEntity> unprocessedQueryEntities =
+                jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
+            if (unprocessedQueryEntities.isEmpty()) {
+                jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
+                JobEntity emptyJobEntity = jobPersistenceService.findJobById(jobEntity.getId());
+                jobStatusBroadcastPublisher.publish(emptyJobEntity);
+                projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
+                return CompletableFuture.completedFuture(null);
+            }
+            quotaRefundOnFailure = unprocessedQueryEntities.size() * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+            List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
+                .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
+                .toList();
+            SubscriptionPlan subscriptionPlan =
+                Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
+            jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
+                jobEntity.getBrandName(), batchQueryLines, subscriptionPlan);
+            GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
+            String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
+            GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
+            jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(
+                jobEntity.getId(), createdBatchJob.name());
+            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+        } catch (Exception exception) {
+            if (quotaRefundOnFailure > 0) {
+                var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+                planBasedQuotaManager.addTokens(tid, quotaRefundOnFailure);
+            }
+            jobPersistenceService.updateJobStatus(
+                jobEntity.getId(),
+                JobStatus.FAILED,
+                ExceptionStackTraceText.of(exception));
+            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+        } finally {
+            if (jsonlPath != null) {
+                try {
+                    Files.deleteIfExists(jsonlPath);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private String chooseModelForProfitGuard(List<QueryEntity> queryEntities, SubscriptionPlan subscriptionPlan) {
+        long totalTokens = estimateTotalTokens(queryEntities);
+        double unitPrice = planUnitPrice(subscriptionPlan);
+        double guardBudget = unitPrice * 0.14;
+        double predictedPrimary = estimateApiCost(totalTokens, LlmModelNames.GEMINI_25_PRO);
+        if (predictedPrimary > guardBudget) {
+            return LlmModelNames.GEMINI_25_FLASH;
+        }
+        return LlmModelNames.GEMINI_25_PRO;
+    }
+
+    private static long estimateTotalTokens(List<QueryEntity> queryEntities) {
+        long tokens = 0L;
+        for (var q : queryEntities) {
+            var text = q.getQueryText();
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            long approx = StrictMath.max(1L, text.strip().length() / 4L);
+            tokens += approx;
+        }
+        return StrictMath.max(tokens, 1L);
+    }
+
+    private static double estimateApiCost(long totalTokens, String modelName) {
+        double per1k = LlmModelNames.GEMINI_25_FLASH.equals(modelName) ? 0.0012 : 0.006;
+        return ((double) totalTokens / 1000.0) * per1k;
+    }
+
+    private static double planUnitPrice(SubscriptionPlan subscriptionPlan) {
+        return switch (subscriptionPlan) {
+            case STANDARD -> 29.0;
+            case PRO -> 149.0;
+            case EXPERT -> 499.0;
+        };
     }
 }
 </file>
@@ -17842,6 +17928,7 @@ import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
@@ -17859,8 +17946,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 @Service
 public class GeminiResultProcessor {
@@ -17877,6 +17966,7 @@ public class GeminiResultProcessor {
     private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
     public GeminiResultProcessor(
             JobPersistenceService jobPersistenceService,
             ObjectMapper objectMapper,
@@ -17888,7 +17978,8 @@ public class GeminiResultProcessor {
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            InformationTheoryBasedAggregator informationTheoryBasedAggregator) {
+            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
+            PlanBasedQuotaManager planBasedQuotaManager) {
         this.jobPersistenceService = jobPersistenceService;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
@@ -17900,6 +17991,7 @@ public class GeminiResultProcessor {
         this.strategyInsightService = strategyInsightService;
         this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
+        this.planBasedQuotaManager = planBasedQuotaManager;
     }
     @Transactional
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
@@ -17907,6 +17999,8 @@ public class GeminiResultProcessor {
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         boolean isProPlan = plan.usesProTierFeatures();
         String mainBrand = jobEntity.getBrandName();
+        UUID tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        Set<UUID> quotaSettled = new HashSet<>();
         var parsedLines = new ArrayList<BatchParsedLine>();
         for (String outputLine : outputJsonlContent.split("\n")) {
             if (outputLine.isBlank()) {
@@ -17916,6 +18010,7 @@ public class GeminiResultProcessor {
                 GeminiBatchOutputRecord outputRecord =
                     objectMapper.readValue(outputLine, GeminiBatchOutputRecord.class);
                 if (outputRecord.status() != null && outputRecord.status().code() != 0) {
+                    markBatchQuotaRefundOnError(tid, outputRecord.key(), quotaSettled);
                     continue;
                 }
                 UUID queryId = UUID.fromString(outputRecord.key());
@@ -17974,25 +18069,43 @@ public class GeminiResultProcessor {
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
             int overall = (int) Math.round(Math.clamp(somScore, 0.0, 100.0));
-                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity ->
-                jobPersistenceService.upsertAuditHistoryForJobQuery(
-                    jobEntity.getId(),
-                    line.queryId(),
-                    queryEntity.getQueryText(),
-                    jsonbOperations.serialize(line.consultantOutputData()),
-                    somScore,
-                    brand,
-                    m.rankPosition(),
-                    overall,
-                    line.resolved(),
-                    m.tokenCount(),
-                    m.rankPosition(),
-                    m.sentimentIntensity(),
-                    gbvs.visibilityStage(),
-                    GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                    gbvs.modifiedZScore(),
-                    List.of(),
-                    null));
+                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
+                    jobPersistenceService.upsertAuditHistoryForJobQuery(
+                        jobEntity.getId(),
+                        line.queryId(),
+                        queryEntity.getQueryText(),
+                        jsonbOperations.serialize(line.consultantOutputData()),
+                        somScore,
+                        brand,
+                        m.rankPosition(),
+                        overall,
+                        line.resolved(),
+                        m.tokenCount(),
+                        m.rankPosition(),
+                        m.sentimentIntensity(),
+                        gbvs.visibilityStage(),
+                        GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                        gbvs.modifiedZScore(),
+                        List.of(),
+                        null);
+                    if (quotaSettled.add(line.queryId())) {
+                        long textLen = (long) queryEntity.getQueryText().length()
+                            + (mainBrand != null ? mainBrand.length() : 0);
+                        long actual = QuotaCreditCalculator.actualCreditsGeminiBatchLine(textLen);
+                        long refund = QuotaCreditCalculator.refundAfterDeposit(
+                            QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
+                        if (refund > 0L) {
+                            planBasedQuotaManager.addTokens(tid, refund);
+                        }
+                    }
+                });
+        }
+        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
+            if (!quotaSettled.contains(qe.getId())) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
         }
         var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
         var rollup = strategyInsightService.rollupJob(auditsAfter);
@@ -18022,6 +18135,20 @@ public class GeminiResultProcessor {
             .filter(s -> !s.isBlank())
             .toList());
     }
+    private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        try {
+            UUID qid = UUID.fromString(key);
+            if (quotaSettled.add(qid)) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
+        } catch (IllegalArgumentException ignored) {
+        }
+    }
     private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
         JsonNode responseNode = outputRecord.response();
         if (responseNode == null || responseNode.isNull()) {
@@ -18040,465 +18167,6 @@ public class GeminiResultProcessor {
                 "Could not extract text from batch output for key: " + outputRecord.key());
         }
         return textNode.asText();
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/JobQuerySubmissionService.java">
-package com.geo.analytics.application.service;
-
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
-import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
-import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.enums.JobStatus;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.domain.exception.InsufficientQuotaException;
-import com.geo.analytics.domain.exception.RateLimitExceededException;
-import com.geo.analytics.domain.model.PlanLimitsSnapshot;
-import com.geo.analytics.domain.service.EntityNormalizer;
-import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
-import com.geo.analytics.infrastructure.persistence.JsonbOperations;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Service;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
-
-@Service
-public class JobQuerySubmissionService {
-    private static final Logger log = LoggerFactory.getLogger(JobQuerySubmissionService.class);
-    private final JobPersistenceService jobPersistenceService;
-    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
-    private final SyncVerificationService syncVerificationService;
-    private final SomScoreParser somScoreParser;
-    private final JsonbOperations jsonbOperations;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
-    private final JobStreamRegistryService jobStreamRegistryService;
-    private final ExecutorService streamDeliveryVirtualExecutor;
-    private final ProjectRepository projectRepository;
-    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
-    private final PlanBasedQuotaManager quotaLimiter;
-
-    public JobQuerySubmissionService(
-            JobPersistenceService jobPersistenceService,
-            AsyncSgeMeasurementService asyncSgeMeasurementService,
-            SyncVerificationService syncVerificationService,
-            SomScoreParser somScoreParser,
-            JsonbOperations jsonbOperations,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
-            JobStreamRegistryService jobStreamRegistryService,
-            @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
-            ProjectRepository projectRepository,
-            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
-            PlanBasedQuotaManager quotaLimiter) {
-        this.jobPersistenceService = jobPersistenceService;
-        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
-        this.syncVerificationService = syncVerificationService;
-        this.somScoreParser = somScoreParser;
-        this.jsonbOperations = jsonbOperations;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
-        this.jobStreamRegistryService = jobStreamRegistryService;
-        this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
-        this.projectRepository = projectRepository;
-        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
-        this.quotaLimiter = quotaLimiter;
-    }
-
-    public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
-        var keywordCount = queryTexts.size();
-        if (keywordCount <= 0) {
-            return;
-        }
-        var job = jobPersistenceService.findJobById(jobId);
-        var planEnum = Objects.requireNonNullElse(job.getAppliedPlan(), plan);
-        var limits = effectiveLimits(job, plan);
-        var existing = jobPersistenceService.countQueriesByJobId(jobId);
-        if (existing + keywordCount > limits.totalLimit()) {
-            throw new InsufficientQuotaException(
-                    "登録上限を超過しています。",
-                    limits.totalLimit(),
-                    planEnum.name());
-        }
-        if (limits.isRealtimeAllowed(keywordCount)) {
-            registerRealtimeRouteAndStartSgeThenExecute(jobId, queryTexts, planEnum);
-            return;
-        }
-        if (!planEnum.usesProTierFeatures()) {
-            throw new InsufficientQuotaException(
-                    "登録上限を超過しています。",
-                    limits.totalLimit(),
-                    planEnum.name());
-        }
-        var batchTenantId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        var batchProbe = quotaLimiter.resolve(batchTenantId).tryConsumeAndReturnRemaining(keywordCount);
-        if (!batchProbe.isConsumed()) {
-            var workspacePlan = quotaLimiter.resolveWorkspacePlan(batchTenantId);
-            throw new RateLimitExceededException(batchProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
-        }
-        try {
-            jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, planEnum);
-        } catch (RuntimeException e) {
-            quotaLimiter.addTokens(batchTenantId, keywordCount);
-            throw e;
-        }
-        startDeepAnalysisBatchPlaceholder(jobId);
-        var batchJobEntity = jobPersistenceService.findJobById(jobId);
-        var batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, keywordCount);
-    }
-
-    private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {
-        var raw = job.getPlanLimitsSnapshot();
-        if (raw != null && !raw.isBlank()) {
-            return jsonbOperations.deserialize(raw, PlanLimitsSnapshot.class);
-        }
-        return PlanLimitsSnapshot.fromPlan(Objects.requireNonNullElse(job.getAppliedPlan(), requestPlan));
-    }
-
-    private void registerRealtimeRouteAndStartSgeThenExecute(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
-        jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, plan);
-        var jobEntity = jobPersistenceService.findJobById(jobId);
-        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(jobEntity, queryEntities);
-        executeImmediateParallelProcessing(jobId);
-    }
-
-    private void startDeepAnalysisBatchPlaceholder(UUID jobId) {
-        log.debug("deep analysis batch placeholder jobId={}", jobId);
-    }
-
-    private void executeImmediateParallelProcessing(UUID jobId) {
-        var jobEntity = jobPersistenceService.findJobById(jobId);
-        var brandName = jobEntity.getBrandName();
-        var competitorHosts = loadCompetitorHosts(jobEntity);
-        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        var bucket = quotaLimiter.resolve(tenantId);
-        int n = queryEntities.size();
-        var probe = bucket.tryConsumeAndReturnRemaining(n);
-        if (!probe.isConsumed()) {
-            var workspacePlan = quotaLimiter.resolveWorkspacePlan(tenantId);
-            throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
-        }
-        @SuppressWarnings("unchecked")
-        CompletableFuture<Void>[] futures = queryEntities.stream()
-                .map(qe -> CompletableFuture.runAsync(
-                        () -> TenantContext.executeWithTenant(
-                                tenantId,
-                                () -> processOneQueryRealtimeCore(
-                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan)),
-                        streamDeliveryVirtualExecutor))
-                .toArray(CompletableFuture[]::new);
-        try {
-            CompletableFuture.allOf(futures).join();
-            jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
-            var completedJobEntity = jobPersistenceService.findJobById(jobId);
-            jobStatusBroadcastPublisher.publish(completedJobEntity);
-            projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
-        } catch (Throwable t) {
-            quotaLimiter.addTokens(tenantId, n);
-            if (t instanceof CompletionException ce) {
-                var c = ce.getCause();
-                if (c instanceof RuntimeException re) {
-                    throw re;
-                }
-                if (c instanceof Error e) {
-                    throw e;
-                }
-                throw new IllegalStateException(c);
-            }
-            if (t instanceof RuntimeException re) {
-                throw re;
-            }
-            if (t instanceof Error e) {
-                throw e;
-            }
-            throw new IllegalStateException(t);
-        } finally {
-            jobStreamRegistryService.complete(jobId);
-        }
-    }
-
-    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        var projectId = jobEntity.getProjectId();
-        if (projectId == null) {
-            return List.of();
-        }
-        var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
-                .map(ProjectEntity::getCompetitorUrls)
-                .orElse(List.of())
-                .stream()
-                .map(EntityNormalizer::hostLabelFromUrl)
-                .filter(s -> !s.isBlank())
-                .toList());
-    }
-
-    private void processOneQueryRealtimeCore(
-            UUID jobId,
-            UUID tenantId,
-            String brandName,
-            List<String> competitorHosts,
-            QueryEntity queryEntity,
-            SubscriptionPlan appliedPlan) {
-        var syncVerificationResult = syncVerificationService.verify(
-                brandName,
-                queryEntity.getQueryText(),
-                appliedPlan,
-                jobId,
-                queryEntity.getId(),
-                brandName,
-                competitorHosts);
-        var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-        var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
-        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-        var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
-        var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
-        jobPersistenceService.upsertAuditHistoryForJobQuery(
-                jobId,
-                queryEntity.getId(),
-                queryEntity.getQueryText(),
-                jsonbOperations.serialize(consultantOutputData),
-                somScore,
-                brand,
-                mr,
-                ov,
-                syncVerificationResult.resolvedEntityLabel(),
-                syncVerificationResult.tokenCount(),
-                syncVerificationResult.rankPosition(),
-                syncVerificationResult.sentimentIntensity(),
-                syncVerificationResult.visibilityStage(),
-                syncVerificationResult.calculationVersion(),
-                syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
-                syncVerificationResult.competitorScoreRows(),
-                syncVerificationResult.modelInsightsJson());
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/entity/JobEntity.java">
-package com.geo.analytics.domain.entity;
-import com.geo.analytics.domain.enums.JobStatus;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
-@Entity
-@Table(name = "jobs")
-public class JobEntity extends BaseTenantEntity {
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
-    @Column(name = "project_id")
-    private UUID projectId;
-    @Enumerated(EnumType.STRING)
-    @Column(name = "job_status", nullable = false, length = 20)
-    private JobStatus jobStatus;
-    @Enumerated(EnumType.STRING)
-    @Column(name = "subscription_plan", length = 16)
-    private SubscriptionPlan appliedPlan;
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "plan_limits_snapshot")
-    private String planLimitsSnapshot;
-    @Column(name = "brand_name", nullable = false)
-    private String brandName;
-    @Column(name = "brand_color", nullable = false, length = 64)
-    private String brandColor = "#4F46E5";
-    @Column(name = "logo_url", length = 2048)
-    private String logoUrl;
-    @Column(name = "gemini_job_name")
-    private String geminiJobName;
-    @Column(name = "error_message", columnDefinition = "text")
-    private String errorMessage;
-    @Column(name = "pdf_status", length = 32)
-    private String pdfStatus;
-    @Column(name = "pdf_file_path", length = 1024)
-    private String pdfFilePath;
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
-    @Column(name = "job_diagnostic_message", columnDefinition = "text")
-    private String jobDiagnosticMessage;
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "job_recommended_actions")
-    private List<String> jobRecommendedActions;
-    @Column(name = "gap_batch_idempotency_key")
-    private UUID gapBatchIdempotencyKey;
-    @Column(name = "create_idempotency_key")
-    private UUID createIdempotencyKey;
-    @Column(name = "gap_analysis_gemini_job_name", length = 512)
-    private String gapAnalysisGeminiJobName;
-    @Column(name = "gap_analysis_completed", nullable = false)
-    private Boolean gapAnalysisCompleted = false;
-    public JobEntity() {
-    }
-    public UUID getId() {
-        return id;
-    }
-    public void setId(UUID id) {
-        this.id = id;
-    }
-    public UUID getProjectId() {
-        return projectId;
-    }
-    public void setProjectId(UUID projectId) {
-        this.projectId = projectId;
-    }
-    public JobStatus getJobStatus() {
-        return jobStatus;
-    }
-    public void setJobStatus(JobStatus jobStatus) {
-        this.jobStatus = jobStatus;
-    }
-    public SubscriptionPlan getAppliedPlan() {
-        return appliedPlan;
-    }
-
-    public void setAppliedPlan(SubscriptionPlan appliedPlan) {
-        if (appliedPlan == null) {
-            return;
-        }
-        if (this.appliedPlan != null && this.appliedPlan != appliedPlan) {
-            throw new IllegalStateException("appliedPlan is immutable once set");
-        }
-        this.appliedPlan = appliedPlan;
-    }
-    public String getPlanLimitsSnapshot() {
-        return planLimitsSnapshot;
-    }
-    public void setPlanLimitsSnapshot(String planLimitsSnapshot) {
-        this.planLimitsSnapshot = planLimitsSnapshot;
-    }
-    public String getBrandName() {
-        return brandName;
-    }
-    public void setBrandName(String brandName) {
-        this.brandName = brandName;
-    }
-    public String getBrandColor() {
-        return brandColor;
-    }
-    public void setBrandColor(String brandColor) {
-        this.brandColor = brandColor;
-    }
-    public String getLogoUrl() {
-        return logoUrl;
-    }
-    public void setLogoUrl(String logoUrl) {
-        this.logoUrl = logoUrl;
-    }
-    public String getGeminiJobName() {
-        return geminiJobName;
-    }
-    public void setGeminiJobName(String geminiJobName) {
-        this.geminiJobName = geminiJobName;
-    }
-    public String getErrorMessage() {
-        return errorMessage;
-    }
-    public void setErrorMessage(String errorMessage) {
-        this.errorMessage = errorMessage;
-    }
-    public String getPdfStatus() {
-        return pdfStatus;
-    }
-    public void setPdfStatus(String pdfStatus) {
-        this.pdfStatus = pdfStatus;
-    }
-    public String getPdfFilePath() {
-        return pdfFilePath;
-    }
-    public void setPdfFilePath(String pdfFilePath) {
-        this.pdfFilePath = pdfFilePath;
-    }
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-    public String getJobDiagnosticMessage() {
-        return jobDiagnosticMessage;
-    }
-    public void setJobDiagnosticMessage(String jobDiagnosticMessage) {
-        this.jobDiagnosticMessage = jobDiagnosticMessage;
-    }
-    public List<String> getJobRecommendedActions() {
-        return jobRecommendedActions;
-    }
-    public void setJobRecommendedActions(List<String> jobRecommendedActions) {
-        this.jobRecommendedActions = jobRecommendedActions;
-    }
-    public UUID getGapBatchIdempotencyKey() {
-        return gapBatchIdempotencyKey;
-    }
-    public void setGapBatchIdempotencyKey(UUID gapBatchIdempotencyKey) {
-        this.gapBatchIdempotencyKey = gapBatchIdempotencyKey;
-    }
-    public UUID getCreateIdempotencyKey() {
-        return createIdempotencyKey;
-    }
-    public void setCreateIdempotencyKey(UUID createIdempotencyKey) {
-        this.createIdempotencyKey = createIdempotencyKey;
-    }
-    public String getGapAnalysisGeminiJobName() {
-        return gapAnalysisGeminiJobName;
-    }
-    public void setGapAnalysisGeminiJobName(String gapAnalysisGeminiJobName) {
-        this.gapAnalysisGeminiJobName = gapAnalysisGeminiJobName;
-    }
-    public Boolean getGapAnalysisCompleted() {
-        return gapAnalysisCompleted;
-    }
-    public void setGapAnalysisCompleted(Boolean gapAnalysisCompleted) {
-        this.gapAnalysisCompleted = gapAnalysisCompleted;
-    }
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-        if (jobStatus == null) {
-            jobStatus = JobStatus.CREATED;
-        }
-        if (brandColor == null || brandColor.isBlank()) {
-            brandColor = "#4F46E5";
-        }
-        if (gapAnalysisCompleted == null) {
-            gapAnalysisCompleted = false;
-        }
-    }
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
     }
 }
 </file>
@@ -18952,6 +18620,485 @@ public record ResultDetailResponse(
             auditHistoryEntity.getRawResponse(),
             auditHistoryEntity.getAuditDate(),
             auditHistoryEntity.getCreatedAt());
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/JobQuerySubmissionService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.exception.InsufficientQuotaException;
+import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
+import com.geo.analytics.infrastructure.persistence.JsonbOperations;
+import com.geo.analytics.infrastructure.repository.ProjectRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+
+@Service
+public class JobQuerySubmissionService {
+    private static final Logger log = LoggerFactory.getLogger(JobQuerySubmissionService.class);
+    private final JobPersistenceService jobPersistenceService;
+    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
+    private final SyncVerificationService syncVerificationService;
+    private final SomScoreParser somScoreParser;
+    private final JsonbOperations jsonbOperations;
+    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
+    private final JobStreamRegistryService jobStreamRegistryService;
+    private final ExecutorService streamDeliveryVirtualExecutor;
+    private final ProjectRepository projectRepository;
+    private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+    private final PlanBasedQuotaManager quotaManager;
+
+    public JobQuerySubmissionService(
+            JobPersistenceService jobPersistenceService,
+            AsyncSgeMeasurementService asyncSgeMeasurementService,
+            SyncVerificationService syncVerificationService,
+            SomScoreParser somScoreParser,
+            JsonbOperations jsonbOperations,
+            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
+            JobStreamRegistryService jobStreamRegistryService,
+            @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
+            ProjectRepository projectRepository,
+            ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
+            PlanBasedQuotaManager quotaManager) {
+        this.jobPersistenceService = jobPersistenceService;
+        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
+        this.syncVerificationService = syncVerificationService;
+        this.somScoreParser = somScoreParser;
+        this.jsonbOperations = jsonbOperations;
+        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
+        this.jobStreamRegistryService = jobStreamRegistryService;
+        this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
+        this.projectRepository = projectRepository;
+        this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
+        this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
+    }
+
+    public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
+        var keywordCount = queryTexts.size();
+        if (keywordCount <= 0) {
+            return;
+        }
+        var job = jobPersistenceService.findJobById(jobId);
+        var planEnum = Objects.requireNonNullElse(job.getAppliedPlan(), plan);
+        var limits = effectiveLimits(job, plan);
+        var existing = jobPersistenceService.countQueriesByJobId(jobId);
+        if (existing + keywordCount > limits.totalLimit()) {
+            throw new InsufficientQuotaException(
+                    "登録上限を超過しています。",
+                    limits.totalLimit(),
+                    planEnum.name());
+        }
+        if (limits.isRealtimeAllowed(keywordCount)) {
+            registerRealtimeRouteAndStartSgeThenExecute(jobId, queryTexts, planEnum);
+            return;
+        }
+        if (!planEnum.usesProTierFeatures()) {
+            throw new InsufficientQuotaException(
+                    "登録上限を超過しています。",
+                    limits.totalLimit(),
+                    planEnum.name());
+        }
+        var batchTenantId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        long batchDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        var batchProbe = quotaManager.resolve(batchTenantId).tryConsumeAndReturnRemaining(batchDeposit);
+        if (!batchProbe.isConsumed()) {
+            var workspacePlan = quotaManager.resolveWorkspacePlan(batchTenantId);
+            throw new RateLimitExceededException(batchProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
+        }
+        try {
+            jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, planEnum);
+        } catch (RuntimeException e) {
+            quotaManager.addTokens(batchTenantId, batchDeposit);
+            throw e;
+        }
+        startDeepAnalysisBatchPlaceholder(jobId);
+        var batchJobEntity = jobPersistenceService.findJobById(jobId);
+        var batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, keywordCount);
+    }
+
+    private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {
+        var raw = job.getPlanLimitsSnapshot();
+        if (raw != null && !raw.isBlank()) {
+            return jsonbOperations.deserialize(raw, PlanLimitsSnapshot.class);
+        }
+        return PlanLimitsSnapshot.fromPlan(Objects.requireNonNullElse(job.getAppliedPlan(), requestPlan));
+    }
+
+    private void registerRealtimeRouteAndStartSgeThenExecute(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
+        jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, plan);
+        var jobEntity = jobPersistenceService.findJobById(jobId);
+        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        asyncSgeMeasurementService.measureSgeForJob(jobEntity, queryEntities);
+        executeImmediateParallelProcessing(jobId);
+    }
+
+    private void startDeepAnalysisBatchPlaceholder(UUID jobId) {
+        log.debug("deep analysis batch placeholder jobId={}", jobId);
+    }
+
+    private void executeImmediateParallelProcessing(UUID jobId) {
+        var jobEntity = jobPersistenceService.findJobById(jobId);
+        var brandName = jobEntity.getBrandName();
+        var competitorHosts = loadCompetitorHosts(jobEntity);
+        var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
+        var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
+        var bucket = quotaManager.resolve(tenantId);
+        int n = queryEntities.size();
+        long realtimeDeposit = (long) n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        var probe = bucket.tryConsumeAndReturnRemaining(realtimeDeposit);
+        if (!probe.isConsumed()) {
+            var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
+            throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
+        }
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Void>[] futures = queryEntities.stream()
+                .map(qe -> CompletableFuture.runAsync(
+                        () -> TenantContext.executeWithTenant(
+                                tenantId,
+                                () -> {
+                                    try {
+                                        processOneQueryRealtimeCore(
+                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                    } catch (Throwable x) {
+                                        quotaManager.addTokens(
+                                                tenantId,
+                                                QuotaCreditCalculator.refundAfterDeposit(
+                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                        throw x;
+                                    }
+                                }),
+                        streamDeliveryVirtualExecutor))
+                .toArray(CompletableFuture[]::new);
+        try {
+            CompletableFuture.allOf(futures).join();
+            jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
+            var completedJobEntity = jobPersistenceService.findJobById(jobId);
+            jobStatusBroadcastPublisher.publish(completedJobEntity);
+            projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
+        } catch (Throwable t) {
+            if (t instanceof CompletionException ce) {
+                var c = ce.getCause();
+                if (c instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (c instanceof Error e) {
+                    throw e;
+                }
+                throw new IllegalStateException(c);
+            }
+            if (t instanceof RuntimeException re) {
+                throw re;
+            }
+            if (t instanceof Error e) {
+                throw e;
+            }
+            throw new IllegalStateException(t);
+        } finally {
+            jobStreamRegistryService.complete(jobId);
+        }
+    }
+
+    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
+        var projectId = jobEntity.getProjectId();
+        if (projectId == null) {
+            return List.of();
+        }
+        var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        return TenantContext.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
+                .map(ProjectEntity::getCompetitorUrls)
+                .orElse(List.of())
+                .stream()
+                .map(EntityNormalizer::hostLabelFromUrl)
+                .filter(s -> !s.isBlank())
+                .toList());
+    }
+
+    private void processOneQueryRealtimeCore(
+            UUID jobId,
+            UUID tenantId,
+            String brandName,
+            List<String> competitorHosts,
+            QueryEntity queryEntity,
+            SubscriptionPlan appliedPlan) {
+        var syncVerificationResult = syncVerificationService.verify(
+                brandName,
+                queryEntity.getQueryText(),
+                appliedPlan,
+                jobId,
+                queryEntity.getId(),
+                brandName,
+                competitorHosts);
+        long actual = QuotaCreditCalculator.actualCredits(syncVerificationResult.analysisTextLength(), appliedPlan);
+        try {
+            var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
+            var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
+            var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+            var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
+            var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
+            jobPersistenceService.upsertAuditHistoryForJobQuery(
+                    jobId,
+                    queryEntity.getId(),
+                    queryEntity.getQueryText(),
+                    jsonbOperations.serialize(consultantOutputData),
+                    somScore,
+                    brand,
+                    mr,
+                    ov,
+                    syncVerificationResult.resolvedEntityLabel(),
+                    syncVerificationResult.tokenCount(),
+                    syncVerificationResult.rankPosition(),
+                    syncVerificationResult.sentimentIntensity(),
+                    syncVerificationResult.visibilityStage(),
+                    syncVerificationResult.calculationVersion(),
+                    syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+                    syncVerificationResult.competitorScoreRows(),
+                    syncVerificationResult.modelInsightsJson());
+        } finally {
+            long refund = QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
+            if (refund > 0L) {
+                quotaManager.addTokens(tenantId, refund);
+            }
+        }
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/entity/JobEntity.java">
+package com.geo.analytics.domain.entity;
+import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+@Entity
+@Table(name = "jobs")
+public class JobEntity extends BaseTenantEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+    @Column(name = "project_id")
+    private UUID projectId;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "job_status", nullable = false, length = 20)
+    private JobStatus jobStatus;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "subscription_plan", length = 16)
+    private SubscriptionPlan appliedPlan;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "plan_limits_snapshot")
+    private String planLimitsSnapshot;
+    @Column(name = "brand_name", nullable = false)
+    private String brandName;
+    @Column(name = "brand_color", nullable = false, length = 64)
+    private String brandColor = "#4F46E5";
+    @Column(name = "logo_url", length = 2048)
+    private String logoUrl;
+    @Column(name = "gemini_job_name")
+    private String geminiJobName;
+    @Column(name = "error_message", columnDefinition = "text")
+    private String errorMessage;
+    @Column(name = "pdf_status", length = 32)
+    private String pdfStatus;
+    @Column(name = "pdf_file_path", length = 1024)
+    private String pdfFilePath;
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+    @Column(name = "job_diagnostic_message", columnDefinition = "text")
+    private String jobDiagnosticMessage;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "job_recommended_actions")
+    private List<String> jobRecommendedActions;
+    @Column(name = "gap_batch_idempotency_key")
+    private UUID gapBatchIdempotencyKey;
+    @Column(name = "create_idempotency_key")
+    private UUID createIdempotencyKey;
+    @Column(name = "gap_analysis_gemini_job_name", length = 512)
+    private String gapAnalysisGeminiJobName;
+    @Column(name = "gap_analysis_completed", nullable = false)
+    private Boolean gapAnalysisCompleted = false;
+    public JobEntity() {
+    }
+    public UUID getId() {
+        return id;
+    }
+    public void setId(UUID id) {
+        this.id = id;
+    }
+    public UUID getProjectId() {
+        return projectId;
+    }
+    public void setProjectId(UUID projectId) {
+        this.projectId = projectId;
+    }
+    public JobStatus getJobStatus() {
+        return jobStatus;
+    }
+    public void setJobStatus(JobStatus jobStatus) {
+        this.jobStatus = jobStatus;
+    }
+    public SubscriptionPlan getAppliedPlan() {
+        return appliedPlan;
+    }
+
+    public void setAppliedPlan(SubscriptionPlan appliedPlan) {
+        if (appliedPlan == null) {
+            return;
+        }
+        if (this.appliedPlan != null && this.appliedPlan != appliedPlan) {
+            throw new IllegalStateException("appliedPlan is immutable once set");
+        }
+        this.appliedPlan = appliedPlan;
+    }
+    public String getPlanLimitsSnapshot() {
+        return planLimitsSnapshot;
+    }
+    public void setPlanLimitsSnapshot(String planLimitsSnapshot) {
+        this.planLimitsSnapshot = planLimitsSnapshot;
+    }
+    public String getBrandName() {
+        return brandName;
+    }
+    public void setBrandName(String brandName) {
+        this.brandName = brandName;
+    }
+    public String getBrandColor() {
+        return brandColor;
+    }
+    public void setBrandColor(String brandColor) {
+        this.brandColor = brandColor;
+    }
+    public String getLogoUrl() {
+        return logoUrl;
+    }
+    public void setLogoUrl(String logoUrl) {
+        this.logoUrl = logoUrl;
+    }
+    public String getGeminiJobName() {
+        return geminiJobName;
+    }
+    public void setGeminiJobName(String geminiJobName) {
+        this.geminiJobName = geminiJobName;
+    }
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+    public void setErrorMessage(String errorMessage) {
+        this.errorMessage = errorMessage;
+    }
+    public String getPdfStatus() {
+        return pdfStatus;
+    }
+    public void setPdfStatus(String pdfStatus) {
+        this.pdfStatus = pdfStatus;
+    }
+    public String getPdfFilePath() {
+        return pdfFilePath;
+    }
+    public void setPdfFilePath(String pdfFilePath) {
+        this.pdfFilePath = pdfFilePath;
+    }
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+    public String getJobDiagnosticMessage() {
+        return jobDiagnosticMessage;
+    }
+    public void setJobDiagnosticMessage(String jobDiagnosticMessage) {
+        this.jobDiagnosticMessage = jobDiagnosticMessage;
+    }
+    public List<String> getJobRecommendedActions() {
+        return jobRecommendedActions;
+    }
+    public void setJobRecommendedActions(List<String> jobRecommendedActions) {
+        this.jobRecommendedActions = jobRecommendedActions;
+    }
+    public UUID getGapBatchIdempotencyKey() {
+        return gapBatchIdempotencyKey;
+    }
+    public void setGapBatchIdempotencyKey(UUID gapBatchIdempotencyKey) {
+        this.gapBatchIdempotencyKey = gapBatchIdempotencyKey;
+    }
+    public UUID getCreateIdempotencyKey() {
+        return createIdempotencyKey;
+    }
+    public void setCreateIdempotencyKey(UUID createIdempotencyKey) {
+        this.createIdempotencyKey = createIdempotencyKey;
+    }
+    public String getGapAnalysisGeminiJobName() {
+        return gapAnalysisGeminiJobName;
+    }
+    public void setGapAnalysisGeminiJobName(String gapAnalysisGeminiJobName) {
+        this.gapAnalysisGeminiJobName = gapAnalysisGeminiJobName;
+    }
+    public Boolean getGapAnalysisCompleted() {
+        return gapAnalysisCompleted;
+    }
+    public void setGapAnalysisCompleted(Boolean gapAnalysisCompleted) {
+        this.gapAnalysisCompleted = gapAnalysisCompleted;
+    }
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+        if (jobStatus == null) {
+            jobStatus = JobStatus.CREATED;
+        }
+        if (brandColor == null || brandColor.isBlank()) {
+            brandColor = "#4F46E5";
+        }
+        if (gapAnalysisCompleted == null) {
+            gapAnalysisCompleted = false;
+        }
+    }
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 }
 </file>
@@ -21147,6 +21294,49 @@ public class JobController {
 }
 </file>
 
+<file path="geo-analytics/src/main/resources/application.yml">
+spring:
+  profiles:
+    default: dev
+  threads:
+    virtual:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  tomcat:
+    connection-timeout: 180s
+
+app:
+  crawler:
+    cache-ttl: 24h
+    redis-enabled: false
+    redis-host: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
+    redis-port: 6379
+  ai:
+    realtime-threshold: 10
+    gemini:
+      api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
+      model-name: "${GEMINI_MODEL_NAME:gemini-2.5-flash}"
+    deepseek:
+      api-key: "${DEEPSEEK_API_KEY:}"
+      base-url: "https://api.deepseek.com"
+  serpapi:
+    api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
+  pdf:
+    base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
+    temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"
+    internal-token: "${APP_PDF_INTERNAL_TOKEN:dev-internal-token}"
+    default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
+    default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
+    max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
+  notifications:
+    mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/application/service/JobPersistenceService.java">
 package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.CompetitorScoreRow;
@@ -21640,49 +21830,6 @@ public class JobPersistenceService {
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
     }
 }
-</file>
-
-<file path="geo-analytics/src/main/resources/application.yml">
-spring:
-  profiles:
-    default: dev
-  threads:
-    virtual:
-      enabled: true
-  jackson:
-    default-property-inclusion: non_null
-    serialization:
-      write-dates-as-timestamps: false
-
-server:
-  tomcat:
-    connection-timeout: 180s
-
-app:
-  crawler:
-    cache-ttl: 24h
-    redis-enabled: false
-    redis-host: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
-    redis-port: 6379
-  ai:
-    realtime-threshold: 10
-    gemini:
-      api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
-      model-name: "${GEMINI_MODEL_NAME:gemini-2.5-flash}"
-    deepseek:
-      api-key: "${DEEPSEEK_API_KEY:}"
-      base-url: "https://api.deepseek.com"
-  serpapi:
-    api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
-  pdf:
-    base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
-    temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"
-    internal-token: "${APP_PDF_INTERNAL_TOKEN:dev-internal-token}"
-    default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
-    default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
-    max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
-  notifications:
-    mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"
 </file>
 
 </files>
