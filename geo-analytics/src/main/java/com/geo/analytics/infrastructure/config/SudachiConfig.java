@@ -9,6 +9,7 @@ import com.worksap.nlp.sudachi.DictionaryFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.ResourceUtils;
+import java.lang.StrictMath;
 import java.io.File;
 import java.io.IOException;
 
@@ -29,7 +30,8 @@ public class SudachiConfig {
 
     @Bean
     public TokenizerManager tokenizerManager(Dictionary sudachiDictionary) {
-        return new TokenizerManager(sudachiDictionary);
+        return new TokenizerManager(
+                sudachiDictionary, StrictMath.max(2, StrictMath.min(16, Runtime.getRuntime().availableProcessors())));
     }
 
     @Bean

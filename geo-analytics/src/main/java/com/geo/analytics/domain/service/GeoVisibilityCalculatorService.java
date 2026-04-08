@@ -2,23 +2,25 @@ package com.geo.analytics.domain.service;
 
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
 public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE8.5_ROBUST_AUDIT_V2";
+    public static final String CALCULATION_VERSION = "PHASE9_9_BIGRAM_STUFFING_V1";
     public static final double BM25_K1 = 1.2;
     public static final double BM25_B = 0.75;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
     private static final double SOURCE_WEIGHT_HIGH = 1.5;
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
     private static final double SOURCE_WEIGHT_LOW = 0.3;
+    private static final double STUFFING_DENSITY_THRESHOLD = 0.03;
+    private static final double STUFFING_PENALTY_K = 400.0;
 
     private final TokenizerManager tokenizerManager;
 
@@ -34,42 +36,79 @@ public final class GeoVisibilityCalculatorService {
         if (keywords == null || keywords.isEmpty()) {
             return 0;
         }
-        List<List<String>> sequences = new ArrayList<>();
+        StringBuilder sb = new StringBuilder(
+                StrictMath.max(16, responseTokens.size() * 8 + responseTokens.size() + 2));
+        appendWrappedTokens(sb, responseTokens);
+        String hay = sb.toString();
+
+        List<String> needleStrs = new ArrayList<>();
         for (String kw : keywords) {
             if (kw == null || kw.isBlank()) {
                 continue;
             }
             List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
-            if (!seq.isEmpty()) {
-                sequences.add(seq);
+            if (seq.isEmpty()) {
+                continue;
             }
+            sb.setLength(0);
+            appendWrappedTokens(sb, seq);
+            needleStrs.add(sb.toString());
         }
-        if (sequences.isEmpty()) {
+        if (needleStrs.isEmpty()) {
             return 0;
         }
+
+        int[] patWork = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+        int[] failBuf = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+
         int mentions = 0;
-        int fromIndex = 0;
-        final int n = responseTokens.size();
-        while (fromIndex < n) {
-            int bestRel = Integer.MAX_VALUE;
+        int charFrom = 0;
+        while (charFrom < hay.length()) {
+            int best = -1;
             int bestLen = 0;
-            for (List<String> seq : sequences) {
-                int rel = Collections.indexOfSubList(responseTokens.subList(fromIndex, n), seq);
-                if (rel < 0) {
-                    continue;
+            for (String needle : needleStrs) {
+                int found;
+                if (needle.length() < 2) {
+                    found = hay.indexOf(needle, charFrom);
+                } else {
+                    int nk = ZeroAllocationTokenizer.fillPackedBigrams(needle, patWork, patWork.length);
+                    if (nk <= 0) {
+                        found = hay.indexOf(needle, charFrom);
+                    } else {
+                        int start = StrictMath.min(charFrom, StrictMath.max(0, hay.length() - 2));
+                        found = ZeroAllocationTokenizer.kmpFirstPackedBigramMatch(hay, start, patWork, nk, failBuf);
+                        if (found >= 0 && !hay.regionMatches(found, needle, 0, needle.length())) {
+                            found = hay.indexOf(needle, charFrom);
+                        }
+                    }
                 }
-                if (rel < bestRel || (rel == bestRel && seq.size() > bestLen)) {
-                    bestRel = rel;
-                    bestLen = seq.size();
+                if (found >= 0
+                        && found >= charFrom
+                        && (best < 0
+                                || found < best
+                                || (found == best && needle.length() > bestLen))) {
+                    best = found;
+                    bestLen = needle.length();
                 }
             }
-            if (bestRel == Integer.MAX_VALUE) {
+            if (best < 0) {
                 break;
             }
             mentions++;
-            fromIndex += bestRel + bestLen;
+            charFrom = best + bestLen;
         }
         return mentions;
+    }
+
+    private static void appendWrappedTokens(StringBuilder sb, List<String> tokens) {
+        sb.append('\u0001');
+        for (int i = 0; i < tokens.size(); i++) {
+            if (i > 0) {
+                sb.append('\u0001');
+            }
+            sb.append(tokens.get(i));
+        }
+        sb.append('\u0001');
     }
 
     public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
@@ -269,7 +308,15 @@ public final class GeoVisibilityCalculatorService {
         }
         double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
         double bm25 = bm25Score(idf, fTok, docLen, lAvgJob);
-        double brandSignal = presence * sourceWeight * sentiment * bm25;
+        double density = metrics.stuffingDensity();
+        if (Double.isNaN(density) || Double.isInfinite(density) || density < 0.0) {
+            density = 0.0;
+        }
+        double excess = StrictMath.max(0.0, density - STUFFING_DENSITY_THRESHOLD);
+        double stuffingPenalty =
+                1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
+        stuffingPenalty = clamp(stuffingPenalty, 0.0, 1.0);
+        double brandSignal = presence * sourceWeight * sentiment * bm25 * stuffingPenalty;
         double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
         double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
         double denom = brandSignal + otherSignal;

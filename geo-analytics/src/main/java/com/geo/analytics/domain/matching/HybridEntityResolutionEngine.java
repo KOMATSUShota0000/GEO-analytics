@@ -15,14 +15,14 @@ public final class HybridEntityResolutionEngine {
 
     public static double rawHybridScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate) {
         double ph = PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB);
-        double jw = jaroWinkler(query, candidate);
+        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
         double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
         return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
     }
 
     public static double rawHybridScore(double phoneticScore, CharSequence query, CharSequence candidate) {
         double ph = RobustAuditMathUtil.softwareFtzFlush(phoneticScore);
-        double jw = jaroWinkler(query, candidate);
+        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
         double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
         return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
     }
@@ -38,7 +38,7 @@ public final class HybridEntityResolutionEngine {
     }
 
     public static double fullScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate, double n, double c, double muPrior) {
-        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jaroWinkler(query, candidate),
+        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, lexicalBigramDiceWinklerStyle(query, candidate),
                 StrictMath.fma(WEIGHT_PHONETIC, PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB), 0.0));
         raw = RobustAuditMathUtil.softwareFtzFlush(raw);
         return bayesianSmoothedScore(raw, n, c, muPrior);
@@ -70,7 +70,14 @@ public final class HybridEntityResolutionEngine {
         return fullScore(packQ, packC, jwQ, jwC, n, c, muPrior);
     }
 
+    /**
+     * Lexical similarity via packed UTF-16 bigram multiset Dice, plus a Winkler-style prefix boost (no per-call boolean[]/char[] match matrices).
+     */
     public static double jaroWinkler(CharSequence s1, CharSequence s2) {
+        return lexicalBigramDiceWinklerStyle(s1, s2);
+    }
+
+    private static double lexicalBigramDiceWinklerStyle(CharSequence s1, CharSequence s2) {
         if (s1 == null || s2 == null) {
             return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
         }
@@ -82,62 +89,16 @@ public final class HybridEntityResolutionEngine {
         if (len1 == 0 || len2 == 0) {
             return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
         }
-        double j = jaroSimilarity(s1, s2, len1, len2);
+        int cap = StrictMath.min(
+                ZeroAllocationTokenizer.MAX_BIGRAMS_CAP,
+                StrictMath.max(StrictMath.max(1, len1 - 1), StrictMath.max(1, len2 - 1)));
+        int[] wa = new int[cap];
+        int[] wb = new int[cap];
+        double dice = ZeroAllocationTokenizer.diceCoefficient(s1, s2, wa, wb);
         int prefix = commonPrefixLength(s1, s2, len1, len2, JW_PREFIX_LENGTH_CAP);
-        double boost = StrictMath.fma(StrictMath.fma(JW_PREFIX_BOOST, (double) prefix, 0.0), 1.0 - j, j);
+        double boost = StrictMath.fma(StrictMath.fma(JW_PREFIX_BOOST, (double) prefix, 0.0), 1.0 - dice, dice);
         double clamped = StrictMath.min(1.0, StrictMath.max(0.0, boost));
         return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(clamped), OUTPUT_BANK_SCALE);
-    }
-
-    private static double jaroSimilarity(CharSequence s1, CharSequence s2, int len1, int len2) {
-        int searchRange = StrictMath.max(0, StrictMath.max(len1, len2) / 2 - 1);
-        boolean[] m1 = new boolean[len1];
-        boolean[] m2 = new boolean[len2];
-        int matches = 0;
-        for (int i = 0; i < len1; i++) {
-            int start = StrictMath.max(0, i - searchRange);
-            int end = StrictMath.min(i + searchRange + 1, len2);
-            for (int j = start; j < end; j++) {
-                if (m2[j]) {
-                    continue;
-                }
-                if (normChar(s1.charAt(i)) == normChar(s2.charAt(j))) {
-                    m1[i] = true;
-                    m2[j] = true;
-                    matches++;
-                    break;
-                }
-            }
-        }
-        if (matches == 0) {
-            return 0.0;
-        }
-        char[] ms1 = new char[matches];
-        char[] ms2 = new char[matches];
-        int p1 = 0;
-        for (int i = 0; i < len1; i++) {
-            if (m1[i]) {
-                ms1[p1++] = normChar(s1.charAt(i));
-            }
-        }
-        int p2 = 0;
-        for (int j = 0; j < len2; j++) {
-            if (m2[j]) {
-                ms2[p2++] = normChar(s2.charAt(j));
-            }
-        }
-        int diff = 0;
-        for (int i = 0; i < matches; i++) {
-            if (ms1[i] != ms2[i]) {
-                diff++;
-            }
-        }
-        int t = diff / 2;
-        double md = (double) matches;
-        double term1 = md / (double) len1;
-        double term2 = md / (double) len2;
-        double term3 = (md - (double) t) / md;
-        return StrictMath.fma(1.0 / 3.0, term1, StrictMath.fma(1.0 / 3.0, term2, (1.0 / 3.0) * term3));
     }
 
     private static int commonPrefixLength(CharSequence s1, CharSequence s2, int len1, int len2, int maxLen) {

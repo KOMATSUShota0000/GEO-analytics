@@ -4,9 +4,13 @@ import com.worksap.nlp.sudachi.Dictionary;
 import com.worksap.nlp.sudachi.Morpheme;
 import com.worksap.nlp.sudachi.MorphemeList;
 import com.worksap.nlp.sudachi.Tokenizer;
+import java.lang.StrictMath;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
@@ -16,36 +20,48 @@ public final class TokenizerManager {
             Set.of("名詞", "動詞", "形容詞", "形状詞", "代名詞", "未知語");
 
     private final Dictionary dictionary;
-    private final Object dictionaryGate;
+    private final Semaphore sudachiSemaphore;
+    private final ArrayDeque<Tokenizer> tokenizerPool = new ArrayDeque<>();
+    private final ReentrantLock poolLock = new ReentrantLock();
 
     public TokenizerManager(Dictionary dictionary) {
+        this(dictionary, clampProc(Runtime.getRuntime().availableProcessors()));
+    }
+
+    public TokenizerManager(Dictionary dictionary, int maxConcurrentSudachi) {
         this.dictionary = Objects.requireNonNull(dictionary);
-        this.dictionaryGate = new byte[0];
+        this.sudachiSemaphore = new Semaphore(StrictMath.max(2, maxConcurrentSudachi));
+    }
+
+    private static int clampProc(int p) {
+        return StrictMath.max(2, StrictMath.min(16, p));
     }
 
     public Dictionary sharedDictionary() {
         return dictionary;
     }
 
-    public Tokenizer newPerTaskTokenizer() {
-        synchronized (dictionaryGate) {
-            return dictionary.create();
-        }
-    }
-
     public <T> T withPerTaskTokenizer(Function<Tokenizer, T> work) {
-        Tokenizer tokenizer;
-        synchronized (dictionaryGate) {
+        sudachiSemaphore.acquireUninterruptibly();
+        Tokenizer tokenizer = null;
+        poolLock.lock();
+        try {
+            tokenizer = tokenizerPool.pollFirst();
+        } finally {
+            poolLock.unlock();
+        }
+        if (tokenizer == null) {
             tokenizer = dictionary.create();
         }
         try {
             return work.apply(tokenizer);
         } finally {
-            if (tokenizer instanceof AutoCloseable closeable) {
-                try {
-                    closeable.close();
-                } catch (Exception exception) {
-                }
+            poolLock.lock();
+            try {
+                tokenizerPool.addFirst(tokenizer);
+            } finally {
+                poolLock.unlock();
+                sudachiSemaphore.release();
             }
         }
     }

@@ -1,6 +1,6 @@
 package com.geo.analytics.domain.service;
 
-import org.apache.commons.text.similarity.JaroWinklerSimilarity;
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.text.Normalizer;
@@ -17,7 +17,7 @@ public final class EntityNormalizer {
         "(株式会社|（株）|\\(株\\)|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人)\\s*$");
     private static final Pattern EN_SUFFIX = Pattern.compile(
         "(?i),?\\s*(Inc\\.?|LLC|Ltd\\.?|Limited|Corp\\.?|Corporation|Co\\.,?|GmbH|S\\.\\s*A\\.?)\\s*$");
-    private static final JaroWinklerSimilarity JARO_WINKLER = new JaroWinklerSimilarity();
+    private static final double LEXICAL_DICE_THRESHOLD = 0.85;
     private final JapaneseNlpService japaneseNlpService;
 
     public EntityNormalizer(JapaneseNlpService japaneseNlpService) {
@@ -82,11 +82,13 @@ public final class EntityNormalizer {
                 return cand.canonical;
             }
         }
+        int[] wA = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+        int[] wB = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
         for (NameCandidate cand : cands) {
             if (cand.normSudachi.isBlank()) {
                 continue;
             }
-            if (JARO_WINKLER.apply(rawNorm, cand.normSudachi) >= 0.85) {
+            if (ZeroAllocationTokenizer.diceCoefficient(rawNorm, cand.normSudachi, wA, wB) >= LEXICAL_DICE_THRESHOLD) {
                 return cand.canonical;
             }
         }

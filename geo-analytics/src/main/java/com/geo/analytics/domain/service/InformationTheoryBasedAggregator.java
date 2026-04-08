@@ -51,7 +51,7 @@ public class InformationTheoryBasedAggregator {
         if (successes == null || successes.isEmpty()) {
             throw new AiAnalysisTimeoutException();
         }
-        var n = successes.size();
+        int sampleCount = successes.size();
         var insights = new LinkedHashMap<ModelType, String>();
         for (var v : successes) {
             insights.put(v.modelType(), v.rawResponseJson());
@@ -78,40 +78,44 @@ public class InformationTheoryBasedAggregator {
                 ? (sumBrandSignal / sumAllBrands) * 100.0
                 : 0.0;
         finalSom = halfEven2(clampD(finalSom, 0.0, 100.0));
-        var brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
-        var sumMr = 0;
-        var sumRp = 0;
-        var sumTok = 0;
-        var sumOv = 0;
-        var sumVs = 0;
-        var countVs = 0;
-        var sumSi = 0.0;
-        var sumMz = 0.0;
-        var countMz = 0;
-        for (var v : successes) {
-            if (v.mentionRank() != null) {
-                sumMr += v.mentionRank();
+        boolean brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
+        int sumMr = 0;
+        int sumRp = 0;
+        int sumTok = 0;
+        int sumOv = 0;
+        int sumVs = 0;
+        int countVs = 0;
+        double sumSi = 0.0;
+        double sumMz = 0.0;
+        int countMz = 0;
+        for (VerificationResponse v : successes) {
+            Integer mr = v.mentionRank();
+            if (mr != null) {
+                sumMr += mr;
             }
             sumRp += v.rankPosition();
             sumTok += v.tokenCount();
-            if (v.overallScore() != null) {
-                sumOv += v.overallScore();
+            Integer ov = v.overallScore();
+            if (ov != null) {
+                sumOv += ov;
             }
             sumSi += v.sentimentIntensity();
-            if (v.visibilityStage() != null) {
-                sumVs += v.visibilityStage();
+            Integer vs = v.visibilityStage();
+            if (vs != null) {
+                sumVs += vs;
                 countVs++;
             }
-            if (v.modifiedZScore() != null) {
-                sumMz += v.modifiedZScore();
+            Double mz = v.modifiedZScore();
+            if (mz != null) {
+                sumMz += mz;
                 countMz++;
             }
         }
-        var avgMr = sumMr / n;
-        var avgRp = sumRp / n;
-        var avgTok = sumTok / n;
-        var avgOv = sumOv / n;
-        var avgSi = sumSi / n;
+        int avgMr = sumMr / sampleCount;
+        int avgRp = sumRp / sampleCount;
+        int avgTok = sumTok / sampleCount;
+        int avgOv = sumOv / sampleCount;
+        double avgSi = sumSi / (double) sampleCount;
         var first = successes.getFirst();
         Integer avgVs = countVs > 0 ? sumVs / countVs : first.visibilityStage();
         Double avgMz = countMz > 0 ? sumMz / countMz : first.modifiedZScore();
@@ -221,10 +225,10 @@ public class InformationTheoryBasedAggregator {
         if (input == null || input.isBlank()) {
             return "";
         }
-        var n = Normalizer.normalize(input.trim(), Normalizer.Form.NFKC);
-        n = n.toUpperCase(Locale.ROOT);
-        n = n.replaceAll("[\\p{Punct}\\s]+", "");
-        var m = LEGAL_ENTITY.matcher(n);
+        String normalized = Normalizer.normalize(input.trim(), Normalizer.Form.NFKC);
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        normalized = normalized.replaceAll("[\\p{Punct}\\s]+", "");
+        var m = LEGAL_ENTITY.matcher(normalized);
         if (m.matches() && m.group(1) != null) {
             var corp = m.group(1);
             var rest = m.group(2);
@@ -232,7 +236,7 @@ public class InformationTheoryBasedAggregator {
                 return rest + corp;
             }
         }
-        return n;
+        return normalized;
     }
 
     private static double normalizeSentiment(double sentimentIntensity) {

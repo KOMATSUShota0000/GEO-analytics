@@ -129,8 +129,12 @@ public class GeminiResultProcessor {
                     exception);
             }
         }
-        var lAvg = parsedLines.parallelStream().mapToInt(l -> l.rawMetrics().responseTokenLength()).average().orElse(0.0);
-        var metricsList = parsedLines.parallelStream().map(BatchParsedLine::rawMetrics).toList();
+        double lAvg = parsedLines.stream()
+                .mapToInt(l -> l.rawMetrics().responseTokenLength())
+                .average()
+                .orElse(0.0);
+        List<SomRawMetrics> metricsList =
+                parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
         long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
         var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {

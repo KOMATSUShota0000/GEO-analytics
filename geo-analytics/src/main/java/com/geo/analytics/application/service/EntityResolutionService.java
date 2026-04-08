@@ -2,27 +2,32 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.ResolutionResult;
 import com.geo.analytics.domain.entity.UnresolvedEntityQueueEntity;
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.ResolvableEntity;
-import com.geo.analytics.domain.service.EntityResolutionBlockingService;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.EntityResolutionBlockingService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
-import org.apache.commons.text.similarity.JaroWinklerSimilarity;
 import org.springframework.stereotype.Service;
+
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Service
 public final class EntityResolutionService {
+
     public static final String CALCULATION_VERSION = "ER_PIPELINE_V1";
-    private static final double JARO_HIGH = 0.85;
-    private static final double JARO_LOW = 0.70;
+    private static final double LEXICAL_DICE_HIGH = 0.85;
+    private static final double LEXICAL_DICE_LOW = 0.70;
     private static final double LLM_CONFIDENCE_MIN = 0.90;
-    private static final JaroWinklerSimilarity JARO_WINKLER = new JaroWinklerSimilarity();
+
+    private static final ConcurrentLinkedQueue<int[]> BIGRAM_BUFFER_POOL = new ConcurrentLinkedQueue<>();
+
     private final JapaneseNlpService japaneseNlpService;
     private final EntityResolutionBlockingService entityResolutionBlockingService;
     private final DeepSeekAdapter deepSeekAdapter;
@@ -44,40 +49,40 @@ public final class EntityResolutionService {
     }
 
     public ResolutionResult resolvePair(String labelA, String labelB) {
-        var rawA = labelA != null ? labelA : "";
-        var rawB = labelB != null ? labelB : "";
-        var prepA = EntityNormalizer.prepareForSudachi(rawA);
-        var prepB = EntityNormalizer.prepareForSudachi(rawB);
-        var nfa = japaneseNlpService.normalizedForm(prepA);
-        var nfb = japaneseNlpService.normalizedForm(prepB);
+        String rawA = labelA != null ? labelA : "";
+        String rawB = labelB != null ? labelB : "";
+        String prepA = EntityNormalizer.prepareForSudachi(rawA);
+        String prepB = EntityNormalizer.prepareForSudachi(rawB);
+        String nfa = japaneseNlpService.normalizedForm(prepA);
+        String nfb = japaneseNlpService.normalizedForm(prepB);
         if (!nfa.isBlank() && nfa.equals(nfb)) {
             return new ResolutionResult.Merged(
-                pickCanonical(rawA, rawB, prepA, prepB),
-                1,
-                1.0,
-                CALCULATION_VERSION);
+                    pickCanonical(rawA, rawB, prepA, prepB),
+                    1,
+                    1.0,
+                    CALCULATION_VERSION);
         }
-        var ha = entityResolutionBlockingService.blockingHashSha256(rawA);
-        var hb = entityResolutionBlockingService.blockingHashSha256(rawB);
+        String ha = entityResolutionBlockingService.blockingHashSha256(rawA);
+        String hb = entityResolutionBlockingService.blockingHashSha256(rawB);
         if (!ha.equals(hb)) {
             return persistPending(rawA, rawB, ha, hb);
         }
-        var jw = jaroOnNormalized(nfa, nfb);
-        if (jw >= JARO_HIGH) {
+        double dice = lexicalDiceOnNormalized(nfa, nfb);
+        if (dice >= LEXICAL_DICE_HIGH) {
             return new ResolutionResult.Merged(
-                pickCanonical(rawA, rawB, prepA, prepB),
-                2,
-                jw,
-                CALCULATION_VERSION);
+                    pickCanonical(rawA, rawB, prepA, prepB),
+                    2,
+                    dice,
+                    CALCULATION_VERSION);
         }
-        if (jw >= JARO_LOW && jw < JARO_HIGH) {
+        if (dice >= LEXICAL_DICE_LOW && dice < LEXICAL_DICE_HIGH) {
             var judgment = deepSeekAdapter.judgeEntityIdentityBlocking(prepA, prepB);
             if (judgment.sameEntity() && judgment.confidence() >= LLM_CONFIDENCE_MIN) {
                 return new ResolutionResult.Merged(
-                    pickCanonical(rawA, rawB, prepA, prepB),
-                    3,
-                    jw,
-                    CALCULATION_VERSION);
+                        pickCanonical(rawA, rawB, prepA, prepB),
+                        3,
+                        dice,
+                        CALCULATION_VERSION);
             }
         }
         return persistPending(rawA, rawB, ha, hb);
@@ -88,7 +93,7 @@ public final class EntityResolutionService {
             var row = new UnresolvedEntityQueueEntity();
             var tid = TenantContext.getTenantId();
             row.setWorkspaceId(
-                tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
+                    tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
             row.setLeftLabel(left);
             row.setRightLabel(right);
             row.setLeftBlockingHash(ha);
@@ -99,24 +104,45 @@ public final class EntityResolutionService {
         } catch (Exception exception) {
         }
         return new ResolutionResult.PendingManualReview(
-            left,
-            right,
-            ha,
-            hb,
-            true,
-            CALCULATION_VERSION);
+                left,
+                right,
+                ha,
+                hb,
+                true,
+                CALCULATION_VERSION);
     }
 
-    private static double jaroOnNormalized(String nfa, String nfb) {
+    private static double lexicalDiceOnNormalized(String nfa, String nfb) {
         if (nfa.isBlank() && nfb.isBlank()) {
             return 1.0;
         }
-        return JARO_WINKLER.apply(nfa, nfb);
+        int[] wA = borrowBigramBuffer();
+        int[] wB = borrowBigramBuffer();
+        try {
+            return ZeroAllocationTokenizer.diceCoefficient(nfa, nfb, wA, wB);
+        } finally {
+            releaseBigramBuffer(wA);
+            releaseBigramBuffer(wB);
+        }
+    }
+
+    private static int[] borrowBigramBuffer() {
+        int[] buf = BIGRAM_BUFFER_POOL.poll();
+        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
+            return buf;
+        }
+        return new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+    }
+
+    private static void releaseBigramBuffer(int[] buf) {
+        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
+            BIGRAM_BUFFER_POOL.offer(buf);
+        }
     }
 
     private static String pickCanonical(String rawA, String rawB, String prepA, String prepB) {
-        var ua = prepA.isBlank() ? rawA.strip() : prepA;
-        var ub = prepB.isBlank() ? rawB.strip() : prepB;
+        String ua = prepA.isBlank() ? rawA.strip() : prepA;
+        String ub = prepB.isBlank() ? rawB.strip() : prepB;
         if (ua.isBlank()) {
             return ub;
         }
