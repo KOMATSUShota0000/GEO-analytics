@@ -44,6 +44,7 @@ geo-analytics/.cursorrules
 geo-analytics/.gitignore
 geo-analytics/.mvn/wrapper/maven-wrapper.jar
 geo-analytics/.mvn/wrapper/maven-wrapper.properties
+geo-analytics/data/pdf-temp/8de1cc13-990b-4e8d-9a1b-e96e1022ecbf.pdf
 geo-analytics/docs/PDF_DOCKER_NOTES.md
 geo-analytics/frontend/.env.development
 geo-analytics/frontend/index.html
@@ -1173,163 +1174,6 @@ public class DomainTrustService {
         var s = suffix.toLowerCase(Locale.ROOT).trim();
         var h = host.toLowerCase(Locale.ROOT);
         return h.equals(s) || h.endsWith("." + s);
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/EntityResolutionService.java">
-package com.geo.analytics.application.service;
-
-import com.geo.analytics.application.dto.ResolutionResult;
-import com.geo.analytics.domain.entity.UnresolvedEntityQueueEntity;
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
-import com.geo.analytics.domain.model.ResolvableEntity;
-import com.geo.analytics.domain.service.EntityNormalizer;
-import com.geo.analytics.domain.service.EntityResolutionBlockingService;
-import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
-import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedQueue;
-
-@Service
-public final class EntityResolutionService {
-
-    public static final String CALCULATION_VERSION = "ER_PIPELINE_V1";
-    private static final double LEXICAL_DICE_HIGH = 0.85;
-    private static final double LEXICAL_DICE_LOW = 0.70;
-    private static final double LLM_CONFIDENCE_MIN = 0.90;
-
-    private static final ConcurrentLinkedQueue<int[]> BIGRAM_BUFFER_POOL = new ConcurrentLinkedQueue<>();
-
-    private final JapaneseNlpService japaneseNlpService;
-    private final EntityResolutionBlockingService entityResolutionBlockingService;
-    private final DeepSeekAdapter deepSeekAdapter;
-    private final UnresolvedEntityQueueRepository unresolvedEntityQueueRepository;
-
-    public EntityResolutionService(
-            JapaneseNlpService japaneseNlpService,
-            EntityResolutionBlockingService entityResolutionBlockingService,
-            DeepSeekAdapter deepSeekAdapter,
-            UnresolvedEntityQueueRepository unresolvedEntityQueueRepository) {
-        this.japaneseNlpService = japaneseNlpService;
-        this.entityResolutionBlockingService = entityResolutionBlockingService;
-        this.deepSeekAdapter = deepSeekAdapter;
-        this.unresolvedEntityQueueRepository = unresolvedEntityQueueRepository;
-    }
-
-    public Map<String, List<ResolvableEntity>> bucketEntities(List<ResolvableEntity> entities) {
-        return entityResolutionBlockingService.bucketByBlockingHash(entities);
-    }
-
-    public ResolutionResult resolvePair(String labelA, String labelB) {
-        String rawA = labelA != null ? labelA : "";
-        String rawB = labelB != null ? labelB : "";
-        String prepA = EntityNormalizer.prepareForSudachi(rawA);
-        String prepB = EntityNormalizer.prepareForSudachi(rawB);
-        String nfa = japaneseNlpService.normalizedForm(prepA);
-        String nfb = japaneseNlpService.normalizedForm(prepB);
-        if (!nfa.isBlank() && nfa.equals(nfb)) {
-            return new ResolutionResult.Merged(
-                    pickCanonical(rawA, rawB, prepA, prepB),
-                    1,
-                    1.0,
-                    CALCULATION_VERSION);
-        }
-        String ha = entityResolutionBlockingService.blockingHashSha256(rawA);
-        String hb = entityResolutionBlockingService.blockingHashSha256(rawB);
-        if (!ha.equals(hb)) {
-            return persistPending(rawA, rawB, ha, hb);
-        }
-        double dice = lexicalDiceOnNormalized(nfa, nfb);
-        if (dice >= LEXICAL_DICE_HIGH) {
-            return new ResolutionResult.Merged(
-                    pickCanonical(rawA, rawB, prepA, prepB),
-                    2,
-                    dice,
-                    CALCULATION_VERSION);
-        }
-        if (dice >= LEXICAL_DICE_LOW && dice < LEXICAL_DICE_HIGH) {
-            var judgment = deepSeekAdapter.judgeEntityIdentityBlocking(prepA, prepB);
-            if (judgment.sameEntity() && judgment.confidence() >= LLM_CONFIDENCE_MIN) {
-                return new ResolutionResult.Merged(
-                        pickCanonical(rawA, rawB, prepA, prepB),
-                        3,
-                        dice,
-                        CALCULATION_VERSION);
-            }
-        }
-        return persistPending(rawA, rawB, ha, hb);
-    }
-
-    private ResolutionResult persistPending(String left, String right, String ha, String hb) {
-        try {
-            var row = new UnresolvedEntityQueueEntity();
-            var tid = TenantContext.getTenantId();
-            row.setWorkspaceId(
-                    tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
-            row.setLeftLabel(left);
-            row.setRightLabel(right);
-            row.setLeftBlockingHash(ha);
-            row.setRightBlockingHash(hb);
-            row.setManualReviewRequired(true);
-            row.setCalculationVersion(CALCULATION_VERSION);
-            unresolvedEntityQueueRepository.save(row);
-        } catch (Exception exception) {
-        }
-        return new ResolutionResult.PendingManualReview(
-                left,
-                right,
-                ha,
-                hb,
-                true,
-                CALCULATION_VERSION);
-    }
-
-    private static double lexicalDiceOnNormalized(String nfa, String nfb) {
-        if (nfa.isBlank() && nfb.isBlank()) {
-            return 1.0;
-        }
-        int[] wA = borrowBigramBuffer();
-        int[] wB = borrowBigramBuffer();
-        try {
-            return ZeroAllocationTokenizer.diceCoefficient(nfa, nfb, wA, wB);
-        } finally {
-            releaseBigramBuffer(wA);
-            releaseBigramBuffer(wB);
-        }
-    }
-
-    private static int[] borrowBigramBuffer() {
-        int[] buf = BIGRAM_BUFFER_POOL.poll();
-        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
-            return buf;
-        }
-        return new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-    }
-
-    private static void releaseBigramBuffer(int[] buf) {
-        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
-            BIGRAM_BUFFER_POOL.offer(buf);
-        }
-    }
-
-    private static String pickCanonical(String rawA, String rawB, String prepA, String prepB) {
-        String ua = prepA.isBlank() ? rawA.strip() : prepA;
-        String ub = prepB.isBlank() ? rawB.strip() : prepB;
-        if (ua.isBlank()) {
-            return ub;
-        }
-        if (ub.isBlank()) {
-            return ua;
-        }
-        return ua.compareTo(ub) <= 0 ? ua : ub;
     }
 }
 </file>
@@ -3191,128 +3035,6 @@ public final class EntityResolutionService {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/HybridEntityResolutionEngine.java">
-package com.geo.analytics.domain.matching;
-
-import java.lang.StrictMath;
-
-public final class HybridEntityResolutionEngine {
-
-    public static final double WEIGHT_PHONETIC = 0.4;
-    public static final double WEIGHT_JARO_WINKLER = 0.6;
-    public static final double JW_PREFIX_BOOST = 0.1;
-    public static final int JW_PREFIX_LENGTH_CAP = 4;
-    private static final int OUTPUT_BANK_SCALE = 10;
-
-    private HybridEntityResolutionEngine() {
-    }
-
-    public static double rawHybridScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate) {
-        double ph = PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB);
-        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
-        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
-        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
-    }
-
-    public static double rawHybridScore(double phoneticScore, CharSequence query, CharSequence candidate) {
-        double ph = RobustAuditMathUtil.softwareFtzFlush(phoneticScore);
-        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
-        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
-        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
-    }
-
-    public static double bayesianSmoothedScore(double rawScore, double n, double c, double muPrior) {
-        double sum = StrictMath.fma(n, 1.0, c);
-        if (StrictMath.abs(sum) < RobustAuditMathUtil.EPSILON) {
-            return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(rawScore), OUTPUT_BANK_SCALE);
-        }
-        double num = StrictMath.fma(n, rawScore, StrictMath.fma(c, muPrior, 0.0));
-        double out = num / sum;
-        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(out), OUTPUT_BANK_SCALE);
-    }
-
-    public static double fullScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate, double n, double c, double muPrior) {
-        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, lexicalBigramDiceWinklerStyle(query, candidate),
-                StrictMath.fma(WEIGHT_PHONETIC, PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB), 0.0));
-        raw = RobustAuditMathUtil.softwareFtzFlush(raw);
-        return bayesianSmoothedScore(raw, n, c, muPrior);
-    }
-
-    public static double fullScoreWithNormalization(
-            NormalizationLayer layer,
-            CharSequence rawQuery,
-            CharSequence rawCandidate,
-            double n,
-            double c,
-            double muPrior) {
-        String q = rawQuery == null ? "" : rawQuery.toString().strip();
-        String cand = rawCandidate == null ? "" : rawCandidate.toString().strip();
-        CharSequence jwQ = layer.surfaceForJaroWinkler(q);
-        CharSequence jwC = layer.surfaceForJaroWinkler(cand);
-        CharSequence phoQ = layer.surfaceForPhoneticEncoding(q);
-        CharSequence phoC = layer.surfaceForPhoneticEncoding(cand);
-        char[] ra = new char[256];
-        char[] rb = new char[256];
-        char[] p1 = new char[8];
-        char[] p2 = new char[8];
-        char[] s1 = new char[8];
-        char[] s2 = new char[8];
-        int[] m1 = new int[2];
-        int[] m2 = new int[2];
-        int packQ = PhoneticBitEncoder.encode(phoQ, ra, p1, s1, m1);
-        int packC = PhoneticBitEncoder.encode(phoC, rb, p2, s2, m2);
-        return fullScore(packQ, packC, jwQ, jwC, n, c, muPrior);
-    }
-
-    /**
-     * Lexical similarity via packed UTF-16 bigram multiset Dice, plus a Winkler-style prefix boost (no per-call boolean[]/char[] match matrices).
-     */
-    public static double jaroWinkler(CharSequence s1, CharSequence s2) {
-        return lexicalBigramDiceWinklerStyle(s1, s2);
-    }
-
-    private static double lexicalBigramDiceWinklerStyle(CharSequence s1, CharSequence s2) {
-        if (s1 == null || s2 == null) {
-            return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
-        }
-        int len1 = s1.length();
-        int len2 = s2.length();
-        if (len1 == 0 && len2 == 0) {
-            return RobustAuditMathUtil.bankRoundHalfEven(1.0, OUTPUT_BANK_SCALE);
-        }
-        if (len1 == 0 || len2 == 0) {
-            return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
-        }
-        int cap = StrictMath.min(
-                ZeroAllocationTokenizer.MAX_BIGRAMS_CAP,
-                StrictMath.max(StrictMath.max(1, len1 - 1), StrictMath.max(1, len2 - 1)));
-        int[] wa = new int[cap];
-        int[] wb = new int[cap];
-        double dice = ZeroAllocationTokenizer.diceCoefficient(s1, s2, wa, wb);
-        int prefix = commonPrefixLength(s1, s2, len1, len2, JW_PREFIX_LENGTH_CAP);
-        double boost = StrictMath.fma(StrictMath.fma(JW_PREFIX_BOOST, (double) prefix, 0.0), 1.0 - dice, dice);
-        double clamped = StrictMath.min(1.0, StrictMath.max(0.0, boost));
-        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(clamped), OUTPUT_BANK_SCALE);
-    }
-
-    private static int commonPrefixLength(CharSequence s1, CharSequence s2, int len1, int len2, int maxLen) {
-        int n = StrictMath.min(StrictMath.min(len1, len2), maxLen);
-        int p = 0;
-        while (p < n && normChar(s1.charAt(p)) == normChar(s2.charAt(p))) {
-            p++;
-        }
-        return p;
-    }
-
-    private static char normChar(char c) {
-        if (c >= 'a' && c <= 'z') {
-            return (char) (c - 32);
-        }
-        return c;
-    }
-}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/NormalizationLayer.java">
 package com.geo.analytics.domain.matching;
 
@@ -4231,165 +3953,6 @@ public final class PrimitiveInvertedIndex {
 
     public boolean isSealed() {
         return sealed;
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/ZeroAllocationTokenizer.java">
-package com.geo.analytics.domain.matching;
-
-import java.lang.StrictMath;
-import java.util.Arrays;
-import java.util.function.IntConsumer;
-
-public final class ZeroAllocationTokenizer {
-
-    public static final int MAX_BIGRAMS_CAP = 8192;
-
-    private ZeroAllocationTokenizer() {
-    }
-
-    public static void forEachBigram(CharSequence text, IntConsumer consumer) {
-        int n = text.length();
-        if (n < 2) {
-            return;
-        }
-        for (int i = 0; i < n - 1; i++) {
-            int c1 = text.charAt(i);
-            int c2 = text.charAt(i + 1);
-            consumer.accept((c1 << 16) | c2);
-        }
-    }
-
-    public static void forEachBigram(char[] text, int length, IntConsumer consumer) {
-        if (length < 2) {
-            return;
-        }
-        for (int i = 0; i < length - 1; i++) {
-            int c1 = text[i];
-            int c2 = text[i + 1];
-            consumer.accept((c1 << 16) | c2);
-        }
-    }
-
-    /**
-     * Writes up to {@code outCap} packed UTF-16 bigrams from {@code text} (truncation if longer than cap).
-     *
-     * @return number of bigrams written
-     */
-    public static int fillPackedBigrams(CharSequence text, int[] out, int outCap) {
-        int n = text.length();
-        if (n < 2 || outCap <= 0) {
-            return 0;
-        }
-        int limit = StrictMath.min(outCap, n - 1);
-        for (int i = 0; i < limit; i++) {
-            out[i] = (text.charAt(i) << 16) | (text.charAt(i + 1) & 0xFFFF);
-        }
-        return limit;
-    }
-
-    public static int packedBigramAt(CharSequence hay, int charIndex) {
-        return (hay.charAt(charIndex) << 16) | (hay.charAt(charIndex + 1) & 0xFFFF);
-    }
-
-    /**
-     * Multiset Dice coefficient on packed bigrams. Sorts {@code workA[0:ca)} and {@code workB[0:cb)} in place.
-     */
-    public static double diceCoefficientSortedDestructive(int[] workA, int ca, int[] workB, int cb) {
-        if (ca <= 0 && cb <= 0) {
-            return 1.0;
-        }
-        if (ca <= 0 || cb <= 0) {
-            return 0.0;
-        }
-        Arrays.sort(workA, 0, ca);
-        Arrays.sort(workB, 0, cb);
-        long inter = 0;
-        int i = 0;
-        int j = 0;
-        while (i < ca && j < cb) {
-            int va = workA[i];
-            int vb = workB[j];
-            if (va < vb) {
-                i++;
-            } else if (va > vb) {
-                j++;
-            } else {
-                int ia = i;
-                while (ia < ca && workA[ia] == va) {
-                    ia++;
-                }
-                int jb = j;
-                while (jb < cb && workB[jb] == vb) {
-                    jb++;
-                }
-                inter += StrictMath.min(ia - i, jb - j);
-                i = ia;
-                j = jb;
-            }
-        }
-        double denom = (double) StrictMath.addExact(ca, cb);
-        return StrictMath.fma(2.0 * (double) inter, 1.0 / denom, 0.0);
-    }
-
-    /**
-     * Fills workspaces then computes multiset Dice. Uses at most {@link #MAX_BIGRAMS_CAP} bigrams per side.
-     */
-    public static double diceCoefficient(CharSequence a, CharSequence b, int[] workA, int[] workB) {
-        int ca = fillPackedBigrams(a, workA, StrictMath.min(workA.length, MAX_BIGRAMS_CAP));
-        int cb = fillPackedBigrams(b, workB, StrictMath.min(workB.length, MAX_BIGRAMS_CAP));
-        return diceCoefficientSortedDestructive(workA, ca, workB, cb);
-    }
-
-    public static void buildKmpFailure(int[] pat, int pLen, int[] failBuf) {
-        if (pLen <= 0) {
-            return;
-        }
-        failBuf[0] = 0;
-        int len = 0;
-        for (int i = 1; i < pLen; i++) {
-            while (len > 0 && pat[i] != pat[len]) {
-                len = failBuf[len - 1];
-            }
-            if (pat[i] == pat[len]) {
-                len++;
-            }
-            failBuf[i] = len;
-        }
-    }
-
-    /**
-     * First packed-bigram match of {@code pat} in {@code hay} starting at character index {@code hayStartChar}.
-     *
-     * @return start char index of match, or -1
-     */
-    public static int kmpFirstPackedBigramMatch(CharSequence hay, int hayStartChar, int[] pat, int pLen, int[] failBuf) {
-        if (pLen <= 0) {
-            return hayStartChar <= hay.length() ? hayStartChar : -1;
-        }
-        int hayLen = hay.length();
-        if (hayStartChar > hayLen - 2) {
-            return -1;
-        }
-        buildKmpFailure(pat, pLen, failBuf);
-        int pos = hayStartChar;
-        int j = 0;
-        final int lastStart = hayLen - 2;
-        while (pos <= lastStart) {
-            if (pat[j] == packedBigramAt(hay, pos)) {
-                pos++;
-                j++;
-                if (j == pLen) {
-                    return pos - pLen;
-                }
-            } else if (j > 0) {
-                j = failBuf[j - 1];
-            } else {
-                pos++;
-            }
-        }
-        return -1;
     }
 }
 </file>
@@ -6983,6 +6546,163 @@ public interface PdfReportPort {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/EntityResolutionService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.application.dto.ResolutionResult;
+import com.geo.analytics.domain.entity.UnresolvedEntityQueueEntity;
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
+import com.geo.analytics.domain.model.ResolvableEntity;
+import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.EntityResolutionBlockingService;
+import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
+import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+@Service
+public final class EntityResolutionService {
+
+    public static final String CALCULATION_VERSION = "ER_PIPELINE_V1";
+    private static final double LEXICAL_DICE_HIGH = 0.85;
+    private static final double LEXICAL_DICE_LOW = 0.70;
+    private static final double LLM_CONFIDENCE_MIN = 0.90;
+
+    private static final ConcurrentLinkedQueue<int[]> BIGRAM_BUFFER_POOL = new ConcurrentLinkedQueue<>();
+
+    private final JapaneseNlpService japaneseNlpService;
+    private final EntityResolutionBlockingService entityResolutionBlockingService;
+    private final DeepSeekAdapter deepSeekAdapter;
+    private final UnresolvedEntityQueueRepository unresolvedEntityQueueRepository;
+
+    public EntityResolutionService(
+            JapaneseNlpService japaneseNlpService,
+            EntityResolutionBlockingService entityResolutionBlockingService,
+            DeepSeekAdapter deepSeekAdapter,
+            UnresolvedEntityQueueRepository unresolvedEntityQueueRepository) {
+        this.japaneseNlpService = japaneseNlpService;
+        this.entityResolutionBlockingService = entityResolutionBlockingService;
+        this.deepSeekAdapter = deepSeekAdapter;
+        this.unresolvedEntityQueueRepository = unresolvedEntityQueueRepository;
+    }
+
+    public Map<String, List<ResolvableEntity>> bucketEntities(List<ResolvableEntity> entities) {
+        return entityResolutionBlockingService.bucketByBlockingHash(entities);
+    }
+
+    public ResolutionResult resolvePair(String labelA, String labelB) {
+        String rawA = labelA != null ? labelA : "";
+        String rawB = labelB != null ? labelB : "";
+        String prepA = EntityNormalizer.prepareForSudachi(rawA);
+        String prepB = EntityNormalizer.prepareForSudachi(rawB);
+        String nfa = japaneseNlpService.normalizedForm(prepA);
+        String nfb = japaneseNlpService.normalizedForm(prepB);
+        if (!nfa.isBlank() && nfa.equals(nfb)) {
+            return new ResolutionResult.Merged(
+                    pickCanonical(rawA, rawB, prepA, prepB),
+                    1,
+                    1.0,
+                    CALCULATION_VERSION);
+        }
+        String ha = entityResolutionBlockingService.blockingHashSha256(rawA);
+        String hb = entityResolutionBlockingService.blockingHashSha256(rawB);
+        if (!ha.equals(hb)) {
+            return persistPending(rawA, rawB, ha, hb);
+        }
+        double dice = lexicalDiceOnNormalized(nfa, nfb);
+        if (dice >= LEXICAL_DICE_HIGH) {
+            return new ResolutionResult.Merged(
+                    pickCanonical(rawA, rawB, prepA, prepB),
+                    2,
+                    dice,
+                    CALCULATION_VERSION);
+        }
+        if (dice >= LEXICAL_DICE_LOW && dice < LEXICAL_DICE_HIGH) {
+            var judgment = deepSeekAdapter.judgeEntityIdentityBlocking(prepA, prepB);
+            if (judgment.sameEntity() && judgment.confidence() >= LLM_CONFIDENCE_MIN) {
+                return new ResolutionResult.Merged(
+                        pickCanonical(rawA, rawB, prepA, prepB),
+                        3,
+                        dice,
+                        CALCULATION_VERSION);
+            }
+        }
+        return persistPending(rawA, rawB, ha, hb);
+    }
+
+    private ResolutionResult persistPending(String left, String right, String ha, String hb) {
+        try {
+            var row = new UnresolvedEntityQueueEntity();
+            var tid = TenantContext.getTenantId();
+            row.setWorkspaceId(
+                    tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
+            row.setLeftLabel(left);
+            row.setRightLabel(right);
+            row.setLeftBlockingHash(ha);
+            row.setRightBlockingHash(hb);
+            row.setManualReviewRequired(true);
+            row.setCalculationVersion(CALCULATION_VERSION);
+            unresolvedEntityQueueRepository.save(row);
+        } catch (Exception exception) {
+        }
+        return new ResolutionResult.PendingManualReview(
+                left,
+                right,
+                ha,
+                hb,
+                true,
+                CALCULATION_VERSION);
+    }
+
+    private static double lexicalDiceOnNormalized(String nfa, String nfb) {
+        if (nfa.isBlank() && nfb.isBlank()) {
+            return 1.0;
+        }
+        int[] wA = borrowBigramBuffer();
+        int[] wB = borrowBigramBuffer();
+        try {
+            return ZeroAllocationTokenizer.diceCoefficient(nfa, nfb, wA, wB);
+        } finally {
+            releaseBigramBuffer(wA);
+            releaseBigramBuffer(wB);
+        }
+    }
+
+    private static int[] borrowBigramBuffer() {
+        int[] buf = BIGRAM_BUFFER_POOL.poll();
+        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
+            return buf;
+        }
+        return new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+    }
+
+    private static void releaseBigramBuffer(int[] buf) {
+        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
+            BIGRAM_BUFFER_POOL.offer(buf);
+        }
+    }
+
+    private static String pickCanonical(String rawA, String rawB, String prepA, String prepB) {
+        String ua = prepA.isBlank() ? rawA.strip() : prepA;
+        String ub = prepB.isBlank() ? rawB.strip() : prepB;
+        if (ua.isBlank()) {
+            return ub;
+        }
+        if (ub.isBlank()) {
+            return ua;
+        }
+        return ua.compareTo(ub) <= 0 ? ua : ub;
+    }
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/application/service/JobStreamRegistryService.java">
 package com.geo.analytics.application.service;
 
@@ -8147,225 +7867,283 @@ public enum ModelType {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/TokenizerManager.java">
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/HybridEntityResolutionEngine.java">
 package com.geo.analytics.domain.matching;
 
-import com.worksap.nlp.sudachi.Dictionary;
-import com.worksap.nlp.sudachi.Morpheme;
-import com.worksap.nlp.sudachi.MorphemeList;
-import com.worksap.nlp.sudachi.Tokenizer;
 import java.lang.StrictMath;
-import java.util.ArrayDeque;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Function;
-import java.util.stream.IntStream;
 
-public final class TokenizerManager {
+public final class HybridEntityResolutionEngine {
 
-    private static final Set<String> NORMALIZED_CONTENT_POS =
-            Set.of("名詞", "動詞", "形容詞", "形状詞", "代名詞", "未知語");
+    public static final double WEIGHT_PHONETIC = 0.4;
+    public static final double WEIGHT_JARO_WINKLER = 0.6;
+    public static final double JW_PREFIX_BOOST = 0.1;
+    public static final int JW_PREFIX_LENGTH_CAP = 4;
+    private static final int OUTPUT_BANK_SCALE = 10;
 
-    private final Dictionary dictionary;
-    private final Semaphore sudachiSemaphore;
-    private final ArrayDeque<Tokenizer> tokenizerPool = new ArrayDeque<>();
-    private final ReentrantLock poolLock = new ReentrantLock();
-
-    public TokenizerManager(Dictionary dictionary) {
-        this(dictionary, clampProc(Runtime.getRuntime().availableProcessors()));
+    private HybridEntityResolutionEngine() {
     }
 
-    public TokenizerManager(Dictionary dictionary, int maxConcurrentSudachi) {
-        this.dictionary = Objects.requireNonNull(dictionary);
-        this.sudachiSemaphore = new Semaphore(StrictMath.max(2, maxConcurrentSudachi));
+    public static double rawHybridScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate) {
+        double ph = PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB);
+        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
+        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
+        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
     }
 
-    private static int clampProc(int p) {
-        return StrictMath.max(2, StrictMath.min(16, p));
+    public static double rawHybridScore(double phoneticScore, CharSequence query, CharSequence candidate) {
+        double ph = RobustAuditMathUtil.softwareFtzFlush(phoneticScore);
+        double jw = lexicalBigramDiceWinklerStyle(query, candidate);
+        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, jw, StrictMath.fma(WEIGHT_PHONETIC, ph, 0.0));
+        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(raw), OUTPUT_BANK_SCALE);
     }
 
-    public Dictionary sharedDictionary() {
-        return dictionary;
-    }
-
-    public <T> T withPerTaskTokenizer(Function<Tokenizer, T> work) {
-        sudachiSemaphore.acquireUninterruptibly();
-        Tokenizer tokenizer = null;
-        poolLock.lock();
-        try {
-            tokenizer = tokenizerPool.pollFirst();
-        } finally {
-            poolLock.unlock();
+    public static double bayesianSmoothedScore(double rawScore, double n, double c, double muPrior) {
+        double sum = StrictMath.fma(n, 1.0, c);
+        if (StrictMath.abs(sum) < RobustAuditMathUtil.EPSILON) {
+            return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(rawScore), OUTPUT_BANK_SCALE);
         }
-        if (tokenizer == null) {
-            tokenizer = dictionary.create();
-        }
-        try {
-            return work.apply(tokenizer);
-        } finally {
-            poolLock.lock();
-            try {
-                tokenizerPool.addFirst(tokenizer);
-            } finally {
-                poolLock.unlock();
-                sudachiSemaphore.release();
-            }
-        }
+        double num = StrictMath.fma(n, rawScore, StrictMath.fma(c, muPrior, 0.0));
+        double out = num / sum;
+        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(out), OUTPUT_BANK_SCALE);
     }
 
-    public MorphemeList tokenizeSplitC(String text) {
-        String t = text == null ? "" : text.strip();
-        return withPerTaskTokenizer(tokenizer -> tokenizer.tokenize(Tokenizer.SplitMode.C, t));
+    public static double fullScore(int packedPhoneticA, int packedPhoneticB, CharSequence query, CharSequence candidate, double n, double c, double muPrior) {
+        double raw = StrictMath.fma(WEIGHT_JARO_WINKLER, lexicalBigramDiceWinklerStyle(query, candidate),
+                StrictMath.fma(WEIGHT_PHONETIC, PhoneticBitComparator.score(packedPhoneticA, packedPhoneticB), 0.0));
+        raw = RobustAuditMathUtil.softwareFtzFlush(raw);
+        return bayesianSmoothedScore(raw, n, c, muPrior);
     }
 
-    public List<String> tokenizeToNormalizedList(String text) {
-        if (text == null || text.isBlank()) {
-            return List.of();
+    public static double fullScoreWithNormalization(
+            NormalizationLayer layer,
+            CharSequence rawQuery,
+            CharSequence rawCandidate,
+            double n,
+            double c,
+            double muPrior) {
+        String q = rawQuery == null ? "" : rawQuery.toString().strip();
+        String cand = rawCandidate == null ? "" : rawCandidate.toString().strip();
+        CharSequence jwQ = layer.surfaceForJaroWinkler(q);
+        CharSequence jwC = layer.surfaceForJaroWinkler(cand);
+        CharSequence phoQ = layer.surfaceForPhoneticEncoding(q);
+        CharSequence phoC = layer.surfaceForPhoneticEncoding(cand);
+        char[] ra = new char[256];
+        char[] rb = new char[256];
+        char[] p1 = new char[8];
+        char[] p2 = new char[8];
+        char[] s1 = new char[8];
+        char[] s2 = new char[8];
+        int[] m1 = new int[2];
+        int[] m2 = new int[2];
+        int packQ = PhoneticBitEncoder.encode(phoQ, ra, p1, s1, m1);
+        int packC = PhoneticBitEncoder.encode(phoC, rb, p2, s2, m2);
+        return fullScore(packQ, packC, jwQ, jwC, n, c, muPrior);
+    }
+
+    /**
+     * Lexical similarity via packed UTF-16 bigram multiset Dice, plus a Winkler-style prefix boost (no per-call boolean[]/char[] match matrices).
+     */
+    public static double jaroWinkler(CharSequence s1, CharSequence s2) {
+        return lexicalBigramDiceWinklerStyle(s1, s2);
+    }
+
+    private static double lexicalBigramDiceWinklerStyle(CharSequence s1, CharSequence s2) {
+        if (s1 == null || s2 == null) {
+            return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
         }
-        return withPerTaskTokenizer(tokenizer -> {
-            MorphemeList list = tokenizer.tokenize(Tokenizer.SplitMode.C, text);
-            return IntStream.range(0, list.size())
-                    .mapToObj(list::get)
-                    .filter(m -> {
-                        List<String> pos = m.partOfSpeech();
-                        return pos != null && !pos.isEmpty() && NORMALIZED_CONTENT_POS.contains(pos.get(0));
-                    })
-                    .map(Morpheme::normalizedForm)
-                    .filter(n -> n != null && !n.isBlank())
-                    .toList();
-        });
+        int len1 = s1.length();
+        int len2 = s2.length();
+        if (len1 == 0 && len2 == 0) {
+            return RobustAuditMathUtil.bankRoundHalfEven(1.0, OUTPUT_BANK_SCALE);
+        }
+        if (len1 == 0 || len2 == 0) {
+            return RobustAuditMathUtil.bankRoundHalfEven(0.0, OUTPUT_BANK_SCALE);
+        }
+        int cap = StrictMath.min(
+                ZeroAllocationTokenizer.MAX_BIGRAMS_CAP,
+                StrictMath.max(StrictMath.max(1, len1 - 1), StrictMath.max(1, len2 - 1)));
+        int[] wa = new int[cap];
+        int[] wb = new int[cap];
+        double dice = ZeroAllocationTokenizer.diceCoefficient(s1, s2, wa, wb);
+        int prefix = commonPrefixLength(s1, s2, len1, len2, JW_PREFIX_LENGTH_CAP);
+        double boost = StrictMath.fma(StrictMath.fma(JW_PREFIX_BOOST, (double) prefix, 0.0), 1.0 - dice, dice);
+        double clamped = StrictMath.min(1.0, StrictMath.max(0.0, boost));
+        return RobustAuditMathUtil.bankRoundHalfEven(RobustAuditMathUtil.softwareFtzFlush(clamped), OUTPUT_BANK_SCALE);
+    }
+
+    private static int commonPrefixLength(CharSequence s1, CharSequence s2, int len1, int len2, int maxLen) {
+        int n = StrictMath.min(StrictMath.min(len1, len2), maxLen);
+        int p = 0;
+        while (p < n && normChar(s1.charAt(p)) == normChar(s2.charAt(p))) {
+            p++;
+        }
+        return p;
+    }
+
+    private static char normChar(char c) {
+        if (c >= 'a' && c <= 'z') {
+            return (char) (c - 32);
+        }
+        return c;
     }
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/EntityNormalizer.java">
-package com.geo.analytics.domain.service;
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/ZeroAllocationTokenizer.java">
+package com.geo.analytics.domain.matching;
 
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
-import org.springframework.stereotype.Component;
-import java.net.URI;
-import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.regex.Pattern;
+import java.lang.StrictMath;
+import java.util.Arrays;
+import java.util.function.IntConsumer;
 
-@Component
-public final class EntityNormalizer {
-    public static final String UNMATCHED = "OTHERS";
-    private static final Pattern WS = Pattern.compile("\\s+");
-    private static final Pattern JP_SUFFIX = Pattern.compile(
-        "(株式会社|（株）|\\(株\\)|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人)\\s*$");
-    private static final Pattern EN_SUFFIX = Pattern.compile(
-        "(?i),?\\s*(Inc\\.?|LLC|Ltd\\.?|Limited|Corp\\.?|Corporation|Co\\.,?|GmbH|S\\.\\s*A\\.?)\\s*$");
-    private static final double LEXICAL_DICE_THRESHOLD = 0.85;
-    private final JapaneseNlpService japaneseNlpService;
+public final class ZeroAllocationTokenizer {
 
-    public EntityNormalizer(JapaneseNlpService japaneseNlpService) {
-        this.japaneseNlpService = japaneseNlpService;
+    public static final int MAX_BIGRAMS_CAP = 8192;
+
+    private ZeroAllocationTokenizer() {
     }
 
-    public static String hostLabelFromUrl(String url) {
-        if (url == null || url.isBlank()) {
-            return "";
+    public static void forEachBigram(CharSequence text, IntConsumer consumer) {
+        int n = text.length();
+        if (n < 2) {
+            return;
         }
-        try {
-            String u = url.trim();
-            if (!u.contains("://")) {
-                u = "https://" + u;
-            }
-            URI uri = URI.create(u);
-            String host = uri.getHost();
-            return host != null ? host : "";
-        } catch (Exception e) {
-            return url.trim();
+        for (int i = 0; i < n - 1; i++) {
+            int c1 = text.charAt(i);
+            int c2 = text.charAt(i + 1);
+            consumer.accept((c1 << 16) | c2);
         }
     }
 
-    @SuppressWarnings("unused")
-    public String resolve(String rawName, String mainBrand, List<String> competitorBrands, boolean isProPlan) {
-        String raw = rawName == null ? "" : rawName;
-        String main = mainBrand == null ? "" : mainBrand;
-        List<String> comps = competitorBrands == null ? List.of() : competitorBrands;
-        String strippedRaw = prepareForSudachi(raw);
-        if (strippedRaw.isBlank()) {
-            return UNMATCHED;
+    public static void forEachBigram(char[] text, int length, IntConsumer consumer) {
+        if (length < 2) {
+            return;
         }
-        String rawNorm = japaneseNlpService.normalizedKey(strippedRaw);
-        if (rawNorm.isBlank()) {
-            return UNMATCHED;
+        for (int i = 0; i < length - 1; i++) {
+            int c1 = text[i];
+            int c2 = text[i + 1];
+            consumer.accept((c1 << 16) | c2);
         }
-        String rawReading = japaneseNlpService.readingKey(strippedRaw);
-        List<NameCandidate> cands = new ArrayList<>();
-        if (!main.isBlank()) {
-            String sm = prepareForSudachi(main);
-            cands.add(new NameCandidate(
-                main,
-                japaneseNlpService.normalizedKey(sm),
-                japaneseNlpService.readingKey(sm)));
-        }
-        for (String c : comps) {
-            if (c != null && !c.isBlank()) {
-                String sc = prepareForSudachi(c);
-                cands.add(new NameCandidate(
-                    c,
-                    japaneseNlpService.normalizedKey(sc),
-                    japaneseNlpService.readingKey(sc)));
-            }
-        }
-        for (NameCandidate cand : cands) {
-            if (!cand.normSudachi.isBlank() && rawNorm.equals(cand.normSudachi)) {
-                return cand.canonical;
-            }
-        }
-        for (NameCandidate cand : cands) {
-            if (!rawReading.isBlank() && !cand.readingKey.isBlank() && rawReading.equals(cand.readingKey)) {
-                return cand.canonical;
-            }
-        }
-        int[] wA = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-        int[] wB = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-        for (NameCandidate cand : cands) {
-            if (cand.normSudachi.isBlank()) {
-                continue;
-            }
-            if (ZeroAllocationTokenizer.diceCoefficient(rawNorm, cand.normSudachi, wA, wB) >= LEXICAL_DICE_THRESHOLD) {
-                return cand.canonical;
-            }
-        }
-        return UNMATCHED;
     }
 
-    public static String prepareForSudachi(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
+    /**
+     * Writes up to {@code outCap} packed UTF-16 bigrams from {@code text} (truncation if longer than cap).
+     *
+     * @return number of bigrams written
+     */
+    public static int fillPackedBigrams(CharSequence text, int[] out, int outCap) {
+        int n = text.length();
+        if (n < 2 || outCap <= 0) {
+            return 0;
         }
-        String n = Normalizer.normalize(text.trim(), Normalizer.Form.NFKC);
-        n = stripCorporateSuffixes(n);
-        n = WS.matcher(n).replaceAll("");
-        return n.toLowerCase(Locale.ROOT);
+        int limit = StrictMath.min(outCap, n - 1);
+        for (int i = 0; i < limit; i++) {
+            out[i] = (text.charAt(i) << 16) | (text.charAt(i + 1) & 0xFFFF);
+        }
+        return limit;
     }
 
-    public static String stripCorporateSuffixes(String s) {
-        if (s == null || s.isBlank()) {
-            return "";
+    public static int packedBigramAt(CharSequence hay, int charIndex) {
+        return (hay.charAt(charIndex) << 16) | (hay.charAt(charIndex + 1) & 0xFFFF);
+    }
+
+    /**
+     * Multiset Dice coefficient on packed bigrams. Sorts {@code workA[0:ca)} and {@code workB[0:cb)} in place.
+     */
+    public static double diceCoefficientSortedDestructive(int[] workA, int ca, int[] workB, int cb) {
+        if (ca <= 0 && cb <= 0) {
+            return 1.0;
         }
-        String t = s.trim();
-        for (int i = 0; i < 8; i++) {
-            String u = JP_SUFFIX.matcher(t).replaceFirst("").trim();
-            u = EN_SUFFIX.matcher(u).replaceFirst("").trim();
-            if (u.equals(t)) {
-                break;
+        if (ca <= 0 || cb <= 0) {
+            return 0.0;
+        }
+        Arrays.sort(workA, 0, ca);
+        Arrays.sort(workB, 0, cb);
+        long inter = 0;
+        int i = 0;
+        int j = 0;
+        while (i < ca && j < cb) {
+            int va = workA[i];
+            int vb = workB[j];
+            if (va < vb) {
+                i++;
+            } else if (va > vb) {
+                j++;
+            } else {
+                int ia = i;
+                while (ia < ca && workA[ia] == va) {
+                    ia++;
+                }
+                int jb = j;
+                while (jb < cb && workB[jb] == vb) {
+                    jb++;
+                }
+                inter += StrictMath.min(ia - i, jb - j);
+                i = ia;
+                j = jb;
             }
-            t = u;
         }
-        return t;
+        double denom = (double) StrictMath.addExact(ca, cb);
+        return StrictMath.fma(2.0 * (double) inter, 1.0 / denom, 0.0);
     }
 
-    private record NameCandidate(String canonical, String normSudachi, String readingKey) {
+    /**
+     * Fills workspaces then computes multiset Dice. Uses at most {@link #MAX_BIGRAMS_CAP} bigrams per side.
+     */
+    public static double diceCoefficient(CharSequence a, CharSequence b, int[] workA, int[] workB) {
+        int ca = fillPackedBigrams(a, workA, StrictMath.min(workA.length, MAX_BIGRAMS_CAP));
+        int cb = fillPackedBigrams(b, workB, StrictMath.min(workB.length, MAX_BIGRAMS_CAP));
+        return diceCoefficientSortedDestructive(workA, ca, workB, cb);
+    }
+
+    public static void buildKmpFailure(int[] pat, int pLen, int[] failBuf) {
+        if (pLen <= 0) {
+            return;
+        }
+        failBuf[0] = 0;
+        int len = 0;
+        for (int i = 1; i < pLen; i++) {
+            while (len > 0 && pat[i] != pat[len]) {
+                len = failBuf[len - 1];
+            }
+            if (pat[i] == pat[len]) {
+                len++;
+            }
+            failBuf[i] = len;
+        }
+    }
+
+    /**
+     * First packed-bigram match of {@code pat} in {@code hay} starting at character index {@code hayStartChar}.
+     *
+     * @return start char index of match, or -1
+     */
+    public static int kmpFirstPackedBigramMatch(CharSequence hay, int hayStartChar, int[] pat, int pLen, int[] failBuf) {
+        if (pLen <= 0) {
+            return hayStartChar <= hay.length() ? hayStartChar : -1;
+        }
+        int hayLen = hay.length();
+        if (hayStartChar > hayLen - 2) {
+            return -1;
+        }
+        buildKmpFailure(pat, pLen, failBuf);
+        int pos = hayStartChar;
+        int j = 0;
+        final int lastStart = hayLen - 2;
+        while (pos <= lastStart) {
+            if (pat[j] == packedBigramAt(hay, pos)) {
+                pos++;
+                j++;
+                if (j == pLen) {
+                    return pos - pLen;
+                }
+            } else if (j > 0) {
+                j = failBuf[j - 1];
+            } else {
+                pos++;
+            }
+        }
+        return -1;
     }
 }
 </file>
@@ -11088,6 +10866,229 @@ public final class RobustAuditMathUtil {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/matching/TokenizerManager.java">
+package com.geo.analytics.domain.matching;
+
+import com.worksap.nlp.sudachi.Dictionary;
+import com.worksap.nlp.sudachi.Morpheme;
+import com.worksap.nlp.sudachi.MorphemeList;
+import com.worksap.nlp.sudachi.Tokenizer;
+import java.lang.StrictMath;
+import java.util.ArrayDeque;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.stream.IntStream;
+
+public final class TokenizerManager {
+
+    private static final Set<String> NORMALIZED_CONTENT_POS =
+            Set.of("名詞", "動詞", "形容詞", "形状詞", "代名詞", "未知語");
+
+    private final Dictionary dictionary;
+    private final Semaphore sudachiSemaphore;
+    private final ArrayDeque<Tokenizer> tokenizerPool = new ArrayDeque<>();
+    private final ReentrantLock poolLock = new ReentrantLock();
+
+    public TokenizerManager(Dictionary dictionary) {
+        this(dictionary, clampProc(Runtime.getRuntime().availableProcessors()));
+    }
+
+    public TokenizerManager(Dictionary dictionary, int maxConcurrentSudachi) {
+        this.dictionary = Objects.requireNonNull(dictionary);
+        this.sudachiSemaphore = new Semaphore(StrictMath.max(2, maxConcurrentSudachi));
+    }
+
+    private static int clampProc(int p) {
+        return StrictMath.max(2, StrictMath.min(16, p));
+    }
+
+    public Dictionary sharedDictionary() {
+        return dictionary;
+    }
+
+    public <T> T withPerTaskTokenizer(Function<Tokenizer, T> work) {
+        sudachiSemaphore.acquireUninterruptibly();
+        Tokenizer tokenizer = null;
+        poolLock.lock();
+        try {
+            tokenizer = tokenizerPool.pollFirst();
+        } finally {
+            poolLock.unlock();
+        }
+        if (tokenizer == null) {
+            tokenizer = dictionary.create();
+        }
+        try {
+            return work.apply(tokenizer);
+        } finally {
+            poolLock.lock();
+            try {
+                tokenizerPool.addFirst(tokenizer);
+            } finally {
+                poolLock.unlock();
+                sudachiSemaphore.release();
+            }
+        }
+    }
+
+    public MorphemeList tokenizeSplitC(String text) {
+        String t = text == null ? "" : text.strip();
+        return withPerTaskTokenizer(tokenizer -> tokenizer.tokenize(Tokenizer.SplitMode.C, t));
+    }
+
+    public List<String> tokenizeToNormalizedList(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        return withPerTaskTokenizer(tokenizer -> {
+            MorphemeList list = tokenizer.tokenize(Tokenizer.SplitMode.C, text);
+            return IntStream.range(0, list.size())
+                    .mapToObj(list::get)
+                    .filter(m -> {
+                        List<String> pos = m.partOfSpeech();
+                        return pos != null && !pos.isEmpty() && NORMALIZED_CONTENT_POS.contains(pos.get(0));
+                    })
+                    .map(Morpheme::normalizedForm)
+                    .filter(n -> n != null && !n.isBlank())
+                    .toList();
+        });
+    }
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/EntityNormalizer.java">
+package com.geo.analytics.domain.service;
+
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
+import org.springframework.stereotype.Component;
+import java.net.URI;
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+@Component
+public final class EntityNormalizer {
+    public static final String UNMATCHED = "OTHERS";
+    private static final Pattern WS = Pattern.compile("\\s+");
+    private static final Pattern JP_SUFFIX = Pattern.compile(
+        "(株式会社|（株）|\\(株\\)|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人)\\s*$");
+    private static final Pattern EN_SUFFIX = Pattern.compile(
+        "(?i),?\\s*(Inc\\.?|LLC|Ltd\\.?|Limited|Corp\\.?|Corporation|Co\\.,?|GmbH|S\\.\\s*A\\.?)\\s*$");
+    private static final double LEXICAL_DICE_THRESHOLD = 0.85;
+    private final JapaneseNlpService japaneseNlpService;
+
+    public EntityNormalizer(JapaneseNlpService japaneseNlpService) {
+        this.japaneseNlpService = japaneseNlpService;
+    }
+
+    public static String hostLabelFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        try {
+            String u = url.trim();
+            if (!u.contains("://")) {
+                u = "https://" + u;
+            }
+            URI uri = URI.create(u);
+            String host = uri.getHost();
+            return host != null ? host : "";
+        } catch (Exception e) {
+            return url.trim();
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public String resolve(String rawName, String mainBrand, List<String> competitorBrands, boolean isProPlan) {
+        String raw = rawName == null ? "" : rawName;
+        String main = mainBrand == null ? "" : mainBrand;
+        List<String> comps = competitorBrands == null ? List.of() : competitorBrands;
+        String strippedRaw = prepareForSudachi(raw);
+        if (strippedRaw.isBlank()) {
+            return UNMATCHED;
+        }
+        String rawNorm = japaneseNlpService.normalizedKey(strippedRaw);
+        if (rawNorm.isBlank()) {
+            return UNMATCHED;
+        }
+        String rawReading = japaneseNlpService.readingKey(strippedRaw);
+        List<NameCandidate> cands = new ArrayList<>();
+        if (!main.isBlank()) {
+            String sm = prepareForSudachi(main);
+            cands.add(new NameCandidate(
+                main,
+                japaneseNlpService.normalizedKey(sm),
+                japaneseNlpService.readingKey(sm)));
+        }
+        for (String c : comps) {
+            if (c != null && !c.isBlank()) {
+                String sc = prepareForSudachi(c);
+                cands.add(new NameCandidate(
+                    c,
+                    japaneseNlpService.normalizedKey(sc),
+                    japaneseNlpService.readingKey(sc)));
+            }
+        }
+        for (NameCandidate cand : cands) {
+            if (!cand.normSudachi.isBlank() && rawNorm.equals(cand.normSudachi)) {
+                return cand.canonical;
+            }
+        }
+        for (NameCandidate cand : cands) {
+            if (!rawReading.isBlank() && !cand.readingKey.isBlank() && rawReading.equals(cand.readingKey)) {
+                return cand.canonical;
+            }
+        }
+        int[] wA = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+        int[] wB = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+        for (NameCandidate cand : cands) {
+            if (cand.normSudachi.isBlank()) {
+                continue;
+            }
+            if (ZeroAllocationTokenizer.diceCoefficient(rawNorm, cand.normSudachi, wA, wB) >= LEXICAL_DICE_THRESHOLD) {
+                return cand.canonical;
+            }
+        }
+        return UNMATCHED;
+    }
+
+    public static String prepareForSudachi(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String n = Normalizer.normalize(text.trim(), Normalizer.Form.NFKC);
+        n = stripCorporateSuffixes(n);
+        n = WS.matcher(n).replaceAll("");
+        return n.toLowerCase(Locale.ROOT);
+    }
+
+    public static String stripCorporateSuffixes(String s) {
+        if (s == null || s.isBlank()) {
+            return "";
+        }
+        String t = s.trim();
+        for (int i = 0; i < 8; i++) {
+            String u = JP_SUFFIX.matcher(t).replaceFirst("").trim();
+            u = EN_SUFFIX.matcher(u).replaceFirst("").trim();
+            if (u.equals(t)) {
+                break;
+            }
+            t = u;
+        }
+        return t;
+    }
+
+    private record NameCandidate(String canonical, String normSudachi, String readingKey) {
+    }
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/ai/DeepSeekAdapter.java">
 package com.geo.analytics.infrastructure.ai;
 
@@ -12701,55 +12702,6 @@ public class AsyncConfig implements AsyncConfigurer {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/SudachiConfig.java">
-package com.geo.analytics.infrastructure.config;
-
-import com.geo.analytics.domain.matching.NormalizationLayer;
-import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.worksap.nlp.sudachi.Dictionary;
-import com.worksap.nlp.sudachi.DictionaryFactory;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.util.ResourceUtils;
-import java.lang.StrictMath;
-import java.io.File;
-import java.io.IOException;
-
-@Configuration
-public class SudachiConfig {
-    @Bean(destroyMethod = "close")
-    public Dictionary sudachiDictionary() throws IOException {
-        File dictFile = ResourceUtils.getFile("classpath:system_core.dic");
-        String dictPath = dictFile.getAbsolutePath().replace("\\", "/");
-        String settings = "{\"systemDict\":\"" + dictPath + "\"}";
-        return new DictionaryFactory().create(settings);
-    }
-
-    @Bean
-    public JapaneseNlpService japaneseNlpService(Dictionary sudachiDictionary) {
-        return new JapaneseNlpService(sudachiDictionary);
-    }
-
-    @Bean
-    public TokenizerManager tokenizerManager(Dictionary sudachiDictionary) {
-        return new TokenizerManager(
-                sudachiDictionary, StrictMath.max(2, StrictMath.min(16, Runtime.getRuntime().availableProcessors())));
-    }
-
-    @Bean
-    public NormalizationLayer normalizationLayer(TokenizerManager tokenizerManager) {
-        return new NormalizationLayer(tokenizerManager);
-    }
-
-    @Bean
-    public GeoVisibilityCalculatorService geoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
-        return new GeoVisibilityCalculatorService(tokenizerManager);
-    }
-}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/repository/ProjectRepository.java">
 package com.geo.analytics.infrastructure.repository;
 
@@ -13766,6 +13718,55 @@ public final class ConsultantOutputSchema {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/config/SudachiConfig.java">
+package com.geo.analytics.infrastructure.config;
+
+import com.geo.analytics.domain.matching.NormalizationLayer;
+import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.worksap.nlp.sudachi.Dictionary;
+import com.worksap.nlp.sudachi.DictionaryFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.util.ResourceUtils;
+import java.lang.StrictMath;
+import java.io.File;
+import java.io.IOException;
+
+@Configuration
+public class SudachiConfig {
+    @Bean(destroyMethod = "close")
+    public Dictionary sudachiDictionary() throws IOException {
+        File dictFile = ResourceUtils.getFile("classpath:system_core.dic");
+        String dictPath = dictFile.getAbsolutePath().replace("\\", "/");
+        String settings = "{\"systemDict\":\"" + dictPath + "\"}";
+        return new DictionaryFactory().create(settings);
+    }
+
+    @Bean
+    public JapaneseNlpService japaneseNlpService(Dictionary sudachiDictionary) {
+        return new JapaneseNlpService(sudachiDictionary);
+    }
+
+    @Bean
+    public TokenizerManager tokenizerManager(Dictionary sudachiDictionary) {
+        return new TokenizerManager(
+                sudachiDictionary, StrictMath.max(2, StrictMath.min(16, Runtime.getRuntime().availableProcessors())));
+    }
+
+    @Bean
+    public NormalizationLayer normalizationLayer(TokenizerManager tokenizerManager) {
+        return new NormalizationLayer(tokenizerManager);
+    }
+
+    @Bean
+    public GeoVisibilityCalculatorService geoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+        return new GeoVisibilityCalculatorService(tokenizerManager);
+    }
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/infrastructure/tenant/TenantContext.java">
 package com.geo.analytics.infrastructure.tenant;
 
@@ -13951,92 +13952,6 @@ public record JobStatusResponse(
             zm);
     }
 }
-</file>
-
-<file path="geo-analytics/.cursorrules">
-# GEO Analytics: Senior Architect & Lead Engineer Rules (v2026.04)
-
-あなたはシニアソリューションアーキテクト兼リードエンジニアです。
-Java 25 (LTS) と仮想スレッドを極限まで活用し、利益率 86.4% とデータ隔離 100% を両立する「GEOアナリティクス」を開発します。
-
-## 【技術スタック】
-- Backend: Java 25 (LTS), Spring Boot 3.5.13, LangChain4j 0.36.2, Playwright Java 1.48.0
-- Database (Hybrid): PostgreSQL 17 (SoT / RLS 隔離), Oracle 23ai (Vector Search / Duality Views)
-- Frontend: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
-- Security: WebAuthn (Passkeys), APPI 2026 (改正個人情報保護法) 準拠
-
-## 【アーキテクチャ厳守事項】
-
-### 1. 仮想スレッド時代のコンテキスト隔離 (Java 25 準拠)
-- 脱 ThreadLocal: 仮想スレッド環境でのメモリリークとデータ汚染を防ぐため ThreadLocal は絶対に使用しない。
-- ScopedValue (Carrier API): テナント情報の伝搬には ScopedValue を使用する。複数情報の伝搬は ScopedValue.where(K1, v1).where(K2, v2).run(() -> ...) の Carrier チェーン形式を徹底し、ゼロコピー伝搬を実現する。
-- DB層の隔離 (RLS): アプリケーション層の TenantContext と PostgreSQL の Row Level Security (RLS) を連動させ、物理レベルでの 100% 隔離を担保する。
-
-### 2. ハイブリッド・データベース戦略
-- PostgreSQL 17: 地理空間演算（PostGIS 相当）と基本データの SoT（真実のソース）として運用する。
-- Oracle 23ai: AI 拡張機能（ベクトル検索、JSON Relational Duality Views）に特化する。開発環境（dev）では 12GB 制限を考慮し、空間演算は Postgres に寄せるプロファイル制御を行う。
-- JSONB vs Duality: AI の生出力は Postgres の JSONB に保存する。高速レポート生成には Oracle の Duality Views をアダプター経由で利用する。
-
-### 3. 構造的並行処理 (Structured Concurrency) とキャリア防衛
-- StructuredTaskScope (Joiner API): Java 25 の StructuredTaskScope.open(Joiner.awaitAllSuccessfulOrThrow()) 等を使用し、サブタスクのライフサイクルを厳格に管理する。
-- parallelStream 禁止: 仮想スレッド環境下で Stream.parallel() や Arrays.parallelSort() を呼び出すと、共有の ForkJoinPool（キャリアスレッド）を食いつぶしシステム全体がスターベーション（枯渇）に陥るため絶対に使用を禁止する。並列化は StructuredTaskScope に一任するか、高速な処理は直列で行う。
-- Bucket4j レート制限: 外部API（SerpApi等）の呼び出しは、単純な Thread.sleep ではなく、Bucket4j と Semaphore を組み合わせたグローバルまたはテナント別のゲートで論理的な流量制限を行い、仮想スレッドの優位性を維持する。
-
-### 4. 数理エンジンの極限最適化 (Phase 8.5/10 指針)
-- 論理パディングの徹底: 通信エラー等によるデータ欠損時に、母集団を維持する目的で物理的なダミー行（オブジェクト）を生成して配列を水増しすることはゼロアロケーション違反につき厳禁。数理エンジンには常に「計画上の分母 (N_planned)」を引数として渡し、計算上の論理パディングでベイズ推定（小標本防衛）を正しく発動させる。
-- ゼロアロケーション: 企業名インデックスには int へのビットパッキング ((c1 << 16) | c2) とプリミティブ配列 (int[]) を使用し、オブジェクト生成を抹殺して O(1) 検索を実現する。
-- 数理的再現性 (StrictMath): スコア計算や丸め処理には標準の Math ではなく StrictMath を強制し、OSやCPUアーキテクチャに依存しない1ビットの狂いもない演算結果を保証する。
-
-### 5. AI 通信とストリーミング
-- 冪等性: Gemini/Batch API 等への全 POST には Idempotency-Key (UUID) を付与し、DB 行ロック (FOR UPDATE) と組み合わせて Exactly-once を担保する。
-- SSE 送信: SseEmitter.send() 前に ObjectMapper で JSON 文字列化を必須とし、completeWithError は使用禁止。エラーも JSON 形式のイベントとして送信する。
-
-### 6. 利益死守と品質保証 (Profit Guard & Gatekeeper)
-- Profit Guard: LLM コストが「単価 * 0.14」を超過するクエリに対し、動的にモデルをダウングレードする赤字阻止ロジックを徹底する。
-- Gatekeeper: SubscriptionIntegrationTest を自動門番とし、クォータ・429 回復・スレッド健全性を担保する。テストなしのコアロジック変更は厳禁とする。
-
-### 7. 日本語 NLP と労働錯覚 (NLP & UX)
-- 感情補正とスタッフィング防壁: 感情スコアのスケーリングには StrictMath を使用し、ブランド言及密度が閾値（例: 3%）を超えた場合はパラボラ型減衰関数を用いてスコアを減点するペナルティロジックを必ず配線する。
-- Labor Illusion: 長時間処理時は SseEmitter を通じて「専門的な解析プロセス」を視覚化し、ユーザーに労働の対価を実感させる。
-
-### 8. 性能限界突破と可観測性 (Performance & Observability)
-- 性能最優先: Phase 8.5/10 の数理エンジンでは、OOP よりもキャッシュ効率を優先。int[] 配列やビット演算を駆使し、メモリアロケーションをゼロに近づける。
-- スレッド監視: 仮想スレッドには必ずテナント識別子を含む名前を付与する。JFR や Micrometer でピン留め（Pinning）を監視し、スループットのサイレントな低下を許さない設計を徹底する。
-
-### 9. AI セキュリティと入力完全性 (Security & Integrity)
-- Prompt Sanitization: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とする。
-- API First: DTO は OpenAPI 3.1 仕様に準拠し、@NotNull や @Size 等の Jakarta Validation で入力境界を厳格に定義する。
-
-### 10. 実装の完全配線とレガシー排除 (Active Wiring & Purge)
-- Shadow Implementation 禁止: 新数理モデル（Ph 8.5/10等）実装時は、既存計算パス（Service/Aggregator等）を即座に新エンジンへ切り替え、旧ロジックを削除する。孤立したコード（孤児実装）は許容しない。
-- 数理の単一情報源 (SSOT): 統計計算やステージ判定には RobustAuditMathUtil または SomScoreCalculator の最新ロジックを強制使用する。GeoVisibility 内での独自 IQR 計算等の重複実装を厳禁とする。
-- ライブラリ回帰禁止: 名寄せ等で外部ライブラリ（Apache Commons等）を安易に使用せず、Ph 8.5 構築の「100% Pure Java」独自エンジンを最優先する。
-
-### 11. ヒープ衛生とバッファ再利用 (Heap Hygiene & Buffer Reuse)
-- ホットパスのアロケーション禁止: computeBatch や forEachBigram 等のタイトなループ内での new char[], new boolean[], StringBuilder, toString() を厳禁とする。
-- CharSequence 優先: 文字列生成を避けるため String への変換を最小化し、CharSequence を維持したまま処理する。
-- Buffer Pooling: 頻繁に使用する配列は ThreadLocal ではなくバッファプール等で再利用し、GC 発生を物理的に抑制する。
-
-### 12. 仮想スレッド・ピン留めガード (Anti-Pinning Guard)
-- synchronized 排除: キャリアスレッドは仮想スレッドのためだけに空けておく専用道路である。Sudachiの辞書生成やトークナイズ等のホットパスにおける synchronized ブロックを完全に排除し、ReentrantLock や Semaphore に置換してピン留めを防止する。
-- JNI ピン留め回避: ネイティブコード（C/C++）呼び出し時はJVMがスレッドの状態を退避できないため、キャリアスレッドを長時間占有する。必ず Semaphore で同時実行数を厳格に制御し、システム全体のフリーズを防ぐ。
-
-### 13. 数理モデルの「知能と統計」の分離 (ZIB / Spike-and-slab)
-- 決定論的優先 (Spike): AI が false と判定したデータは統計的補正をバイパスし、強制的に 0.0 とする。これを「論理的なゼロ」として統計モデル（Slab）から物理的に隔離する。
-- 不確実性の可視化: 小標本（N < 30）における点推定出力時は、事後分布に基づく「クレディブル区間（信頼区間）」を算出し、フロントエンドへ渡す。
-
-### 14. DTOとRecordの厳格なバケツリレー (Data Propagation)
-- Recordのヘッダ定義規則: Javaの record クラスにおいてJSONマッピングを行う場合、@JsonProperty は必ずヘッダ（コンストラクタ引数）に付与する。コンパクトコンストラクタ内でローカル変数を再定義・宣言することはコンパイルエラーやアクセサの消失に直結するため厳禁とする。
-- AIとNLPの境界: AI出力スキーマの幻覚（ハルシネーション）を防ぐため、文書長（TokenLength）や言及数（Mentions）などの確定的な物理量はAIに数えさせず、必ずバックエンドの100% Pure Java NLPエンジンが算出した値をDTOにバケツリレーする。
-
-## 【実装・出力要件】
-- コード内にコメントは一切記述しないこと。
-- 不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力すること。
-- Java Record: DTO や不変データモデルには積極的に Java 25 の record を活用すること。
-- 命名規則: 
-  - Java/TypeScript: camelCase
-  - Database/JSON: snake_case (JPA の @Column や Jackson の @JsonProperty で明示)
-- 例外処理: スタックトレースは 20,000 文字で切り詰め、DB に保存する。SLF4J (@Slf4j) を使用し、System.out.println や printStackTrace は厳禁とする。
 </file>
 
 <file path="geo-analytics/frontend/src/hooks/useJobNotification.ts">
@@ -14955,309 +14870,6 @@ public class AuditHistoryEntity extends BaseTenantEntity {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/InformationTheoryBasedAggregator.java">
-package com.geo.analytics.domain.service;
-
-import com.geo.analytics.application.dto.CompetitorResult;
-import com.geo.analytics.application.dto.VerificationRequest;
-import com.geo.analytics.application.dto.VerificationResponse;
-import com.geo.analytics.domain.enums.MatchStatus;
-import com.geo.analytics.domain.enums.ModelType;
-import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
-import com.geo.analytics.domain.matching.RobustAuditMathUtil;
-import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.model.SomRawMetrics;
-import org.springframework.stereotype.Component;
-
-import java.lang.StrictMath;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.SequencedMap;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-
-@Component
-public class InformationTheoryBasedAggregator {
-    public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
-    private static final BigDecimal HUNDRED = new BigDecimal("100.00");
-    private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
-    private static final Pattern LEGAL_ENTITY = Pattern.compile(
-            "^(株式会社|有限会社|合同会社|一般社団法人|財団法人)\\s*(.+)$|(.+?)\\s*(株式会社|有限会社|合同会社|一般社団法人|財団法人)$");
-    private final TokenizerManager tokenizerManager;
-
-    public InformationTheoryBasedAggregator(TokenizerManager tokenizerManager) {
-        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
-    }
-
-    public List<GeoVisibilityCalculatorService.GbvsResult> finalizeGbvsBatchForJob(
-            List<SomRawMetrics> rows,
-            double lAvgJob,
-            long plannedQueryCount) {
-        return SomScoreCalculator.computeBatchForJob(rows, lAvgJob, plannedQueryCount);
-    }
-
-    public VerificationResponse aggregate(List<VerificationResponse> successes, VerificationRequest request) {
-        if (successes == null || successes.isEmpty()) {
-            throw new AiAnalysisTimeoutException();
-        }
-        int sampleCount = successes.size();
-        var insights = new LinkedHashMap<ModelType, String>();
-        for (var v : successes) {
-            insights.put(v.modelType(), v.rawResponseJson());
-        }
-        SequencedMap<ModelType, String> insightView = Collections.unmodifiableSequencedMap(insights);
-        double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(request.url());
-        double sumBrandSignal = 0.0;
-        double sumAllBrands = 0.0;
-        for (var v : successes) {
-            double presence = Boolean.TRUE.equals(v.brandMentioned()) ? 1.0 : 0.0;
-            double sentiment = normalizeSentiment(v.sentimentIntensity());
-            double brandSignal = presence * sourceWeight * sentiment;
-            sumBrandSignal += brandSignal;
-            sumAllBrands += brandSignal;
-            for (var c : v.competitorResults()) {
-                if (c.matchStatus() == MatchStatus.NO_MATCH) {
-                    continue;
-                }
-                double cs = c.somScore() != null ? c.somScore() : 0.0;
-                sumAllBrands += clampD(cs / 100.0, 0.0, 1.0);
-            }
-        }
-        double finalSom = sumAllBrands > RobustAuditMathUtil.EPSILON
-                ? (sumBrandSignal / sumAllBrands) * 100.0
-                : 0.0;
-        finalSom = halfEven2(clampD(finalSom, 0.0, 100.0));
-        boolean brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
-        int sumMr = 0;
-        int sumRp = 0;
-        int sumTok = 0;
-        int sumOv = 0;
-        int sumVs = 0;
-        int countVs = 0;
-        double sumSi = 0.0;
-        double sumMz = 0.0;
-        int countMz = 0;
-        for (VerificationResponse v : successes) {
-            Integer mr = v.mentionRank();
-            if (mr != null) {
-                sumMr += mr;
-            }
-            sumRp += v.rankPosition();
-            sumTok += v.tokenCount();
-            Integer ov = v.overallScore();
-            if (ov != null) {
-                sumOv += ov;
-            }
-            sumSi += v.sentimentIntensity();
-            Integer vs = v.visibilityStage();
-            if (vs != null) {
-                sumVs += vs;
-                countVs++;
-            }
-            Double mz = v.modifiedZScore();
-            if (mz != null) {
-                sumMz += mz;
-                countMz++;
-            }
-        }
-        int avgMr = sumMr / sampleCount;
-        int avgRp = sumRp / sampleCount;
-        int avgTok = sumTok / sampleCount;
-        int avgOv = sumOv / sampleCount;
-        double avgSi = sumSi / (double) sampleCount;
-        var first = successes.getFirst();
-        Integer avgVs = countVs > 0 ? sumVs / countVs : first.visibilityStage();
-        Double avgMz = countMz > 0 ? sumMz / countMz : first.modifiedZScore();
-        Map<String, EntityAggregate> byEntity = successes.stream()
-                .flatMap(v -> v.competitorResults().stream()
-                        .filter(c -> c.matchStatus() != MatchStatus.NO_MATCH)
-                        .map(c -> BrandContrib.from(tokenizerManager, c)))
-                .collect(Collectors.groupingBy(
-                        BrandContrib::groupingKey,
-                        Collectors.collectingAndThen(Collectors.toList(), EntityAggregate::fromContribs)));
-        List<EntityAggregate> entities = byEntity.values().stream()
-                .sorted(Comparator.comparing(EntityAggregate::totalPoints, Comparator.reverseOrder())
-                        .thenComparing(EntityAggregate::canonicalLabel))
-                .toList();
-        int entityCount = entities.size();
-        int[] competitionRanks = new int[entityCount];
-        for (int i = 0; i < entityCount; i++) {
-            BigDecimal pi = entities.get(i).totalPoints();
-            int better = 0;
-            for (int j = 0; j < entityCount; j++) {
-                if (entities.get(j).totalPoints().compareTo(pi) > 0) {
-                    better++;
-                }
-            }
-            competitionRanks[i] = better + 1;
-        }
-        BigDecimal totalPoints = entities.stream()
-                .map(EntityAggregate::totalPoints)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        List<BigDecimal> somPercents = new ArrayList<>(entityCount);
-        if (totalPoints.compareTo(BigDecimal.ZERO) == 0) {
-            for (int i = 0; i < entityCount; i++) {
-                somPercents.add(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            }
-        } else {
-            for (int i = 0; i < entityCount; i++) {
-                somPercents.add(entities.get(i).totalPoints()
-                        .multiply(HUNDRED)
-                        .divide(totalPoints, 2, RoundingMode.HALF_UP));
-            }
-            BigDecimal sumPct = somPercents.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal drift = TARGET_TOTAL_PCT.subtract(sumPct);
-            if (drift.compareTo(BigDecimal.ZERO) != 0) {
-                int absorbIdx = 0;
-                for (int i = 1; i < entityCount; i++) {
-                    BigDecimal pi = entities.get(i).totalPoints();
-                    BigDecimal pa = entities.get(absorbIdx).totalPoints();
-                    int cmpPts = pi.compareTo(pa);
-                    if (cmpPts > 0) {
-                        absorbIdx = i;
-                    } else if (cmpPts == 0) {
-                        String a = entities.get(absorbIdx).canonicalLabel();
-                        String b = entities.get(i).canonicalLabel();
-                        if (a == null) {
-                            absorbIdx = i;
-                        } else if (b != null && b.compareTo(a) < 0) {
-                            absorbIdx = i;
-                        }
-                    }
-                }
-                somPercents.set(absorbIdx, somPercents.get(absorbIdx).add(drift));
-            }
-        }
-        List<CompetitorResult> merged = new ArrayList<>(entityCount);
-        for (int i = 0; i < entityCount; i++) {
-            EntityAggregate e = entities.get(i);
-            int rank = competitionRanks[i];
-            int stageRaw = StrictMath.subtractExact(11, rank);
-            int visStage = stageRaw < 1 ? 1 : (stageRaw > 10 ? 10 : stageRaw);
-            double somVal = somPercents.get(i).doubleValue();
-            long tm = e.totalMentions();
-            int nounAgg = tm > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) tm;
-            merged.add(new CompetitorResult(
-                    e.canonicalLabel(),
-                    halfEven2(clampD(somVal, 0.0, 100.0)),
-                    rank,
-                    visStage,
-                    e.aggregatedStatus(),
-                    nounAgg));
-        }
-        merged.sort(Comparator.comparing(
-                (CompetitorResult cr) -> cr.rankPosition() != null ? cr.rankPosition() : Integer.MAX_VALUE,
-                Comparator.naturalOrder())
-                .thenComparing(
-                        (CompetitorResult cr) -> cr.somScore() != null ? cr.somScore() : 0.0,
-                        Comparator.reverseOrder())
-                .thenComparing(CompetitorResult::competitorLabel, Comparator.nullsFirst(Comparator.naturalOrder())));
-        return new VerificationResponse(
-                first.modelType(),
-                first.rawResponseJson(),
-                finalSom,
-                brand,
-                avgMr,
-                avgOv,
-                avgTok,
-                avgRp,
-                avgSi,
-                first.resolvedEntityLabel(),
-                avgVs,
-                avgMz,
-                AGGREGATION_CALCULATION_VERSION,
-                List.copyOf(merged),
-                insightView);
-    }
-
-    public String pipeline(String input) {
-        if (input == null || input.isBlank()) {
-            return "";
-        }
-        String normalized = Normalizer.normalize(input.trim(), Normalizer.Form.NFKC);
-        normalized = normalized.toUpperCase(Locale.ROOT);
-        normalized = normalized.replaceAll("[\\p{Punct}\\s]+", "");
-        var m = LEGAL_ENTITY.matcher(normalized);
-        if (m.matches() && m.group(1) != null) {
-            var corp = m.group(1);
-            var rest = m.group(2);
-            if (rest != null) {
-                return rest + corp;
-            }
-        }
-        return normalized;
-    }
-
-    private static double normalizeSentiment(double sentimentIntensity) {
-        if (Double.isNaN(sentimentIntensity) || Double.isInfinite(sentimentIntensity)) {
-            return 1.0;
-        }
-        if (sentimentIntensity >= 0.5 && sentimentIntensity <= 1.5) {
-            return sentimentIntensity;
-        }
-        if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
-            return 1.0 + 0.5 * sentimentIntensity;
-        }
-        return clampD(sentimentIntensity, 0.5, 1.5);
-    }
-
-    private static double clampD(double v, double lo, double hi) {
-        return StrictMath.max(lo, StrictMath.min(hi, v));
-    }
-
-    private static double halfEven2(double value) {
-        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
-    }
-
-    private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {
-        static BrandContrib from(TokenizerManager tm, CompetitorResult c) {
-            String surface = c.competitorLabel() != null ? c.competitorLabel() : "";
-            List<String> tok = tm.tokenizeToNormalizedList(surface);
-            String gk = tok.isEmpty() ? surface : String.join("", tok);
-            double sc = c.somScore() != null ? c.somScore() : 0.0;
-            sc = clampD(sc, 0.0, 100.0);
-            long mentions = c.nounCount();
-            if (mentions < 0L) {
-                mentions = 0L;
-            }
-            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), mentions, c.matchStatus());
-        }
-    }
-
-    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus, long totalMentions) {
-        static EntityAggregate fromContribs(List<BrandContrib> rows) {
-            BigDecimal sumPts = rows.stream()
-                    .collect(Collectors.toMap(
-                            BrandContrib::surfaceLabel,
-                            BrandContrib::points,
-                            BigDecimal::add))
-                    .values().stream()
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            long sumMentions = rows.stream().mapToLong(BrandContrib::mentions).sum();
-            MatchStatus st = rows.stream().anyMatch(r -> r.status() == MatchStatus.MANUAL_REVIEW)
-                    ? MatchStatus.MANUAL_REVIEW
-                    : MatchStatus.AUTO_MATCH;
-            String canonical = rows.stream()
-                    .map(BrandContrib::surfaceLabel)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .min(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
-                    .orElse("");
-            return new EntityAggregate(canonical, sumPts, st, sumMentions);
-        }
-    }
-}
-</file>
-
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/SomScoreCalculator.java">
 package com.geo.analytics.domain.service;
 
@@ -15632,6 +15244,92 @@ public class GlobalExceptionHandler {
                 .body(problemDetail);
     }
 }
+</file>
+
+<file path="geo-analytics/.cursorrules">
+# GEO Analytics: Senior Architect & Lead Engineer Rules (v2026.04)
+
+あなたはシニアソリューションアーキテクト兼リードエンジニアです。
+Java 25 (LTS) と仮想スレッドを極限まで活用し、利益率 86.4% とデータ隔離 100% を両立する「GEOアナリティクス」を開発します。
+
+## 【技術スタック】
+- Backend: Java 25 (LTS), Spring Boot 3.5.13, LangChain4j 0.36.2, Playwright Java 1.48.0
+- Database (Hybrid): PostgreSQL 17 (SoT / RLS 隔離), Oracle 23ai (Vector Search / Duality Views)
+- Frontend: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
+- Security: WebAuthn (Passkeys), APPI 2026 (改正個人情報保護法) 準拠
+
+## 【アーキテクチャ厳守事項】
+
+### 1. 仮想スレッド時代のコンテキスト隔離 (Java 25 準拠)
+- 脱 ThreadLocal: 仮想スレッド環境でのメモリリークとデータ汚染を防ぐため ThreadLocal は絶対に使用しない。
+- ScopedValue (Carrier API): テナント情報の伝搬には ScopedValue を使用する。複数情報の伝搬は ScopedValue.where(K1, v1).where(K2, v2).run(() -> ...) の Carrier チェーン形式を徹底し、ゼロコピー伝搬を実現する。
+- DB層の隔離 (RLS): アプリケーション層の TenantContext と PostgreSQL の Row Level Security (RLS) を連動させ、物理レベルでの 100% 隔離を担保する。
+
+### 2. ハイブリッド・データベース戦略
+- PostgreSQL 17: 地理空間演算（PostGIS 相当）と基本データの SoT（真実のソース）として運用する。
+- Oracle 23ai: AI 拡張機能（ベクトル検索、JSON Relational Duality Views）に特化する。開発環境（dev）では 12GB 制限を考慮し、空間演算は Postgres に寄せるプロファイル制御を行う。
+- JSONB vs Duality: AI の生出力は Postgres の JSONB に保存する。高速レポート生成には Oracle の Duality Views をアダプター経由で利用する。
+
+### 3. 構造的並行処理 (Structured Concurrency) とキャリア防衛
+- StructuredTaskScope (Joiner API): Java 25 の StructuredTaskScope.open(Joiner.awaitAllSuccessfulOrThrow()) 等を使用し、サブタスクのライフサイクルを厳格に管理する。
+- parallelStream 禁止: 仮想スレッド環境下で Stream.parallel() や Arrays.parallelSort() を呼び出すと、共有の ForkJoinPool（キャリアスレッド）を食いつぶしシステム全体がスターベーション（枯渇）に陥るため絶対に使用を禁止する。並列化は StructuredTaskScope に一任するか、高速な処理は直列で行う。
+- Bucket4j レート制限: 外部API（SerpApi等）の呼び出しは、単純な Thread.sleep ではなく、Bucket4j と Semaphore を組み合わせたグローバルまたはテナント別のゲートで論理的な流量制限を行い、仮想スレッドの優位性を維持する。
+
+### 4. 数理エンジンの極限最適化 (Phase 8.5/10 指針)
+- 論理パディングの徹底: 通信エラー等によるデータ欠損時に、母集団を維持する目的で物理的なダミー行（オブジェクト）を生成して配列を水増しすることはゼロアロケーション違反につき厳禁。数理エンジンには常に「計画上の分母 (N_planned)」を引数として渡し、計算上の論理パディングでベイズ推定（小標本防衛）を正しく発動させる。
+- ゼロアロケーション: 企業名インデックスには int へのビットパッキング ((c1 << 16) | c2) とプリミティブ配列 (int[]) を使用し、オブジェクト生成を抹殺して O(1) 検索を実現する。
+- 数理的再現性 (StrictMath): スコア計算や丸め処理には標準の Math ではなく StrictMath を強制し、OSやCPUアーキテクチャに依存しない1ビットの狂いもない演算結果を保証する。
+
+### 5. AI 通信とストリーミング
+- 冪等性: Gemini/Batch API 等への全 POST には Idempotency-Key (UUID) を付与し、DB 行ロック (FOR UPDATE) と組み合わせて Exactly-once を担保する。
+- SSE 送信: SseEmitter.send() 前に ObjectMapper で JSON 文字列化を必須とし、completeWithError は使用禁止。エラーも JSON 形式のイベントとして送信する。
+
+### 6. 利益死守と品質保証 (Profit Guard & Gatekeeper)
+- Profit Guard: LLM コストが「単価 * 0.14」を超過するクエリに対し、動的にモデルをダウングレードする赤字阻止ロジックを徹底する。
+- Gatekeeper: SubscriptionIntegrationTest を自動門番とし、クォータ・429 回復・スレッド健全性を担保する。テストなしのコアロジック変更は厳禁とする。
+
+### 7. 日本語 NLP と労働錯覚 (NLP & UX)
+- 感情補正とスタッフィング防壁: 感情スコアのスケーリングには StrictMath を使用し、ブランド言及密度が閾値（例: 3%）を超えた場合はパラボラ型減衰関数を用いてスコアを減点するペナルティロジックを必ず配線する。
+- Labor Illusion: 長時間処理時は SseEmitter を通じて「専門的な解析プロセス」を視覚化し、ユーザーに労働の対価を実感させる。
+
+### 8. 性能限界突破と可観測性 (Performance & Observability)
+- 性能最優先: Phase 8.5/10 の数理エンジンでは、OOP よりもキャッシュ効率を優先。int[] 配列やビット演算を駆使し、メモリアロケーションをゼロに近づける。
+- スレッド監視: 仮想スレッドには必ずテナント識別子を含む名前を付与する。JFR や Micrometer でピン留め（Pinning）を監視し、スループットのサイレントな低下を許さない設計を徹底する。
+
+### 9. AI セキュリティと入力完全性 (Security & Integrity)
+- Prompt Sanitization: ユーザー入力は LLM に渡す前に必ずバリデートし、間接的プロンプト・インジェクションを防ぐため「デュアルLLMチェックパターン」を基本構成とする。
+- API First: DTO は OpenAPI 3.1 仕様に準拠し、@NotNull や @Size 等の Jakarta Validation で入力境界を厳格に定義する。
+
+### 10. 実装の完全配線とレガシー排除 (Active Wiring & Purge)
+- Shadow Implementation 禁止: 新数理モデル（Ph 8.5/10等）実装時は、既存計算パス（Service/Aggregator等）を即座に新エンジンへ切り替え、旧ロジックを削除する。孤立したコード（孤児実装）は許容しない。
+- 数理の単一情報源 (SSOT): 統計計算やステージ判定には RobustAuditMathUtil または SomScoreCalculator の最新ロジックを強制使用する。GeoVisibility 内での独自 IQR 計算等の重複実装を厳禁とする。
+- ライブラリ回帰禁止: 名寄せ等で外部ライブラリ（Apache Commons等）を安易に使用せず、Ph 8.5 構築の「100% Pure Java」独自エンジンを最優先する。
+
+### 11. ヒープ衛生とバッファ再利用 (Heap Hygiene & Buffer Reuse)
+- ホットパスのアロケーション禁止: computeBatch や forEachBigram 等のタイトなループ内での new char[], new boolean[], StringBuilder, toString() を厳禁とする。
+- CharSequence 優先: 文字列生成を避けるため String への変換を最小化し、CharSequence を維持したまま処理する。
+- Buffer Pooling: 頻繁に使用する配列は ThreadLocal ではなくバッファプール等で再利用し、GC 発生を物理的に抑制する。
+
+### 12. 仮想スレッド・ピン留めガード (Anti-Pinning Guard)
+- synchronized 排除: キャリアスレッドは仮想スレッドのためだけに空けておく専用道路である。Sudachiの辞書生成やトークナイズ等のホットパスにおける synchronized ブロックを完全に排除し、ReentrantLock や Semaphore に置換してピン留めを防止する。
+- JNI ピン留め回避: ネイティブコード（C/C++）呼び出し時はJVMがスレッドの状態を退避できないため、キャリアスレッドを長時間占有する。必ず Semaphore で同時実行数を厳格に制御し、システム全体のフリーズを防ぐ。
+
+### 13. 数理モデルの「知能と統計」の分離 (ZIB / Spike-and-slab)
+- 決定論的優先 (Spike): AI が false と判定したデータは統計的補正をバイパスし、強制的に 0.0 とする。これを「論理的なゼロ」として統計モデル（Slab）から物理的に隔離する。
+- 不確実性の可視化: 小標本（N < 30）における点推定出力時は、事後分布に基づく「クレディブル区間（信頼区間）」を算出し、フロントエンドへ渡す。
+
+### 14. DTOとRecordの厳格なバケツリレー (Data Propagation)
+- Recordのヘッダ定義規則: Javaの record クラスにおいてJSONマッピングを行う場合、@JsonProperty は必ずヘッダ（コンストラクタ引数）に付与する。コンパクトコンストラクタ内でローカル変数を再定義・宣言することはコンパイルエラーやアクセサの消失に直結するため厳禁とする。
+- AIとNLPの境界: AI出力スキーマの幻覚（ハルシネーション）を防ぐため、文書長（TokenLength）や言及数（Mentions）などの確定的な物理量はAIに数えさせず、必ずバックエンドの100% Pure Java NLPエンジンが算出した値をDTOにバケツリレーする。
+
+## 【実装・出力要件】
+- コード内にコメントは一切記述しないこと。
+- 不要な空白や改行を排除した、密度が高く読みやすいプロフェッショナルなコードを出力すること。
+- Java Record: DTO や不変データモデルには積極的に Java 25 の record を活用すること。
+- 命名規則: 
+  - Java/TypeScript: camelCase
+  - Database/JSON: snake_case (JPA の @Column や Jackson の @JsonProperty で明示)
+- 例外処理: スタックトレースは 20,000 文字で切り詰め、DB に保存する。SLF4J (@Slf4j) を使用し、System.out.println や printStackTrace は厳禁とする。
 </file>
 
 <file path="geo-analytics/frontend/src/pages/ReportPrintPage.tsx">
@@ -16122,418 +15820,306 @@ export default function ReportPrintPage(): JSX.Element {
 }
 </file>
 
-<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorService.java">
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/InformationTheoryBasedAggregator.java">
 package com.geo.analytics.domain.service;
 
+import com.geo.analytics.application.dto.CompetitorResult;
+import com.geo.analytics.application.dto.VerificationRequest;
+import com.geo.analytics.application.dto.VerificationResponse;
+import com.geo.analytics.domain.enums.MatchStatus;
+import com.geo.analytics.domain.enums.ModelType;
+import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import org.springframework.stereotype.Component;
+
 import java.lang.StrictMath;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
-import java.util.stream.IntStream;
+import java.util.SequencedMap;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE9_9_BIGRAM_STUFFING_V1";
-    public static final double BM25_K1 = 1.2;
-    public static final double BM25_B = 0.75;
-    private static final int BAYES_SAMPLE_THRESHOLD = 30;
-    private static final double SOURCE_WEIGHT_HIGH = 1.5;
-    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
-    private static final double SOURCE_WEIGHT_LOW = 0.3;
-    private static final double STUFFING_DENSITY_THRESHOLD = 0.03;
-    private static final double STUFFING_PENALTY_K = 400.0;
-
+@Component
+public class InformationTheoryBasedAggregator {
+    public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
+    private static final BigDecimal HUNDRED = new BigDecimal("100.00");
+    private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
+    private static final Pattern LEGAL_ENTITY = Pattern.compile(
+            "^(株式会社|有限会社|合同会社|一般社団法人|財団法人)\\s*(.+)$|(.+?)\\s*(株式会社|有限会社|合同会社|一般社団法人|財団法人)$");
     private final TokenizerManager tokenizerManager;
 
-    public GeoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+    public InformationTheoryBasedAggregator(TokenizerManager tokenizerManager) {
         this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
     }
 
-    public List<String> tokenizeResponseForMentions(String text) {
-        return tokenizerManager.tokenizeToNormalizedList(text);
+    public List<GeoVisibilityCalculatorService.GbvsResult> finalizeGbvsBatchForJob(
+            List<SomRawMetrics> rows,
+            double lAvgJob,
+            long plannedQueryCount) {
+        return SomScoreCalculator.computeBatchForJob(rows, lAvgJob, plannedQueryCount);
     }
 
-    public int countNormalizedMentions(List<String> responseTokens, List<String> keywords) {
-        if (keywords == null || keywords.isEmpty()) {
-            return 0;
+    public VerificationResponse aggregate(List<VerificationResponse> successes, VerificationRequest request) {
+        if (successes == null || successes.isEmpty()) {
+            throw new AiAnalysisTimeoutException();
         }
-        StringBuilder sb = new StringBuilder(
-                StrictMath.max(16, responseTokens.size() * 8 + responseTokens.size() + 2));
-        appendWrappedTokens(sb, responseTokens);
-        String hay = sb.toString();
-
-        List<String> needleStrs = new ArrayList<>();
-        for (String kw : keywords) {
-            if (kw == null || kw.isBlank()) {
-                continue;
+        int sampleCount = successes.size();
+        var insights = new LinkedHashMap<ModelType, String>();
+        for (var v : successes) {
+            insights.put(v.modelType(), v.rawResponseJson());
+        }
+        SequencedMap<ModelType, String> insightView = Collections.unmodifiableSequencedMap(insights);
+        double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(request.url());
+        double sumBrandSignal = 0.0;
+        double sumAllBrands = 0.0;
+        for (var v : successes) {
+            double presence = Boolean.TRUE.equals(v.brandMentioned()) ? 1.0 : 0.0;
+            double sentiment = normalizeSentiment(v.sentimentIntensity());
+            double brandSignal = presence * sourceWeight * sentiment;
+            sumBrandSignal += brandSignal;
+            sumAllBrands += brandSignal;
+            for (var c : v.competitorResults()) {
+                if (c.matchStatus() == MatchStatus.NO_MATCH) {
+                    continue;
+                }
+                double cs = c.somScore() != null ? c.somScore() : 0.0;
+                sumAllBrands += clampD(cs / 100.0, 0.0, 1.0);
             }
-            List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
-            if (seq.isEmpty()) {
-                continue;
+        }
+        double finalSom = sumAllBrands > RobustAuditMathUtil.EPSILON
+                ? (sumBrandSignal / sumAllBrands) * 100.0
+                : 0.0;
+        finalSom = halfEven2(clampD(finalSom, 0.0, 100.0));
+        boolean brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
+        int sumMr = 0;
+        int sumRp = 0;
+        int sumTok = 0;
+        int sumOv = 0;
+        int sumVs = 0;
+        int countVs = 0;
+        double sumSi = 0.0;
+        double sumMz = 0.0;
+        int countMz = 0;
+        for (VerificationResponse v : successes) {
+            Integer mr = v.mentionRank();
+            if (mr != null) {
+                sumMr += mr;
             }
-            sb.setLength(0);
-            appendWrappedTokens(sb, seq);
-            needleStrs.add(sb.toString());
+            sumRp += v.rankPosition();
+            sumTok += v.tokenCount();
+            Integer ov = v.overallScore();
+            if (ov != null) {
+                sumOv += ov;
+            }
+            sumSi += v.sentimentIntensity();
+            Integer vs = v.visibilityStage();
+            if (vs != null) {
+                sumVs += vs;
+                countVs++;
+            }
+            Double mz = v.modifiedZScore();
+            if (mz != null) {
+                sumMz += mz;
+                countMz++;
+            }
         }
-        if (needleStrs.isEmpty()) {
-            return 0;
+        int avgMr = sumMr / sampleCount;
+        int avgRp = sumRp / sampleCount;
+        int avgTok = sumTok / sampleCount;
+        int avgOv = sumOv / sampleCount;
+        double avgSi = sumSi / (double) sampleCount;
+        var first = successes.getFirst();
+        Integer avgVs = countVs > 0 ? sumVs / countVs : first.visibilityStage();
+        Double avgMz = countMz > 0 ? sumMz / countMz : first.modifiedZScore();
+        Map<String, EntityAggregate> byEntity = successes.stream()
+                .flatMap(v -> v.competitorResults().stream()
+                        .filter(c -> c.matchStatus() != MatchStatus.NO_MATCH)
+                        .map(c -> BrandContrib.from(tokenizerManager, c)))
+                .collect(Collectors.groupingBy(
+                        BrandContrib::groupingKey,
+                        Collectors.collectingAndThen(Collectors.toList(), EntityAggregate::fromContribs)));
+        List<EntityAggregate> entities = byEntity.values().stream()
+                .sorted(Comparator.comparing(EntityAggregate::totalPoints, Comparator.reverseOrder())
+                        .thenComparing(EntityAggregate::canonicalLabel))
+                .toList();
+        int entityCount = entities.size();
+        int[] competitionRanks = new int[entityCount];
+        for (int i = 0; i < entityCount; i++) {
+            BigDecimal pi = entities.get(i).totalPoints();
+            int better = 0;
+            for (int j = 0; j < entityCount; j++) {
+                if (entities.get(j).totalPoints().compareTo(pi) > 0) {
+                    better++;
+                }
+            }
+            competitionRanks[i] = better + 1;
         }
-
-        int[] patWork = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-        int[] failBuf = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-
-        int mentions = 0;
-        int charFrom = 0;
-        while (charFrom < hay.length()) {
-            int best = -1;
-            int bestLen = 0;
-            for (String needle : needleStrs) {
-                int found;
-                if (needle.length() < 2) {
-                    found = hay.indexOf(needle, charFrom);
-                } else {
-                    int nk = ZeroAllocationTokenizer.fillPackedBigrams(needle, patWork, patWork.length);
-                    if (nk <= 0) {
-                        found = hay.indexOf(needle, charFrom);
-                    } else {
-                        int start = StrictMath.min(charFrom, StrictMath.max(0, hay.length() - 2));
-                        found = ZeroAllocationTokenizer.kmpFirstPackedBigramMatch(hay, start, patWork, nk, failBuf);
-                        if (found >= 0 && !hay.regionMatches(found, needle, 0, needle.length())) {
-                            found = hay.indexOf(needle, charFrom);
+        BigDecimal totalPoints = entities.stream()
+                .map(EntityAggregate::totalPoints)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<BigDecimal> somPercents = new ArrayList<>(entityCount);
+        if (totalPoints.compareTo(BigDecimal.ZERO) == 0) {
+            for (int i = 0; i < entityCount; i++) {
+                somPercents.add(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            }
+        } else {
+            for (int i = 0; i < entityCount; i++) {
+                somPercents.add(entities.get(i).totalPoints()
+                        .multiply(HUNDRED)
+                        .divide(totalPoints, 2, RoundingMode.HALF_UP));
+            }
+            BigDecimal sumPct = somPercents.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal drift = TARGET_TOTAL_PCT.subtract(sumPct);
+            if (drift.compareTo(BigDecimal.ZERO) != 0) {
+                int absorbIdx = 0;
+                for (int i = 1; i < entityCount; i++) {
+                    BigDecimal pi = entities.get(i).totalPoints();
+                    BigDecimal pa = entities.get(absorbIdx).totalPoints();
+                    int cmpPts = pi.compareTo(pa);
+                    if (cmpPts > 0) {
+                        absorbIdx = i;
+                    } else if (cmpPts == 0) {
+                        String a = entities.get(absorbIdx).canonicalLabel();
+                        String b = entities.get(i).canonicalLabel();
+                        if (a == null) {
+                            absorbIdx = i;
+                        } else if (b != null && b.compareTo(a) < 0) {
+                            absorbIdx = i;
                         }
                     }
                 }
-                if (found >= 0
-                        && found >= charFrom
-                        && (best < 0
-                                || found < best
-                                || (found == best && needle.length() > bestLen))) {
-                    best = found;
-                    bestLen = needle.length();
-                }
+                somPercents.set(absorbIdx, somPercents.get(absorbIdx).add(drift));
             }
-            if (best < 0) {
-                break;
-            }
-            mentions++;
-            charFrom = best + bestLen;
         }
-        return mentions;
+        List<CompetitorResult> merged = new ArrayList<>(entityCount);
+        for (int i = 0; i < entityCount; i++) {
+            EntityAggregate e = entities.get(i);
+            int rank = competitionRanks[i];
+            int stageRaw = StrictMath.subtractExact(11, rank);
+            int visStage = stageRaw < 1 ? 1 : (stageRaw > 10 ? 10 : stageRaw);
+            double somVal = somPercents.get(i).doubleValue();
+            long tm = e.totalMentions();
+            int nounAgg = tm > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) tm;
+            merged.add(new CompetitorResult(
+                    e.canonicalLabel(),
+                    halfEven2(clampD(somVal, 0.0, 100.0)),
+                    rank,
+                    visStage,
+                    e.aggregatedStatus(),
+                    nounAgg));
+        }
+        merged.sort(Comparator.comparing(
+                (CompetitorResult cr) -> cr.rankPosition() != null ? cr.rankPosition() : Integer.MAX_VALUE,
+                Comparator.naturalOrder())
+                .thenComparing(
+                        (CompetitorResult cr) -> cr.somScore() != null ? cr.somScore() : 0.0,
+                        Comparator.reverseOrder())
+                .thenComparing(CompetitorResult::competitorLabel, Comparator.nullsFirst(Comparator.naturalOrder())));
+        return new VerificationResponse(
+                first.modelType(),
+                first.rawResponseJson(),
+                finalSom,
+                brand,
+                avgMr,
+                avgOv,
+                avgTok,
+                avgRp,
+                avgSi,
+                first.resolvedEntityLabel(),
+                avgVs,
+                avgMz,
+                AGGREGATION_CALCULATION_VERSION,
+                List.copyOf(merged),
+                insightView);
     }
 
-    private static void appendWrappedTokens(StringBuilder sb, List<String> tokens) {
-        sb.append('\u0001');
-        for (int i = 0; i < tokens.size(); i++) {
-            if (i > 0) {
-                sb.append('\u0001');
-            }
-            sb.append(tokens.get(i));
+    public String pipeline(String input) {
+        if (input == null || input.isBlank()) {
+            return "";
         }
-        sb.append('\u0001');
-    }
-
-    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
-        if (primary != null && !primary.isBlank()) {
-            return Arrays.stream(primary.split("[,、]"))
-                    .map(String::trim)
-                    .filter(s -> !s.isBlank())
-                    .toList();
-        }
-        if (fallback != null && !fallback.isBlank()) {
-            return List.of(fallback.strip());
-        }
-        return List.of();
-    }
-
-    public static double bm25Score(double idf, double termFreq, double docLength, double avgDocLength) {
-        double lAvg = StrictMath.max(RobustAuditMathUtil.EPSILON, avgDocLength);
-        double d = StrictMath.max(RobustAuditMathUtil.EPSILON, docLength);
-        double f = StrictMath.max(0.0, termFreq);
-        double ratio = d / lAvg;
-        double inner = StrictMath.fma(BM25_B, ratio, 1.0 - BM25_B);
-        double denom = StrictMath.fma(BM25_K1, inner, f);
-        denom = StrictMath.max(RobustAuditMathUtil.EPSILON, denom);
-        double num = StrictMath.fma(idf, StrictMath.fma(f, BM25_K1 + 1.0, 0.0), 0.0);
-        return num / denom;
-    }
-
-    public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
-        return computeBatch(List.of(metrics), lAvgJob).getFirst();
-    }
-
-    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob) {
-        return computeBatch(rows, lAvgJob, rows.size());
-    }
-
-    public static List<GbvsResult> computeBatch(
-            List<SomRawMetrics> rows,
-            double lAvgJob,
-            int bayesSampleCardinality) {
-        int n = rows.size();
-        if (n == 0) {
-            return List.of();
-        }
-        int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
-        int df = 0;
-        for (SomRawMetrics r : rows) {
-            if (r.isSemanticallyMentioned() && (r.nounCount() > 0 || r.rankPosition() > 0)) {
-                df++;
+        String normalized = Normalizer.normalize(input.trim(), Normalizer.Form.NFKC);
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        normalized = normalized.replaceAll("[\\p{Punct}\\s]+", "");
+        var m = LEGAL_ENTITY.matcher(normalized);
+        if (m.matches() && m.group(1) != null) {
+            var corp = m.group(1);
+            var rest = m.group(2);
+            if (rest != null) {
+                return rest + corp;
             }
         }
-        double idf = bm25Idf(bayesSampleCardinality, df);
-        double sumLen = 0.0;
-        for (SomRawMetrics r : rows) {
-            sumLen = StrictMath.fma(StrictMath.max(0, r.responseTokenLength()), 1.0, sumLen);
-        }
-        double lAvgUse = lAvgJob > RobustAuditMathUtil.EPSILON
-                ? lAvgJob
-                : StrictMath.max(RobustAuditMathUtil.EPSILON, sumLen / StrictMath.max(1, n));
-        double[] raw = new double[n];
-        final double idfF = idf;
-        final double lAvgF = lAvgUse;
-        IntStream.range(0, n).forEach(i -> raw[i] = weightedSom(rows.get(i), lAvgF, idfF));
-        double[] work = new double[n];
-        if (n < BAYES_SAMPLE_THRESHOLD) {
-            applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
-        } else {
-            System.arraycopy(raw, 0, work, 0, n);
-        }
-        sanitizeWorkForRobustStatistics(work);
-        double[] zScores = RobustAuditMathUtil.modifiedZScores(work);
-        if (n == 1) {
-            double pct = StrictMath.fma(clamp01(work[0]), 100.0, 0.0);
-            return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
-        }
-        double[] sorted = Arrays.copyOf(work, n);
-        Arrays.sort(sorted);
-        double minR = sorted[0];
-        double maxR = sorted[n - 1];
-        GbvsResult[] out = new GbvsResult[n];
-        IntStream.range(0, n).forEach(i -> {
-            double z = zScores[i];
-            int stage = stageFromModifiedZ(z);
-            double span = StrictMath.fma(maxR, 1.0, -minR);
-            double pct = span > RobustAuditMathUtil.EPSILON
-                    ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
-                    : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
-            out[i] = new GbvsResult(clampPercent(pct), stage, z);
-        });
-        return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
+        return normalized;
     }
 
-    private static double bm25Idf(int corpusN, int docFreq) {
-        double nn = StrictMath.max(1.0, (double) corpusN);
-        double ddf = StrictMath.max(0.0, (double) docFreq);
-        double ratio = StrictMath.fma(nn, 1.0, -ddf + 0.5) / StrictMath.max(RobustAuditMathUtil.EPSILON, ddf + 0.5);
-        return StrictMath.log(StrictMath.max(RobustAuditMathUtil.EPSILON, ratio));
-    }
-
-    private static void sanitizeWorkForRobustStatistics(double[] work) {
-        for (int i = 0; i < work.length; i++) {
-            if (!Double.isFinite(work[i])) {
-                work[i] = 0.0;
-            }
-        }
-    }
-
-    private static void applySmallSampleBetaPipeline(
-            List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
-        int mentionedCount = 0;
-        double sum = 0.0;
-        for (int i = 0; i < n; i++) {
-            if (rows.get(i).isSemanticallyMentioned()) {
-                mentionedCount++;
-                sum = StrictMath.fma(raw[i], 1.0, sum);
-            }
-        }
-        if (mentionedCount == 0) {
-            Arrays.fill(work, 0.0);
-            return;
-        }
-        double m = sum / (double) mentionedCount;
-        double v;
-        if (mentionedCount < 2) {
-            v = StrictMath.fma(m, 1.0 - m, 0.0) / (double) StrictMath.max(1, blendN);
-        } else {
-            double ss = 0.0;
-            for (int i = 0; i < n; i++) {
-                if (rows.get(i).isSemanticallyMentioned()) {
-                    double d = StrictMath.fma(raw[i], 1.0, -m);
-                    ss = StrictMath.fma(d, d, ss);
-                }
-            }
-            v = ss / (double) (mentionedCount - 1);
-        }
-        double[] ab = RobustAuditMathUtil.betaMomentAlphaBeta(m, v);
-        double alpha = ab[0];
-        double beta = ab[1];
-        double nn = (double) blendN;
-        for (int i = 0; i < n; i++) {
-            if (!rows.get(i).isSemanticallyMentioned()) {
-                work[i] = 0.0;
-                continue;
-            }
-            double kEff = RobustAuditMathUtil.softwareFtzFlush(
-                    StrictMath.min(nn, StrictMath.max(0.0, StrictMath.fma(raw[i], nn, 0.0))));
-            work[i] = RobustAuditMathUtil.betaBinomialPosteriorMean(kEff, nn, alpha, beta);
-        }
-    }
-
-    public static double sourceWeightFromUrl(String url) {
-        if (url == null || url.isBlank()) {
-            return SOURCE_WEIGHT_LOW;
-        }
-        var normalized = url.strip().toLowerCase();
-        if (!normalized.contains("://")) {
-            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        }
-        try {
-            var host = java.net.URI.create(normalized).getHost();
-            if (host == null || host.isBlank()) {
-                return SOURCE_WEIGHT_LOW;
-            }
-            var h = host.toLowerCase();
-            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        } catch (Exception ignored) {
-            return SOURCE_WEIGHT_LOW;
-        }
-    }
-
-    private static double weightedSom(SomRawMetrics metrics, double lAvgJob, double idf) {
-        if (!metrics.isSemanticallyMentioned()) {
-            return 0.0;
-        }
-        int f = StrictMath.max(0, metrics.nounCount());
-        int rank = metrics.rankPosition();
-        int total = StrictMath.max(0, metrics.responseTokenLength());
-        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
-        double sourceWeight = metrics.sourceWeight() > RobustAuditMathUtil.EPSILON
-                ? metrics.sourceWeight()
-                : SOURCE_WEIGHT_LOW;
-        double sentiment = sentimentWeight(metrics.sentimentIntensity());
-        double fTok = StrictMath.max(0.0, (double) f);
-        if (presence > 0 && fTok < RobustAuditMathUtil.EPSILON && rank > 0) {
-            fTok = 1.0;
-        }
-        double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
-        double bm25 = bm25Score(idf, fTok, docLen, lAvgJob);
-        double density = metrics.stuffingDensity();
-        if (Double.isNaN(density) || Double.isInfinite(density) || density < 0.0) {
-            density = 0.0;
-        }
-        double excess = StrictMath.max(0.0, density - STUFFING_DENSITY_THRESHOLD);
-        double stuffingPenalty =
-                1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
-        stuffingPenalty = clamp(stuffingPenalty, 0.0, 1.0);
-        double brandSignal = presence * sourceWeight * sentiment * bm25 * stuffingPenalty;
-        double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
-        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
-        double denom = brandSignal + otherSignal;
-        if (denom <= RobustAuditMathUtil.EPSILON) {
-            return 0.0;
-        }
-        return clamp01(brandSignal / denom);
-    }
-
-    private static double sentimentWeight(double sentimentScore) {
-        if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
+    private static double normalizeSentiment(double sentimentIntensity) {
+        if (Double.isNaN(sentimentIntensity) || Double.isInfinite(sentimentIntensity)) {
             return 1.0;
         }
-        if (sentimentScore < 0.5) {
-            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
-                return StrictMath.fma(0.5, sentimentScore, 1.0);
-            }
+        if (sentimentIntensity >= 0.5 && sentimentIntensity <= 1.5) {
+            return sentimentIntensity;
         }
-        return clamp(sentimentScore, 0.5, 1.5);
-    }
-
-    private static double clamp01(double v) {
-        return clamp(v, 0.0, 1.0);
-    }
-
-    private static double clampPercent(double v) {
-        return clamp(v, 0.0, 100.0);
-    }
-
-    private static double clamp(double v, double lo, double hi) {
-        if (Double.isNaN(v) || Double.isInfinite(v)) {
-            return lo;
+        if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
+            return 1.0 + 0.5 * sentimentIntensity;
         }
+        return clampD(sentimentIntensity, 0.5, 1.5);
+    }
+
+    private static double clampD(double v, double lo, double hi) {
         return StrictMath.max(lo, StrictMath.min(hi, v));
     }
 
-    private static int stageFromScorePercent(double pct) {
-        int inner;
-        if (pct >= 90.0) {
-            inner = 10;
-        } else if (pct >= 80.0) {
-            inner = 9;
-        } else if (pct >= 70.0) {
-            inner = 8;
-        } else if (pct >= 60.0) {
-            inner = 7;
-        } else if (pct >= 50.0) {
-            inner = 6;
-        } else if (pct >= 40.0) {
-            inner = 5;
-        } else if (pct >= 30.0) {
-            inner = 4;
-        } else if (pct >= 20.0) {
-            inner = 3;
-        } else if (pct >= 10.0) {
-            inner = 2;
-        } else {
-            inner = 1;
-        }
-        return StrictMath.subtractExact(11, inner);
+    private static double halfEven2(double value) {
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
     }
 
-    private static int stageFromModifiedZ(double z) {
-        if (Double.isNaN(z) || Double.isInfinite(z)) {
-            return 6;
+    private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {
+        static BrandContrib from(TokenizerManager tm, CompetitorResult c) {
+            String surface = c.competitorLabel() != null ? c.competitorLabel() : "";
+            List<String> tok = tm.tokenizeToNormalizedList(surface);
+            String gk = tok.isEmpty() ? surface : String.join("", tok);
+            double sc = c.somScore() != null ? c.somScore() : 0.0;
+            sc = clampD(sc, 0.0, 100.0);
+            long mentions = c.nounCount();
+            if (mentions < 0L) {
+                mentions = 0L;
+            }
+            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), mentions, c.matchStatus());
         }
-        int inner;
-        if (z >= 3.0) {
-            inner = 10;
-        } else if (z <= -3.0) {
-            inner = 1;
-        } else if (z >= 2.25) {
-            inner = 9;
-        } else if (z >= 1.5) {
-            inner = 8;
-        } else if (z >= 0.75) {
-            inner = 7;
-        } else if (z >= 0.0) {
-            inner = 6;
-        } else if (z >= -0.75) {
-            inner = 5;
-        } else if (z >= -1.5) {
-            inner = 4;
-        } else if (z >= -2.25) {
-            inner = 3;
-        } else {
-            inner = 2;
-        }
-        return StrictMath.subtractExact(11, inner);
     }
 
-    public record GbvsResult(double scorePercent, int visibilityStage, double modifiedZScore) {}
+    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus, long totalMentions) {
+        static EntityAggregate fromContribs(List<BrandContrib> rows) {
+            BigDecimal sumPts = rows.stream()
+                    .collect(Collectors.toMap(
+                            BrandContrib::surfaceLabel,
+                            BrandContrib::points,
+                            BigDecimal::add))
+                    .values().stream()
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            long sumMentions = rows.stream().mapToLong(BrandContrib::mentions).sum();
+            MatchStatus st = rows.stream().anyMatch(r -> r.status() == MatchStatus.MANUAL_REVIEW)
+                    ? MatchStatus.MANUAL_REVIEW
+                    : MatchStatus.AUTO_MATCH;
+            String canonical = rows.stream()
+                    .map(BrandContrib::surfaceLabel)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .min(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
+                    .orElse("");
+            return new EntityAggregate(canonical, sumPts, st, sumMentions);
+        }
+    }
 }
 </file>
 
@@ -18300,6 +17886,421 @@ public class SyncVerificationService {
 }
 </file>
 
+<file path="geo-analytics/src/main/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorService.java">
+package com.geo.analytics.domain.service;
+
+import com.geo.analytics.domain.matching.RobustAuditMathUtil;
+import com.geo.analytics.domain.matching.TokenizerManager;
+import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
+import com.geo.analytics.domain.model.SomRawMetrics;
+import java.lang.StrictMath;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.IntStream;
+
+public final class GeoVisibilityCalculatorService {
+    public static final String CALCULATION_VERSION = "PHASE9_9_BIGRAM_STUFFING_V1";
+    public static final double BM25_K1 = 1.2;
+    public static final double BM25_B = 0.75;
+    private static final int BAYES_SAMPLE_THRESHOLD = 30;
+    private static final double SOURCE_WEIGHT_HIGH = 1.5;
+    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
+    private static final double SOURCE_WEIGHT_LOW = 0.3;
+    private static final double STUFFING_DENSITY_THRESHOLD = 0.03;
+    private static final double STUFFING_PENALTY_K = 400.0;
+
+    private final TokenizerManager tokenizerManager;
+
+    public GeoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
+        this.tokenizerManager = Objects.requireNonNull(tokenizerManager);
+    }
+
+    public List<String> tokenizeResponseForMentions(String text) {
+        return tokenizerManager.tokenizeToNormalizedList(text);
+    }
+
+    public int countNormalizedMentions(List<String> responseTokens, List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder(
+                StrictMath.max(16, responseTokens.size() * 8 + responseTokens.size() + 2));
+        appendWrappedTokens(sb, responseTokens);
+        String hay = sb.toString();
+
+        List<String> needleStrs = new ArrayList<>();
+        for (String kw : keywords) {
+            if (kw == null || kw.isBlank()) {
+                continue;
+            }
+            List<String> seq = tokenizerManager.tokenizeToNormalizedList(kw.strip());
+            if (seq.isEmpty()) {
+                continue;
+            }
+            sb.setLength(0);
+            appendWrappedTokens(sb, seq);
+            needleStrs.add(sb.toString());
+        }
+        if (needleStrs.isEmpty()) {
+            return 0;
+        }
+
+        int[] patWork = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+        int[] failBuf = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
+
+        int mentions = 0;
+        int charFrom = 0;
+        while (charFrom < hay.length()) {
+            int best = -1;
+            int bestLen = 0;
+            for (String needle : needleStrs) {
+                int found;
+                if (needle.length() < 2) {
+                    found = hay.indexOf(needle, charFrom);
+                } else {
+                    int nk = ZeroAllocationTokenizer.fillPackedBigrams(needle, patWork, patWork.length);
+                    if (nk <= 0) {
+                        found = hay.indexOf(needle, charFrom);
+                    } else {
+                        int start = StrictMath.min(charFrom, StrictMath.max(0, hay.length() - 2));
+                        found = ZeroAllocationTokenizer.kmpFirstPackedBigramMatch(hay, start, patWork, nk, failBuf);
+                        if (found >= 0 && !hay.regionMatches(found, needle, 0, needle.length())) {
+                            found = hay.indexOf(needle, charFrom);
+                        }
+                    }
+                }
+                if (found >= 0
+                        && found >= charFrom
+                        && (best < 0
+                                || found < best
+                                || (found == best && needle.length() > bestLen))) {
+                    best = found;
+                    bestLen = needle.length();
+                }
+            }
+            if (best < 0) {
+                break;
+            }
+            mentions++;
+            charFrom = best + bestLen;
+        }
+        return mentions;
+    }
+
+    private static void appendWrappedTokens(StringBuilder sb, List<String> tokens) {
+        sb.append('\u0001');
+        for (int i = 0; i < tokens.size(); i++) {
+            if (i > 0) {
+                sb.append('\u0001');
+            }
+            sb.append(tokens.get(i));
+        }
+        sb.append('\u0001');
+    }
+
+    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return Arrays.stream(primary.split("[,、]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .toList();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return List.of(fallback.strip());
+        }
+        return List.of();
+    }
+
+    public static double bm25Score(double idf, double termFreq, double docLength, double avgDocLength) {
+        double lAvg = StrictMath.max(RobustAuditMathUtil.EPSILON, avgDocLength);
+        double d = StrictMath.max(RobustAuditMathUtil.EPSILON, docLength);
+        double f = StrictMath.max(0.0, termFreq);
+        double ratio = d / lAvg;
+        double inner = StrictMath.fma(BM25_B, ratio, 1.0 - BM25_B);
+        double denom = StrictMath.fma(BM25_K1, inner, f);
+        denom = StrictMath.max(RobustAuditMathUtil.EPSILON, denom);
+        double num = StrictMath.fma(idf, StrictMath.fma(f, BM25_K1 + 1.0, 0.0), 0.0);
+        return num / denom;
+    }
+
+    public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
+        return computeBatch(List.of(metrics), lAvgJob).getFirst();
+    }
+
+    public static List<GbvsResult> computeBatch(List<SomRawMetrics> rows, double lAvgJob) {
+        return computeBatch(rows, lAvgJob, rows.size());
+    }
+
+    public static List<GbvsResult> computeBatch(
+            List<SomRawMetrics> rows,
+            double lAvgJob,
+            int bayesSampleCardinality) {
+        int n = rows.size();
+        if (n == 0) {
+            return List.of();
+        }
+        int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
+        int df = 0;
+        for (SomRawMetrics r : rows) {
+            if (r.isSemanticallyMentioned() && (r.nounCount() > 0 || r.rankPosition() > 0)) {
+                df++;
+            }
+        }
+        double idf = bm25Idf(bayesSampleCardinality, df);
+        double sumLen = 0.0;
+        for (SomRawMetrics r : rows) {
+            sumLen = StrictMath.fma(StrictMath.max(0, r.responseTokenLength()), 1.0, sumLen);
+        }
+        double lAvgUse = lAvgJob > RobustAuditMathUtil.EPSILON
+                ? lAvgJob
+                : StrictMath.max(RobustAuditMathUtil.EPSILON, sumLen / StrictMath.max(1, n));
+        double[] raw = new double[n];
+        final double idfF = idf;
+        final double lAvgF = lAvgUse;
+        IntStream.range(0, n).forEach(i -> raw[i] = weightedSom(rows.get(i), lAvgF, idfF));
+        double[] work = new double[n];
+        if (n < BAYES_SAMPLE_THRESHOLD) {
+            applySmallSampleBetaPipeline(rows, raw, blendN, n, work);
+        } else {
+            System.arraycopy(raw, 0, work, 0, n);
+        }
+        sanitizeWorkForRobustStatistics(work);
+        double[] zScores = RobustAuditMathUtil.modifiedZScores(work);
+        if (n == 1) {
+            double pct = StrictMath.fma(clamp01(work[0]), 100.0, 0.0);
+            return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
+        }
+        double[] sorted = Arrays.copyOf(work, n);
+        Arrays.sort(sorted);
+        double minR = sorted[0];
+        double maxR = sorted[n - 1];
+        GbvsResult[] out = new GbvsResult[n];
+        IntStream.range(0, n).forEach(i -> {
+            double z = zScores[i];
+            int stage = stageFromModifiedZ(z);
+            double span = StrictMath.fma(maxR, 1.0, -minR);
+            double pct = span > RobustAuditMathUtil.EPSILON
+                    ? StrictMath.fma(100.0, (work[i] - minR) / span, 0.0)
+                    : StrictMath.fma(clamp01(work[i]), 100.0, 0.0);
+            out[i] = new GbvsResult(clampPercent(pct), stage, z);
+        });
+        return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
+    }
+
+    private static double bm25Idf(int corpusN, int docFreq) {
+        double nn = StrictMath.max(1.0, (double) corpusN);
+        double ddf = StrictMath.max(0.0, (double) docFreq);
+        double ratio = StrictMath.fma(nn, 1.0, -ddf + 0.5) / StrictMath.max(RobustAuditMathUtil.EPSILON, ddf + 0.5);
+        return StrictMath.log(StrictMath.max(RobustAuditMathUtil.EPSILON, ratio));
+    }
+
+    private static void sanitizeWorkForRobustStatistics(double[] work) {
+        for (int i = 0; i < work.length; i++) {
+            if (!Double.isFinite(work[i])) {
+                work[i] = 0.0;
+            }
+        }
+    }
+
+    private static void applySmallSampleBetaPipeline(
+            List<SomRawMetrics> rows, double[] raw, int blendN, int n, double[] work) {
+        int mentionedCount = 0;
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            if (rows.get(i).isSemanticallyMentioned()) {
+                mentionedCount++;
+                sum = StrictMath.fma(raw[i], 1.0, sum);
+            }
+        }
+        if (mentionedCount == 0) {
+            Arrays.fill(work, 0.0);
+            return;
+        }
+        double m = sum / (double) mentionedCount;
+        double v;
+        if (mentionedCount < 2) {
+            v = StrictMath.fma(m, 1.0 - m, 0.0) / (double) StrictMath.max(1, blendN);
+        } else {
+            double ss = 0.0;
+            for (int i = 0; i < n; i++) {
+                if (rows.get(i).isSemanticallyMentioned()) {
+                    double d = StrictMath.fma(raw[i], 1.0, -m);
+                    ss = StrictMath.fma(d, d, ss);
+                }
+            }
+            v = ss / (double) (mentionedCount - 1);
+        }
+        double[] ab = RobustAuditMathUtil.betaMomentAlphaBeta(m, v);
+        double alpha = ab[0];
+        double beta = ab[1];
+        double nn = (double) blendN;
+        for (int i = 0; i < n; i++) {
+            if (!rows.get(i).isSemanticallyMentioned()) {
+                work[i] = 0.0;
+                continue;
+            }
+            double kEff = RobustAuditMathUtil.softwareFtzFlush(
+                    StrictMath.min(nn, StrictMath.max(0.0, StrictMath.fma(raw[i], nn, 0.0))));
+            work[i] = RobustAuditMathUtil.betaBinomialPosteriorMean(kEff, nn, alpha, beta);
+        }
+    }
+
+    public static double sourceWeightFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return SOURCE_WEIGHT_LOW;
+        }
+        var normalized = url.strip().toLowerCase();
+        if (!normalized.contains("://")) {
+            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        }
+        try {
+            var host = java.net.URI.create(normalized).getHost();
+            if (host == null || host.isBlank()) {
+                return SOURCE_WEIGHT_LOW;
+            }
+            var h = host.toLowerCase();
+            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
+                return SOURCE_WEIGHT_HIGH;
+            }
+            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
+                return SOURCE_WEIGHT_MEDIUM;
+            }
+            return SOURCE_WEIGHT_LOW;
+        } catch (Exception ignored) {
+            return SOURCE_WEIGHT_LOW;
+        }
+    }
+
+    private static double weightedSom(SomRawMetrics metrics, double lAvgJob, double idf) {
+        if (!metrics.isSemanticallyMentioned()) {
+            return 0.0;
+        }
+        int f = StrictMath.max(0, metrics.nounCount());
+        int rank = metrics.rankPosition();
+        int total = StrictMath.max(0, metrics.responseTokenLength());
+        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
+        double sourceWeight = metrics.sourceWeight() > RobustAuditMathUtil.EPSILON
+                ? metrics.sourceWeight()
+                : SOURCE_WEIGHT_LOW;
+        double sentiment = sentimentWeight(metrics.sentimentIntensity());
+        double fTok = StrictMath.max(0.0, (double) f);
+        if (presence > 0 && fTok < RobustAuditMathUtil.EPSILON && rank > 0) {
+            fTok = 1.0;
+        }
+        double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
+        double bm25 = bm25Score(idf, fTok, docLen, lAvgJob);
+        double density = metrics.stuffingDensity();
+        if (Double.isNaN(density) || Double.isInfinite(density) || density < 0.0) {
+            density = 0.0;
+        }
+        double excess = StrictMath.max(0.0, density - STUFFING_DENSITY_THRESHOLD);
+        double stuffingPenalty =
+                1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
+        stuffingPenalty = clamp(stuffingPenalty, 0.0, 1.0);
+        double brandSignal = presence * sourceWeight * sentiment * bm25 * stuffingPenalty;
+        double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
+        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
+        double denom = brandSignal + otherSignal;
+        if (denom <= RobustAuditMathUtil.EPSILON) {
+            return 0.0;
+        }
+        return clamp01(brandSignal / denom);
+    }
+
+    private static double sentimentWeight(double sentimentScore) {
+        if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
+            return 1.0;
+        }
+        if (sentimentScore < 0.5) {
+            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
+                return StrictMath.fma(0.5, sentimentScore, 1.0);
+            }
+        }
+        return clamp(sentimentScore, 0.5, 1.5);
+    }
+
+    private static double clamp01(double v) {
+        return clamp(v, 0.0, 1.0);
+    }
+
+    private static double clampPercent(double v) {
+        return clamp(v, 0.0, 100.0);
+    }
+
+    private static double clamp(double v, double lo, double hi) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) {
+            return lo;
+        }
+        return StrictMath.max(lo, StrictMath.min(hi, v));
+    }
+
+    private static int stageFromScorePercent(double pct) {
+        int inner;
+        if (pct >= 90.0) {
+            inner = 10;
+        } else if (pct >= 80.0) {
+            inner = 9;
+        } else if (pct >= 70.0) {
+            inner = 8;
+        } else if (pct >= 60.0) {
+            inner = 7;
+        } else if (pct >= 50.0) {
+            inner = 6;
+        } else if (pct >= 40.0) {
+            inner = 5;
+        } else if (pct >= 30.0) {
+            inner = 4;
+        } else if (pct >= 20.0) {
+            inner = 3;
+        } else if (pct >= 10.0) {
+            inner = 2;
+        } else {
+            inner = 1;
+        }
+        return StrictMath.subtractExact(11, inner);
+    }
+
+    private static int stageFromModifiedZ(double z) {
+        if (Double.isNaN(z) || Double.isInfinite(z)) {
+            return 6;
+        }
+        int inner;
+        if (z >= 3.0) {
+            inner = 10;
+        } else if (z <= -3.0) {
+            inner = 1;
+        } else if (z >= 2.25) {
+            inner = 9;
+        } else if (z >= 1.5) {
+            inner = 8;
+        } else if (z >= 0.75) {
+            inner = 7;
+        } else if (z >= 0.0) {
+            inner = 6;
+        } else if (z >= -0.75) {
+            inner = 5;
+        } else if (z >= -1.5) {
+            inner = 4;
+        } else if (z >= -2.25) {
+            inner = 3;
+        } else {
+            inner = 2;
+        }
+        return StrictMath.subtractExact(11, inner);
+    }
+
+    public record GbvsResult(double scorePercent, int visibilityStage, double modifiedZScore) {}
+}
+</file>
+
 <file path="geo-analytics/src/main/java/com/geo/analytics/domain/entity/JobEntity.java">
 package com.geo.analytics.domain.entity;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -18969,259 +18970,6 @@ public record ResultDetailResponse(
             auditHistoryEntity.getRawResponse(),
             auditHistoryEntity.getAuditDate(),
             auditHistoryEntity.getCreatedAt());
-    }
-}
-</file>
-
-<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/GeminiResultProcessor.java">
-package com.geo.analytics.application.service;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.geo.analytics.application.dto.ConsultantOutputData;
-import com.geo.analytics.application.dto.SomScoreData;
-import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.domain.model.QuotaCreditCalculator;
-import com.geo.analytics.domain.model.SomRawMetrics;
-import com.geo.analytics.domain.service.EntityNormalizer;
-import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
-import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
-import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
-import com.geo.analytics.infrastructure.persistence.JsonbOperations;
-import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
-import java.lang.StrictMath;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
-@Service
-public class GeminiResultProcessor {
-    private static final Logger log = LoggerFactory.getLogger(GeminiResultProcessor.class);
-    private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-    private final JobPersistenceService jobPersistenceService;
-    private final ObjectMapper objectMapper;
-    private final SomScoreParser somScoreParser;
-    private final JsonbOperations jsonbOperations;
-    private final ProjectRepository projectRepository;
-    private final EntityNormalizer entityNormalizer;
-    private final JapaneseNlpService japaneseNlpService;
-    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
-    private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
-    private final GapAnalysisService gapAnalysisService;
-    private final StrategyInsightService strategyInsightService;
-    private final PlanBasedQuotaManager planBasedQuotaManager;
-    public GeminiResultProcessor(
-            JobPersistenceService jobPersistenceService,
-            ObjectMapper objectMapper,
-            SomScoreParser somScoreParser,
-            JsonbOperations jsonbOperations,
-            ProjectRepository projectRepository,
-            EntityNormalizer entityNormalizer,
-            JapaneseNlpService japaneseNlpService,
-            GapAnalysisService gapAnalysisService,
-            StrategyInsightService strategyInsightService,
-            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
-            PlanBasedQuotaManager planBasedQuotaManager) {
-        this.jobPersistenceService = jobPersistenceService;
-        this.objectMapper = objectMapper;
-        this.somScoreParser = somScoreParser;
-        this.jsonbOperations = jsonbOperations;
-        this.projectRepository = projectRepository;
-        this.entityNormalizer = entityNormalizer;
-        this.japaneseNlpService = japaneseNlpService;
-        this.gapAnalysisService = gapAnalysisService;
-        this.strategyInsightService = strategyInsightService;
-        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
-        this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
-        this.planBasedQuotaManager = planBasedQuotaManager;
-    }
-    @Transactional
-    public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
-        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
-        boolean isProPlan = plan.usesProTierFeatures();
-        String mainBrand = jobEntity.getBrandName();
-        UUID tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        Set<UUID> quotaSettled = new HashSet<>();
-        var parsedLines = new ArrayList<BatchParsedLine>();
-        for (String outputLine : outputJsonlContent.split("\n")) {
-            if (outputLine.isBlank()) {
-                continue;
-            }
-            try {
-                GeminiBatchOutputRecord outputRecord =
-                    objectMapper.readValue(outputLine, GeminiBatchOutputRecord.class);
-                if (outputRecord.status() != null && outputRecord.status().code() != 0) {
-                    markBatchQuotaRefundOnError(tid, outputRecord.key(), quotaSettled);
-                    continue;
-                }
-                UUID queryId = UUID.fromString(outputRecord.key());
-                String aiResponseText = extractAiResponseText(outputRecord);
-                ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(aiResponseText);
-                SomScoreData metrics = consultantOutputData.toSomScoreData();
-                double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
-                String ext = consultantOutputData.extractedBrandMention();
-                String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
-                String nlpSource = consultantOutputData.response() != null && !consultantOutputData.response().isBlank()
-                    ? consultantOutputData.response()
-                    : aiResponseText;
-                si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
-                var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
-                List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
-                int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
-                int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
-                double stuffingDensity = 0.0;
-                for (String nd : needles) {
-                    stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
-                }
-                String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
-                SomRawMetrics rawMetrics = metrics.toRawMetrics(plan, si, responseTokenLength, nounCount, stuffingDensity, 0.3);
-                parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
-            } catch (JsonProcessingException
-                | IllegalArgumentException
-                | JsonbSerializationException
-                | GeminiBatchApiException exception) {
-                String lineForLog = outputLine.length() > OUTPUT_LINE_LOG_MAX_CHARS
-                    ? outputLine.substring(0, OUTPUT_LINE_LOG_MAX_CHARS) + "..."
-                    : outputLine;
-                log.warn(
-                    "Skipping batch output JSONL line jobId={} outputLine={}",
-                    jobEntity.getId(),
-                    lineForLog,
-                    exception);
-            }
-        }
-        double lAvg = parsedLines.stream()
-                .mapToInt(l -> l.rawMetrics().responseTokenLength())
-                .average()
-                .orElse(0.0);
-        List<SomRawMetrics> metricsList =
-                parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
-        long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
-        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
-        for (int idx = 0; idx < parsedLines.size(); idx++) {
-            var line = parsedLines.get(idx);
-            var gbvs = gbvsList.get(idx);
-            var sourceText = line.consultantOutputData().response() != null && !line.consultantOutputData().response().isBlank()
-                ? line.consultantOutputData().response()
-                : "";
-            var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
-            var somScore = StrictMath.max(0.0, StrictMath.min(100.0, boostedSomScore));
-            var m = line.rawMetrics();
-            boolean brand = m.isSemanticallyMentioned();
-            int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
-                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
-                    jobPersistenceService.upsertAuditHistoryForJobQuery(
-                        jobEntity.getId(),
-                        line.queryId(),
-                        queryEntity.getQueryText(),
-                        jsonbOperations.serialize(line.consultantOutputData()),
-                        somScore,
-                        brand,
-                        m.rankPosition(),
-                        overall,
-                        line.resolved(),
-                        m.tokenCount(),
-                        m.rankPosition(),
-                        m.sentimentIntensity(),
-                        gbvs.visibilityStage(),
-                        GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                        gbvs.modifiedZScore(),
-                        List.of(),
-                        null);
-                    if (quotaSettled.add(line.queryId())) {
-                        long textLen = (long) queryEntity.getQueryText().length()
-                            + (mainBrand != null ? mainBrand.length() : 0);
-                        long actual = QuotaCreditCalculator.actualCreditsGeminiBatchLine(textLen);
-                        long refund = QuotaCreditCalculator.refundAfterDeposit(
-                            QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
-                        if (refund > 0L) {
-                            planBasedQuotaManager.addTokens(tid, refund);
-                        }
-                    }
-                });
-        }
-        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
-            if (!quotaSettled.contains(qe.getId())) {
-                planBasedQuotaManager.addTokens(
-                    tid,
-                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
-            }
-        }
-        var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
-        var rollup = strategyInsightService.rollupJob(auditsAfter);
-        jobPersistenceService.updateJobStrategyRollup(
-            jobEntity.getId(),
-            rollup.diagnosticMessage(),
-            List.copyOf(rollup.recommendedActions()));
-        gapAnalysisService.scheduleForJob(jobEntity.getId());
-    }
-    private record BatchParsedLine(
-        UUID queryId,
-        ConsultantOutputData consultantOutputData,
-        SomRawMetrics rawMetrics,
-        String resolved) {
-    }
-    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        UUID projectId = jobEntity.getProjectId();
-        if (projectId == null) {
-            return List.of();
-        }
-        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
-            .map(ProjectEntity::getCompetitorUrls)
-            .orElse(List.of())
-            .stream()
-            .map(EntityNormalizer::hostLabelFromUrl)
-            .filter(s -> !s.isBlank())
-            .toList());
-    }
-    private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
-        if (key == null || key.isBlank()) {
-            return;
-        }
-        try {
-            UUID qid = UUID.fromString(key);
-            if (quotaSettled.add(qid)) {
-                planBasedQuotaManager.addTokens(
-                    tid,
-                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
-            }
-        } catch (IllegalArgumentException ignored) {
-        }
-    }
-    private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
-        JsonNode responseNode = outputRecord.response();
-        if (responseNode == null || responseNode.isNull()) {
-            throw new GeminiBatchApiException(
-                "Batch output record has null response for key: " + outputRecord.key());
-        }
-        JsonNode candidatesList = responseNode.path("candidates");
-        if (!candidatesList.isArray() || candidatesList.isEmpty()) {
-            throw new GeminiBatchApiException(
-                "No candidates in batch output response for key: " + outputRecord.key());
-        }
-        JsonNode textNode = candidatesList.get(0)
-            .path("content").path("parts").get(0).path("text");
-        if (textNode == null || textNode.isNull() || textNode.isMissingNode()) {
-            throw new GeminiBatchApiException(
-                "Could not extract text from batch output for key: " + outputRecord.key());
-        }
-        return textNode.asText();
     }
 }
 </file>
@@ -20240,6 +19988,259 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     jobMedianVisibilityStage: jmvs,
     results,
   };
+}
+</file>
+
+<file path="geo-analytics/src/main/java/com/geo/analytics/application/service/GeminiResultProcessor.java">
+package com.geo.analytics.application.service;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.application.dto.ConsultantOutputData;
+import com.geo.analytics.application.dto.SomScoreData;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.QuotaCreditCalculator;
+import com.geo.analytics.domain.model.SomRawMetrics;
+import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
+import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
+import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
+import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
+import com.geo.analytics.infrastructure.persistence.JsonbOperations;
+import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
+import com.geo.analytics.infrastructure.repository.ProjectRepository;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
+import java.lang.StrictMath;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+@Service
+public class GeminiResultProcessor {
+    private static final Logger log = LoggerFactory.getLogger(GeminiResultProcessor.class);
+    private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
+    private final JobPersistenceService jobPersistenceService;
+    private final ObjectMapper objectMapper;
+    private final SomScoreParser somScoreParser;
+    private final JsonbOperations jsonbOperations;
+    private final ProjectRepository projectRepository;
+    private final EntityNormalizer entityNormalizer;
+    private final JapaneseNlpService japaneseNlpService;
+    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
+    private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
+    private final GapAnalysisService gapAnalysisService;
+    private final StrategyInsightService strategyInsightService;
+    private final PlanBasedQuotaManager planBasedQuotaManager;
+    public GeminiResultProcessor(
+            JobPersistenceService jobPersistenceService,
+            ObjectMapper objectMapper,
+            SomScoreParser somScoreParser,
+            JsonbOperations jsonbOperations,
+            ProjectRepository projectRepository,
+            EntityNormalizer entityNormalizer,
+            JapaneseNlpService japaneseNlpService,
+            GapAnalysisService gapAnalysisService,
+            StrategyInsightService strategyInsightService,
+            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
+            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
+            PlanBasedQuotaManager planBasedQuotaManager) {
+        this.jobPersistenceService = jobPersistenceService;
+        this.objectMapper = objectMapper;
+        this.somScoreParser = somScoreParser;
+        this.jsonbOperations = jsonbOperations;
+        this.projectRepository = projectRepository;
+        this.entityNormalizer = entityNormalizer;
+        this.japaneseNlpService = japaneseNlpService;
+        this.gapAnalysisService = gapAnalysisService;
+        this.strategyInsightService = strategyInsightService;
+        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
+        this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
+        this.planBasedQuotaManager = planBasedQuotaManager;
+    }
+    @Transactional
+    public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
+        SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
+        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
+        boolean isProPlan = plan.usesProTierFeatures();
+        String mainBrand = jobEntity.getBrandName();
+        UUID tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        Set<UUID> quotaSettled = new HashSet<>();
+        var parsedLines = new ArrayList<BatchParsedLine>();
+        for (String outputLine : outputJsonlContent.split("\n")) {
+            if (outputLine.isBlank()) {
+                continue;
+            }
+            try {
+                GeminiBatchOutputRecord outputRecord =
+                    objectMapper.readValue(outputLine, GeminiBatchOutputRecord.class);
+                if (outputRecord.status() != null && outputRecord.status().code() != 0) {
+                    markBatchQuotaRefundOnError(tid, outputRecord.key(), quotaSettled);
+                    continue;
+                }
+                UUID queryId = UUID.fromString(outputRecord.key());
+                String aiResponseText = extractAiResponseText(outputRecord);
+                ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(aiResponseText);
+                SomScoreData metrics = consultantOutputData.toSomScoreData();
+                double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
+                String ext = consultantOutputData.extractedBrandMention();
+                String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
+                String nlpSource = consultantOutputData.response() != null && !consultantOutputData.response().isBlank()
+                    ? consultantOutputData.response()
+                    : aiResponseText;
+                si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
+                var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
+                List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
+                int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
+                int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
+                double stuffingDensity = 0.0;
+                for (String nd : needles) {
+                    stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
+                }
+                String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
+                SomRawMetrics rawMetrics = metrics.toRawMetrics(plan, si, responseTokenLength, nounCount, stuffingDensity, 0.3);
+                parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
+            } catch (JsonProcessingException
+                | IllegalArgumentException
+                | JsonbSerializationException
+                | GeminiBatchApiException exception) {
+                String lineForLog = outputLine.length() > OUTPUT_LINE_LOG_MAX_CHARS
+                    ? outputLine.substring(0, OUTPUT_LINE_LOG_MAX_CHARS) + "..."
+                    : outputLine;
+                log.warn(
+                    "Skipping batch output JSONL line jobId={} outputLine={}",
+                    jobEntity.getId(),
+                    lineForLog,
+                    exception);
+            }
+        }
+        double lAvg = parsedLines.stream()
+                .mapToInt(l -> l.rawMetrics().responseTokenLength())
+                .average()
+                .orElse(0.0);
+        List<SomRawMetrics> metricsList =
+                parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
+        long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
+        for (int idx = 0; idx < parsedLines.size(); idx++) {
+            var line = parsedLines.get(idx);
+            var gbvs = gbvsList.get(idx);
+            var sourceText = line.consultantOutputData().response() != null && !line.consultantOutputData().response().isBlank()
+                ? line.consultantOutputData().response()
+                : "";
+            var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
+            var somScore = StrictMath.max(0.0, StrictMath.min(100.0, boostedSomScore));
+            var m = line.rawMetrics();
+            boolean brand = m.isSemanticallyMentioned();
+            int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
+                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
+                    jobPersistenceService.upsertAuditHistoryForJobQuery(
+                        jobEntity.getId(),
+                        line.queryId(),
+                        queryEntity.getQueryText(),
+                        jsonbOperations.serialize(line.consultantOutputData()),
+                        somScore,
+                        brand,
+                        m.rankPosition(),
+                        overall,
+                        line.resolved(),
+                        m.tokenCount(),
+                        m.rankPosition(),
+                        m.sentimentIntensity(),
+                        gbvs.visibilityStage(),
+                        GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                        gbvs.modifiedZScore(),
+                        List.of(),
+                        null);
+                    if (quotaSettled.add(line.queryId())) {
+                        long textLen = (long) queryEntity.getQueryText().length()
+                            + (mainBrand != null ? mainBrand.length() : 0);
+                        long actual = QuotaCreditCalculator.actualCreditsGeminiBatchLine(textLen);
+                        long refund = QuotaCreditCalculator.refundAfterDeposit(
+                            QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
+                        if (refund > 0L) {
+                            planBasedQuotaManager.addTokens(tid, refund);
+                        }
+                    }
+                });
+        }
+        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
+            if (!quotaSettled.contains(qe.getId())) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
+        }
+        var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
+        var rollup = strategyInsightService.rollupJob(auditsAfter);
+        jobPersistenceService.updateJobStrategyRollup(
+            jobEntity.getId(),
+            rollup.diagnosticMessage(),
+            List.copyOf(rollup.recommendedActions()));
+        gapAnalysisService.scheduleForJob(jobEntity.getId());
+    }
+    private record BatchParsedLine(
+        UUID queryId,
+        ConsultantOutputData consultantOutputData,
+        SomRawMetrics rawMetrics,
+        String resolved) {
+    }
+    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
+        UUID projectId = jobEntity.getProjectId();
+        if (projectId == null) {
+            return List.of();
+        }
+        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
+            .map(ProjectEntity::getCompetitorUrls)
+            .orElse(List.of())
+            .stream()
+            .map(EntityNormalizer::hostLabelFromUrl)
+            .filter(s -> !s.isBlank())
+            .toList());
+    }
+    private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        try {
+            UUID qid = UUID.fromString(key);
+            if (quotaSettled.add(qid)) {
+                planBasedQuotaManager.addTokens(
+                    tid,
+                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+            }
+        } catch (IllegalArgumentException ignored) {
+        }
+    }
+    private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
+        JsonNode responseNode = outputRecord.response();
+        if (responseNode == null || responseNode.isNull()) {
+            throw new GeminiBatchApiException(
+                "Batch output record has null response for key: " + outputRecord.key());
+        }
+        JsonNode candidatesList = responseNode.path("candidates");
+        if (!candidatesList.isArray() || candidatesList.isEmpty()) {
+            throw new GeminiBatchApiException(
+                "No candidates in batch output response for key: " + outputRecord.key());
+        }
+        JsonNode textNode = candidatesList.get(0)
+            .path("content").path("parts").get(0).path("text");
+        if (textNode == null || textNode.isNull() || textNode.isMissingNode()) {
+            throw new GeminiBatchApiException(
+                "Could not extract text from batch output for key: " + outputRecord.key());
+        }
+        return textNode.asText();
+    }
 }
 </file>
 

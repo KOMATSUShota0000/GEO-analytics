@@ -58,7 +58,7 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest(classes = GeoAnalyticsApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-class SubscriptionIntegrationTest {
+class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     private static final UUID WID = DefaultTenantIds.WORKSPACE_ID;
     private static final String TENANT_HEADER = "X-Tenant-ID";
     private static final Pattern RECOVERY_PATTERN = Pattern.compile(".*回復まで約\\d+時間\\d+分.*");
@@ -360,11 +360,11 @@ class SubscriptionIntegrationTest {
 
     private void purgeEnversTables() {
         var audTables = jdbcTemplate.query(
-                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='PUBLIC' AND TABLE_NAME LIKE ? ESCAPE '\\'",
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE ? ESCAPE '\\'",
                 (rs, rowNum) -> rs.getString(1),
-                "%\\_AUD");
+                "%\\_aud");
         for (var t : audTables) {
-            jdbcTemplate.execute("DELETE FROM " + t);
+            jdbcTemplate.execute("DELETE FROM \"" + t + "\"");
         }
         jdbcTemplate.execute("DELETE FROM revinfo");
     }

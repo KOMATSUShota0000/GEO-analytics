@@ -5,12 +5,14 @@ import com.geo.analytics.domain.enums.RagDomainRuleKind;
 import com.geo.analytics.infrastructure.repository.RagDomainRuleRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
 @Order(5)
+@ConditionalOnProperty(prefix = "app.bootstrap", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RagDomainRuleSeeder implements ApplicationRunner {
     private final RagDomainRuleRepository ragDomainRuleRepository;
     private final DomainTrustService domainTrustService;

@@ -34,6 +34,7 @@ public class ProjectManagementService {
             workspaceRepository.findById(workspaceId).orElseGet(() -> {
                 WorkspaceEntity workspaceEntity = new WorkspaceEntity();
                 workspaceEntity.setId(workspaceId);
+                workspaceEntity.setOrganizationId(DefaultTenantIds.DEFAULT_ORGANIZATION_ID);
                 workspaceEntity.setName("Default");
                 entityManager.persist(workspaceEntity);
                 entityManager.flush();

@@ -1,6 +1,7 @@
 package com.geo.analytics.domain.enums;
-public enum Role {
+
+public enum OrganizationUserRole {
     ADMIN,
-    ANALYST,
+    MEMBER,
     VIEWER
 }

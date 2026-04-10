@@ -2,7 +2,11 @@ spring:
   profiles:
     default: dev
   flyway:
-    enabled: false
+    enabled: true
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
   threads:
     virtual:
       enabled: true

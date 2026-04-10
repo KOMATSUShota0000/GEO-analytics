@@ -20,6 +20,8 @@ public class WorkspaceEntity {
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private UUID organizationId;
     @Column(name = "name", nullable = false)
     private String name;
     @Enumerated(EnumType.STRING)
@@ -39,6 +41,14 @@ public class WorkspaceEntity {
 
     public void setId(UUID id) {
         this.id = id;
+    }
+
+    public UUID getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(UUID organizationId) {
+        this.organizationId = organizationId;
     }
 
     public String getName() {
