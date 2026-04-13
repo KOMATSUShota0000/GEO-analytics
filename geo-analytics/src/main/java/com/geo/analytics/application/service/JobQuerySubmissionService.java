@@ -9,6 +9,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
@@ -68,6 +69,7 @@ public class JobQuerySubmissionService {
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
+        queryTexts = queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         var keywordCount = queryTexts.size();
         if (keywordCount <= 0) {
             return;

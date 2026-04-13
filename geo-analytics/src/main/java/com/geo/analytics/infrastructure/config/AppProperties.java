@@ -264,7 +264,28 @@ public class AppProperties {
     }
 
     public static class Security {
+        private int maxSessionsPerUser = 1;
+        private Jwt jwt;
         private Rls rls;
+
+        public int getMaxSessionsPerUser() {
+            return maxSessionsPerUser;
+        }
+
+        public void setMaxSessionsPerUser(int maxSessionsPerUser) {
+            this.maxSessionsPerUser = maxSessionsPerUser;
+        }
+
+        public Jwt getJwt() {
+            if (jwt == null) {
+                jwt = new Jwt();
+            }
+            return jwt;
+        }
+
+        public void setJwt(Jwt jwt) {
+            this.jwt = jwt;
+        }
 
         public Rls getRls() {
             if (rls == null) {
@@ -275,6 +296,45 @@ public class AppProperties {
 
         public void setRls(Rls rls) {
             this.rls = rls;
+        }
+    }
+
+    public static class Jwt {
+        private String secret;
+        private int accessTokenExpirationSec = 900;
+        private int refreshTokenExpirationSec = 2592000;
+        private boolean cookieSecure;
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public int getAccessTokenExpirationSec() {
+            return accessTokenExpirationSec;
+        }
+
+        public void setAccessTokenExpirationSec(int accessTokenExpirationSec) {
+            this.accessTokenExpirationSec = accessTokenExpirationSec;
+        }
+
+        public int getRefreshTokenExpirationSec() {
+            return refreshTokenExpirationSec;
+        }
+
+        public void setRefreshTokenExpirationSec(int refreshTokenExpirationSec) {
+            this.refreshTokenExpirationSec = refreshTokenExpirationSec;
+        }
+
+        public boolean isCookieSecure() {
+            return cookieSecure;
+        }
+
+        public void setCookieSecure(boolean cookieSecure) {
+            this.cookieSecure = cookieSecure;
         }
     }
 

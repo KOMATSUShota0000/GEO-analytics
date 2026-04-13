@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "npm run dev:safe",
+    "predev:safe": "npx kill-port 8080",
     "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd test && .\\mvnw.cmd spring-boot:run\"",
+    "predev:fast": "npx kill-port 8080",
     "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd spring-boot:run\""
   },
   "devDependencies": {

@@ -1,3 +1,6 @@
+import { getAccessToken } from "../auth/authSession";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+
 function readXsrfToken(): string {
   if (typeof document === "undefined") {
     return "";
@@ -5,9 +8,14 @@ function readXsrfToken(): string {
   const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
   return m ? decodeURIComponent(m[1].trim()) : "";
 }
-export const DEFAULT_WORKSPACE_TENANT_ID = "00000000-0000-0000-0000-000000000000";
-export const DEV_BASIC_AUTHORIZATION = "Basic Ym9vdHN0cmFwOmJvb3RzdHJhcA==";
+
 let csrfPrime: Promise<void> | null = null;
+
+/** Call on logout so the next mutating request re-fetches CSRF for the new session. */
+export function resetCsrfPrime(): void {
+  csrfPrime = null;
+}
+
 function primeCsrfCookie(): Promise<void> {
   if (!csrfPrime) {
     csrfPrime = fetch("/api/csrf", {
@@ -15,7 +23,6 @@ function primeCsrfCookie(): Promise<void> {
       method: "GET",
       headers: {
         "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
-        Authorization: DEV_BASIC_AUTHORIZATION,
       },
     }).then(() => undefined);
   }
@@ -60,7 +67,10 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   const headers = new Headers(baseReq?.headers);
   new Headers(init.headers ?? undefined).forEach((v, k) => headers.set(k, v));
   headers.set("X-Tenant-ID", DEFAULT_WORKSPACE_TENANT_ID);
-  headers.set("Authorization", DEV_BASIC_AUTHORIZATION);
+  const accessToken = getAccessToken();
+  if (accessToken !== null && accessToken.length > 0) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
   const unsafe = !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method);
   if (unsafe) {
     await primeCsrfCookie();
@@ -71,3 +81,6 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   }
   return fetch(input, { ...init, credentials: "include", headers });
 }
+
+// Re-export for call sites that already import tenant id from apiFetch
+export { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";

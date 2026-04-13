@@ -20,6 +20,12 @@ spring:
 
 app:
   security:
+    max-sessions-per-user: 1
+    jwt:
+      secret: "${JWT_SECRET}"
+      access-token-expiration-sec: 900
+      refresh-token-expiration-sec: 2592000
+      cookie-secure: true
     rls:
       enabled: true
       postgres-session-parameter: app.current_tenant

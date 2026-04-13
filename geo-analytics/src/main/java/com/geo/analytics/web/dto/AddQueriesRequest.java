@@ -1,6 +1,7 @@
 package com.geo.analytics.web.dto;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -13,4 +14,11 @@ public record AddQueriesRequest(
     List<@NotBlank String> queries,
     @NotNull(message = "plan must not be null")
     SubscriptionPlan plan
-) {}
+) {
+    public AddQueriesRequest {
+        queries =
+                queries == null
+                        ? null
+                        : queries.stream().map(TextWhitespaceNormalizer::normalize).toList();
+    }
+}

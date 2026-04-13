@@ -12,6 +12,7 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
+import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
@@ -269,7 +270,8 @@ public class JobPersistenceService {
     }
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
-        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(brandName);
+        String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
+        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
         return TenantContext.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
@@ -281,7 +283,7 @@ public class JobPersistenceService {
             try {
                 var created = jobCreateTransactionTemplate.execute(status -> {
                     JobEntity jobEntity = new JobEntity();
-                    jobEntity.setBrandName(brandName);
+                    jobEntity.setBrandName(normalizedBrandName);
                     jobEntity.setWorkspaceId(workspaceId);
                     jobEntity.setProjectId(projectEntity.getId());
                     jobEntity.setCreateIdempotencyKey(idempotencyKey);
@@ -314,6 +316,10 @@ public class JobPersistenceService {
             List<String> queryTexts,
             JobStatus nextStatus,
             SubscriptionPlan subscriptionPlan) {
+        List<String> normalizedQueryTexts =
+                queryTexts == null
+                        ? null
+                        : queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantContext.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
@@ -322,7 +328,7 @@ public class JobPersistenceService {
                 throw new IllegalStateException(
                     "Queries can only be added to a CREATED job. Current status: " + jobEntity.getJobStatus());
             }
-            queryTexts.forEach(queryText -> {
+            normalizedQueryTexts.forEach(queryText -> {
                 QueryEntity queryEntity = new QueryEntity();
                 queryEntity.setJobId(jobId);
                 queryEntity.setWorkspaceId(jobEntity.getWorkspaceId());

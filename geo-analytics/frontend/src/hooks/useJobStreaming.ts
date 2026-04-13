@@ -1,9 +1,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import {
-  DEFAULT_WORKSPACE_TENANT_ID,
-  DEV_BASIC_AUTHORIZATION,
-  keysToCamelDeep,
-} from "../api/apiFetch";
+import { keysToCamelDeep } from "../api/apiFetch";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import { getAccessToken } from "../auth/authSession";
 import { Allow, MalformedJSON, PartialJSON, parse } from "partial-json";
 import { useCallback, useRef, useState } from "react";
 import type { VerifyStreamChunkPayload } from "../types/analysis";
@@ -97,13 +95,17 @@ export function useJobStreaming(
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
       try {
+        const streamHeaders: Record<string, string> = {
+          "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+        };
+        const accessToken = getAccessToken();
+        if (accessToken !== null && accessToken.length > 0) {
+          streamHeaders.Authorization = `Bearer ${accessToken}`;
+        }
         await fetchEventSource(`/api/v1/jobs/${trimmed}/stream`, {
           signal: abortController.signal,
           credentials: "include",
-          headers: {
-            "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
-            Authorization: DEV_BASIC_AUTHORIZATION,
-          },
+          headers: streamHeaders,
           openWhenHidden: true,
           async onopen(response) {
             if (!response.ok) {
