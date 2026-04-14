@@ -7,15 +7,26 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.List;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 35)
 public class RateLimitFilter extends OncePerRequestFilter {
+
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
+    private static final List<RequestMatcher> SKIP_RATE_LIMIT =
+            List.of(
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
 
     private final RateLimiterService rateLimiterService;
 
@@ -26,7 +37,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String p = stripContextPath(request);
-        return !p.startsWith("/api/");
+        if (!p.startsWith("/api/")) {
+            return true;
+        }
+        return SKIP_RATE_LIMIT.stream().anyMatch(m -> m.matches(request));
     }
 
     @Override

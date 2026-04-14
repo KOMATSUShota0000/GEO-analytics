@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
+import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   competitorLabelsFromProject,
@@ -121,6 +121,27 @@ export default function ReportPrintPage(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!tokenOk) {
+      resetCsrfPrime();
+      return;
+    }
+    resetCsrfPrime();
+    return () => {
+      resetCsrfPrime();
+      try {
+        const w = window as unknown as { __PDF_AUTH_TOKEN__?: unknown; __PDF_TENANT_ID__?: unknown };
+        delete w.__PDF_AUTH_TOKEN__;
+        delete w.__PDF_TENANT_ID__;
+      } catch {
+        // ignore
+      }
+    };
+  }, [tokenOk]);
+
+  useEffect(() => {
     if (!tokenOk || !effectiveJobId) {
       setData(null);
       setLoadError(null);
@@ -183,8 +204,12 @@ export default function ReportPrintPage(): JSX.Element {
         setFontsReady(true);
       }
     });
+    const timer = setTimeout(() => {
+      if (!cancelled) setFontsReady(true);
+    }, 3000);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [analysisReady]);
 
@@ -218,10 +243,11 @@ export default function ReportPrintPage(): JSX.Element {
     };
   }, [data]);
 
+  const isErrorState = loadError != null;
   useEffect(() => {
-    const ok = analysisReady && analyticsSettled && fontsReady && logoReady;
+    const ok = (analysisReady && analyticsSettled && fontsReady && logoReady) || isErrorState;
     setPdfReadyFlag(ok);
-  }, [analysisReady, analyticsSettled, fontsReady, logoReady]);
+  }, [analysisReady, analyticsSettled, fontsReady, logoReady, isErrorState]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;
@@ -245,7 +271,15 @@ export default function ReportPrintPage(): JSX.Element {
   const logoSrc = data ? pickLogoUrl(data) : "";
 
   if (!tokenOk) {
-    return <div className="p-8 text-slate-500" />;
+    return (
+      <div className="p-8 text-red-600">
+        <h1 className="text-xl font-bold">PDF Print Error</h1>
+        <p>Internal Token Mismatch.</p>
+        <p>Expected: {expectedToken}</p>
+        <p>Got: {searchParams.get("internal_token")}</p>
+        <div id="pdf-ready-flag" aria-hidden="true" />
+      </div>
+    );
   }
 
   return (

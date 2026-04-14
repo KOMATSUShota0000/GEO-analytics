@@ -17,7 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
 @Profile("test")
@@ -49,8 +49,8 @@ public class TestSecurityConfig {
     SecurityFilterChain testSecurityFilterChain(HttpSecurity http) throws Exception {
         return http.securityMatcher("/**")
                 .csrf(csrf -> csrf.ignoringRequestMatchers(
-                        AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/**"),
-                        AntPathRequestMatcher.antMatcher("/ws/**")))
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/**"),
+                        PathPatternRequestMatcher.withDefaults().matcher("/ws/**")))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }

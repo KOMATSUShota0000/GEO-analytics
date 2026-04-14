@@ -36,6 +36,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.core.ParameterizedTypeReference;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -342,7 +343,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     }
 
     private UUID createJob(String brandName) {
-        @SuppressWarnings("unchecked")
         var body = webTestClient.post()
                 .uri("/api/v1/jobs")
                 .header(TENANT_HEADER, WID.toString())
@@ -350,7 +350,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .bodyValue(Map.of("brandName", brandName))
                 .exchange()
                 .expectStatus().isCreated()
-                .expectBody(Map.class)
+                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .returnResult()
                 .getResponseBody();
         assertThat(body).isNotNull();

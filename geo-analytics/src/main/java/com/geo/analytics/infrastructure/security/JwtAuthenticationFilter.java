@@ -2,18 +2,21 @@ package com.geo.analytics.infrastructure.security;
 
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -21,24 +24,30 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
     private static final List<RequestMatcher> SKIP_MATCHERS =
             List.of(
-                    AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/csrf"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.OPTIONS, "/**"),
-                    new AntPathRequestMatcher("/webauthn/**"),
-                    new AntPathRequestMatcher("/login/webauthn/**"),
-                    new AntPathRequestMatcher("/login"),
-                    new AntPathRequestMatcher("/error"),
-                    new AntPathRequestMatcher("/ws/**"));
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher(HttpMethod.OPTIONS, "/**"),
+                    PATHS.matcher("/webauthn/**"),
+                    PATHS.matcher("/login/webauthn/**"),
+                    PATHS.matcher("/login"),
+                    PATHS.matcher("/error"),
+                    PATHS.matcher("/ws/**"));
 
     private final TokenService tokenService;
     private final UserSessionRepository userSessionRepository;
+    private final Cache<UUID, UUID> userSessionsCache;
 
-    public JwtAuthenticationFilter(TokenService tokenService, UserSessionRepository userSessionRepository) {
+    public JwtAuthenticationFilter(
+            TokenService tokenService,
+            UserSessionRepository userSessionRepository,
+            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache) {
         this.tokenService = tokenService;
         this.userSessionRepository = userSessionRepository;
+        this.userSessionsCache = userSessionsCache;
     }
 
     @Override
@@ -66,15 +75,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
-        TenantContextHolder.set(parsed.organizationId(), null);
         try {
-            if (userSessionRepository
-                    .findBySessionId(parsed.sessionId())
-                    .filter(s -> s.getDeletedAt() == null)
-                    .isEmpty()) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                return;
+            TenantContextHolder.set(parsed.organizationId(), null);
+
+            UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
+            if (cachedSessionId != null) {
+                if (!cachedSessionId.equals(parsed.sessionId())) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
+                }
+            } else {
+                if (userSessionRepository
+                        .findBySessionId(parsed.sessionId())
+                        .filter(s -> s.getDeletedAt() == null)
+                        .filter(s -> s.getUserId().equals(parsed.userId()))
+                        .isEmpty()) {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
+                }
+                userSessionsCache.put(parsed.userId(), parsed.sessionId());
             }
+
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
                             parsed.userId().toString(),

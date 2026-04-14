@@ -30,6 +30,15 @@ import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/ana
 
 const theme = createTheme();
 
+/** 解析開始フロー: 握り潰し禁止（コンソール + アラート + 呼び出し元で UI 表示用メッセージ返却） */
+function exposeAndFormatJobApiError(context: string, e: unknown): string {
+  console.error(`[JobCreationPage:${context}]`, e);
+  const message =
+    e instanceof Error ? e.message : typeof e === "string" ? e : `不明なエラー: ${String(e)}`;
+  window.alert(`エラーが発生しました: ${message}`);
+  return message;
+}
+
 function isThresholdError(message: string): boolean {
   return message.includes("キーワードの上限を超えています");
 }
@@ -105,8 +114,7 @@ export default function JobCreationPage(): JSX.Element {
       setDraftProjectId(created.projectId);
       return true;
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      setError(exposeAndFormatJobApiError("ensureProjectForWizard", e));
       return false;
     } finally {
       setWizardPreparing(false);
@@ -166,8 +174,7 @@ export default function JobCreationPage(): JSX.Element {
       }
       navigate(`/job/${jobId}`);
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      setError(exposeAndFormatJobApiError("createJob", e));
     } finally {
       setSubmitting(false);
     }

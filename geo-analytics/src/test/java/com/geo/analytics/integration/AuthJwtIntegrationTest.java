@@ -6,6 +6,8 @@ import com.geo.analytics.application.service.AsyncBatchService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContextFilter;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -59,6 +61,7 @@ class AuthJwtIntegrationTest extends PostgresSuperuserTestBase {
         webTestClient
                 .get()
                 .uri("/api/test/batch/run")
+                .header(TenantContextFilter.TENANT_HEADER, DefaultTenantIds.WORKSPACE_ID.toString())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + access)
                 .exchange()
                 .expectStatus()
@@ -74,6 +77,7 @@ class AuthJwtIntegrationTest extends PostgresSuperuserTestBase {
         webTestClient
                 .get()
                 .uri("/api/test/batch/run")
+                .header(TenantContextFilter.TENANT_HEADER, DefaultTenantIds.WORKSPACE_ID.toString())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + access)
                 .exchange()
                 .expectStatus()
@@ -97,6 +101,7 @@ class AuthJwtIntegrationTest extends PostgresSuperuserTestBase {
         webTestClient
                 .get()
                 .uri("/api/test/batch/run")
+                .header(TenantContextFilter.TENANT_HEADER, DefaultTenantIds.WORKSPACE_ID.toString())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + expired)
                 .exchange()
                 .expectStatus()

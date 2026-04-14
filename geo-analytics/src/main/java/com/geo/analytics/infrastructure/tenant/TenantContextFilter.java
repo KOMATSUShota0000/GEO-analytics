@@ -5,19 +5,29 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class TenantContextFilter extends OncePerRequestFilter {
     public static final String TENANT_HEADER = "X-Tenant-ID";
+
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
+    private static final List<RequestMatcher> SKIP_TENANT_HEADER =
+            List.of(
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
 
     private final WorkspacePlanResolver workspacePlanResolver;
 
@@ -28,7 +38,10 @@ public class TenantContextFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String p = stripContextPath(request);
-        return !p.startsWith("/api/");
+        if (!p.startsWith("/api/")) {
+            return true;
+        }
+        return SKIP_TENANT_HEADER.stream().anyMatch(m -> m.matches(request));
     }
 
     @Override

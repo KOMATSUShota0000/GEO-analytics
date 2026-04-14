@@ -34,8 +34,8 @@ public class OrganizationUser {
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "role", nullable = false, columnDefinition = "user_role")
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "role", nullable = false, length = 32)
     private OrganizationUserRole role = OrganizationUserRole.MEMBER;
 
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -1,5 +1,6 @@
 package com.geo.analytics.infrastructure.crawler;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
+import com.geo.analytics.application.port.PdfBrowserAuthHeaders;
 import com.geo.analytics.application.port.PdfReportPort;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +16,7 @@ import com.geo.analytics.infrastructure.config.AppProperties;
 import org.springframework.stereotype.Component;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
 @Component
@@ -62,10 +64,10 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
         String pageUrl = pdfBaseUrl + "/job/" + jobId + "?pdf=1";
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+        try (SemaphoreLease _ = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
-            try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
+            try (BrowserContextLease contextLease = new BrowserContextLease(browser, PdfBrowserAuthHeaders.NONE)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
                     return capturePdf(
                         pageLease.page(),
@@ -78,13 +80,14 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
         }
     }
     @Override
-    public byte[] renderPrintRoutePdf(UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel) {
+    public byte[] renderPrintRoutePdf(
+            UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel, PdfBrowserAuthHeaders browserAuth) {
         String encodedToken = URLEncoder.encode(internalToken, StandardCharsets.UTF_8);
         String pageUrl = pdfBaseUrl + "/reports/print/" + jobId + "?internal_token=" + encodedToken;
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+        try (SemaphoreLease _ = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
-            try (BrowserContextLease contextLease = new BrowserContextLease(browser)) {
+            try (BrowserContextLease contextLease = new BrowserContextLease(browser, browserAuth)) {
                 try (PageLease pageLease = new PageLease(contextLease.context().newPage())) {
                     return capturePdf(pageLease.page(), pageUrl, whiteLabel);
                 }
@@ -93,6 +96,72 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             throw new IllegalStateException(jsonProcessingException);
         }
     }
+    private static void applyPdfBrowserAuth(BrowserContext context, PdfBrowserAuthHeaders auth) {
+        if (!auth.present()) {
+            return;
+        }
+        context.setExtraHTTPHeaders(
+                Map.of(
+                        "Authorization", auth.authorizationBearerValue(),
+                        "X-Tenant-ID", auth.tenantWorkspaceId()));
+        String raw = bearerRawToken(auth.authorizationBearerValue());
+        String tenant = auth.tenantWorkspaceId();
+        if (raw != null && !raw.isBlank() && tenant != null && !tenant.isBlank()) {
+            context.addInitScript(pdfAuthBootstrapScript(raw, tenant));
+        }
+    }
+
+    /**
+     * Seeds storages and globals before the SPA bundle runs, so React / fetch wrappers always see credentials.
+     */
+    private static String pdfAuthBootstrapScript(String rawJwt, String workspaceTenantId) {
+        String tokenLit = jsSingleQuotedLiteral(rawJwt);
+        String tenantLit = jsSingleQuotedLiteral(workspaceTenantId);
+        return "(() => {\n"
+                + "  const token = "
+                + tokenLit
+                + ";\n"
+                + "  const tenant = "
+                + tenantLit
+                + ";\n"
+                + "  try { sessionStorage.setItem('geo_analytics.access_token', token); } catch (e) {}\n"
+                + "  try { localStorage.setItem('geo_analytics.access_token', token); } catch (e) {}\n"
+                + "  try { sessionStorage.setItem('geo_analytics.tenant_id', tenant); } catch (e) {}\n"
+                + "  try { localStorage.setItem('geo_analytics.tenant_id', tenant); } catch (e) {}\n"
+                + "  try {\n"
+                + "    window.__PDF_AUTH_TOKEN__ = token;\n"
+                + "    window.__PDF_TENANT_ID__ = tenant;\n"
+                + "  } catch (e) {}\n"
+                + "})();";
+    }
+
+    private static String jsSingleQuotedLiteral(String value) {
+        if (value == null) {
+            return "''";
+        }
+        String escaped =
+                value.replace("\\", "\\\\")
+                        .replace("'", "\\'")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r");
+        return "'" + escaped + "'";
+    }
+
+    private static String bearerRawToken(String authorizationHeader) {
+        if (authorizationHeader == null) {
+            return null;
+        }
+        String t = authorizationHeader.strip();
+        int i = t.indexOf(' ');
+        if (i < 0) {
+            return null;
+        }
+        if (!t.regionMatches(true, 0, "Bearer", 0, 6)) {
+            return null;
+        }
+        return t.substring(i + 1).strip();
+    }
+
     private byte[] capturePdf(Page page, String pageUrl, PdfWhiteLabelInjection whiteLabel)
             throws JsonProcessingException {
         page.navigate(pageUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
@@ -148,10 +217,11 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     }
     private static final class BrowserContextLease implements AutoCloseable {
         private final BrowserContext browserContext;
-        BrowserContextLease(Browser browser) {
+        BrowserContextLease(Browser browser, PdfBrowserAuthHeaders browserAuth) {
             this.browserContext = browser.newContext();
             this.browserContext.setDefaultTimeout(PDF_CONTEXT_DEFAULT_TIMEOUT_MS);
             this.browserContext.setDefaultNavigationTimeout(PDF_CONTEXT_NAVIGATION_TIMEOUT_MS);
+            applyPdfBrowserAuth(this.browserContext, browserAuth);
         }
         BrowserContext context() {
             return browserContext;

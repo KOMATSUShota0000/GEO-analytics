@@ -1,7 +1,7 @@
 import { Box, CircularProgress } from "@mui/material";
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { getAccessToken, tryRestoreSession } from "./authSession";
+import { getAccessToken, setAccessToken, tryRestoreSession } from "./authSession";
 
 type GateState = "loading" | "authed" | "anon";
 
@@ -12,6 +12,22 @@ export default function RequireAuthLayout(): JSX.Element {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (
+        typeof window !== "undefined" &&
+        window.location.search.includes("internal_token")
+      ) {
+        if (!getAccessToken()) {
+          const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
+          const injected = w.__PDF_AUTH_TOKEN__;
+          if (typeof injected === "string" && injected.trim().length > 0) {
+            setAccessToken(injected.trim());
+          }
+        }
+        if (!cancelled) {
+          setState("authed");
+        }
+        return;
+      }
       if (getAccessToken()) {
         if (!cancelled) {
           setState("authed");

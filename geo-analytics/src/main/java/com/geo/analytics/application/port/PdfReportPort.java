@@ -6,5 +6,6 @@ import java.util.UUID;
 public interface PdfReportPort {
     byte[] renderJobReportPdf(UUID jobId);
 
-    byte[] renderPrintRoutePdf(UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel);
+    byte[] renderPrintRoutePdf(
+            UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel, PdfBrowserAuthHeaders browserAuth);
 }

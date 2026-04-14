@@ -3,14 +3,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.JobStompStatusPayload;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
+import com.geo.analytics.application.port.PdfBrowserAuthHeaders;
 import com.geo.analytics.application.port.PdfReportPort;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
+import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
+import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.TimeoutError;
@@ -49,6 +56,10 @@ public class AsyncPdfReportService {
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
     private final Semaphore pdfPlaywrightSemaphore;
+    private final WorkspaceRepository workspaceRepository;
+    private final OrganizationUserRepository organizationUserRepository;
+    private final SessionManagementService sessionManagementService;
+    private final TokenService tokenService;
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
             JobPersistenceService jobPersistenceService,
@@ -57,7 +68,11 @@ public class AsyncPdfReportService {
             SimpMessagingTemplate simpMessagingTemplate,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper,
-            AppProperties appProperties) {
+            AppProperties appProperties,
+            WorkspaceRepository workspaceRepository,
+            OrganizationUserRepository organizationUserRepository,
+            SessionManagementService sessionManagementService,
+            TokenService tokenService) {
         this.pdfReportPort = pdfReportPort;
         this.jobPersistenceService = jobPersistenceService;
         this.projectRepository = projectRepository;
@@ -65,6 +80,10 @@ public class AsyncPdfReportService {
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
+        this.workspaceRepository = workspaceRepository;
+        this.organizationUserRepository = organizationUserRepository;
+        this.sessionManagementService = sessionManagementService;
+        this.tokenService = tokenService;
         AppProperties.Pdf pdf = appProperties.getPdf();
         this.internalToken = pdf.getInternalToken();
         this.defaultBrandColor = pdf.getDefaultBrandColor();
@@ -126,11 +145,12 @@ public class AsyncPdfReportService {
                     logoUrl,
                     jobEntity.getBrandName(),
                     pdfContextJson);
+                PdfBrowserAuthHeaders browserAuth = buildPdfBrowserAuthHeaders(workspaceId);
                 pdfPlaywrightSemaphore.acquireUninterruptibly();
                 byte[] pdfBytes;
                 try {
                     pdfBytes = CompletableFuture.supplyAsync(
-                        () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection),
+                        () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection, browserAuth),
                         PDF_RENDER_EXECUTOR)
                         .get(PDF_RENDER_WALL_SECONDS, TimeUnit.SECONDS);
                 } finally {
@@ -200,6 +220,40 @@ public class AsyncPdfReportService {
             }
         });
     }
+    private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
+        try {
+            UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
+            TenantContextHolder.set(orgId, workspaceId);
+            try {
+                OrganizationUser user = organizationUserRepository
+                        .findFirstByOrganizationIdAndDeletedAtIsNullOrderByCreatedAtAsc(orgId)
+                        .orElseThrow(
+                                () -> new IllegalStateException(
+                                        "PDF生成用の有効なユーザーが組織内に見つかりません: orgId=" + orgId));
+                UUID sessionId = sessionManagementService.appendRenderingSession(user.getId());
+                String jwt = tokenService.generateAccessToken(user, sessionId);
+                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
+            } finally {
+                TenantContextHolder.clear();
+            }
+        } catch (IllegalStateException illegalStateException) {
+            throw illegalStateException;
+        } catch (Exception exception) {
+            log.warn("pdf_browser_auth failed workspaceId={}", workspaceId, exception);
+            return PdfBrowserAuthHeaders.NONE;
+        }
+    }
+
+    private UUID resolveOrganizationIdForWorkspace(UUID workspaceId) {
+        if (DefaultTenantIds.WORKSPACE_ID.equals(workspaceId)) {
+            return DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
+        }
+        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository
+                .findById(workspaceId)
+                .map(WorkspaceEntity::getOrganizationId)
+                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId)));
+    }
+
     private static String pickFirstNonBlank(String a, String b, String fallback) {
         if (a != null && !a.isBlank()) {
             return a;

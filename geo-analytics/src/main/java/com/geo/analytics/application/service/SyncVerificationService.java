@@ -1,8 +1,6 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.CompetitorScoreRow;
-import com.geo.analytics.application.dto.CrawledPageData;
-import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;

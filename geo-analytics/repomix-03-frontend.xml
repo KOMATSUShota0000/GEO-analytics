@@ -1,0 +1,4975 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files and files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: frontend/src/**/*.ts, frontend/src/**/*.tsx, frontend/package.json, frontend/vite.config.ts, frontend/tsconfig.json, frontend/tsconfig.app.json, frontend/tsconfig.node.json, frontend/index.html, frontend/tailwind.config.js, frontend/postcss.config.js, package.json
+- Files matching these patterns are excluded: **/node_modules/**, **/target/**, **/dist/**, **/.vite/**, **/build/**, **/coverage/**, **/.pytest_cache/**, **/package-lock.json, **/pnpm-lock.yaml, **/yarn.lock, **/*.png, **/*.jpg, **/*.jpeg, **/*.gif, **/*.webp, **/*.ico, **/*.pdf, **/*.zip
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+frontend/index.html
+frontend/package.json
+frontend/postcss.config.js
+frontend/src/api/apiFetch.ts
+frontend/src/api/keywordApi.ts
+frontend/src/api/tenantConstants.ts
+frontend/src/App.tsx
+frontend/src/auth/authSession.ts
+frontend/src/auth/logout.ts
+frontend/src/auth/RequireAuthLayout.tsx
+frontend/src/components/AnalysisCharts.tsx
+frontend/src/components/KeywordSuggestionWizard.tsx
+frontend/src/components/LoadingCharacter.tsx
+frontend/src/components/SafeHtmlRenderer.tsx
+frontend/src/components/TierDiagnosisCard.tsx
+frontend/src/hooks/useJobNotification.ts
+frontend/src/hooks/useJobStreaming.ts
+frontend/src/main.tsx
+frontend/src/pages/JobAnalysisPage.tsx
+frontend/src/pages/JobCreationPage.tsx
+frontend/src/pages/LoginPage.tsx
+frontend/src/pages/PricingPage.tsx
+frontend/src/pages/ProjectSettingsPage.tsx
+frontend/src/pages/ReportPrintPage.tsx
+frontend/src/types/analysis.ts
+frontend/src/types/keyword.ts
+frontend/src/utils/somTierUtils.ts
+frontend/src/vite-env.d.ts
+frontend/tailwind.config.js
+frontend/tsconfig.json
+frontend/tsconfig.node.json
+frontend/vite.config.ts
+package.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="frontend/index.html">
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <script>
+      if (typeof global === "undefined") {
+        window.global = window;
+      }
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Geo Analytics</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+</file>
+
+<file path="frontend/package.json">
+{
+  "name": "geo-analytics-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "lucide-react": "^0.460.0",
+    "recharts": "^2.13.3",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.15.10",
+    "@mui/material": "^5.15.10",
+    "@stomp/stompjs": "^7.0.0",
+    "partial-json": "^0.1.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "sockjs-client": "^1.6.1"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@types/sockjs-client": "^1.5.4",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0"
+  }
+}
+</file>
+
+<file path="frontend/postcss.config.js">
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+</file>
+
+<file path="frontend/src/api/apiFetch.ts">
+import { getAccessToken } from "../auth/authSession";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+
+/** Playwright / print route: workspace tenant from injected storage (see ReportPrintPage). */
+let pdfPrintTenantOverride: string | null = null;
+
+export function setPdfPrintTenantIdOverride(tenantId: string | null): void {
+  pdfPrintTenantOverride = tenantId != null && tenantId.trim().length > 0 ? tenantId.trim() : null;
+}
+
+function resolveTenantHeader(): string {
+  return pdfPrintTenantOverride ?? DEFAULT_WORKSPACE_TENANT_ID;
+}
+
+function readXsrfToken(): string {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+  return m ? decodeURIComponent(m[1].trim()) : "";
+}
+
+let csrfPrime: Promise<void> | null = null;
+
+/** Call on logout so the next mutating request re-fetches CSRF for the new session. */
+export function resetCsrfPrime(): void {
+  csrfPrime = null;
+}
+
+function primeCsrfCookie(): Promise<void> {
+  if (!csrfPrime) {
+    csrfPrime = fetch("/api/csrf", {
+      credentials: "include",
+      method: "GET",
+      headers: {
+        "X-Tenant-ID": resolveTenantHeader(),
+      },
+    }).then(() => undefined);
+  }
+  return csrfPrime;
+}
+
+function snakeToCamelKey(key: string): string {
+  return key.replace(/_([a-zA-Z0-9])/g, (_, ch: string) => ch.toUpperCase());
+}
+
+export function keysToCamelDeep(value: unknown): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(keysToCamelDeep);
+  }
+  const src = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(src)) {
+    out[snakeToCamelKey(k)] = keysToCamelDeep(src[k]);
+  }
+  return out;
+}
+
+export function parseJsonTextAsCamel(text: string): unknown {
+  const t = text.trim();
+  if (t.length === 0) {
+    return null;
+  }
+  return keysToCamelDeep(JSON.parse(t) as unknown);
+}
+
+export async function responseJsonAsCamel(response: Response): Promise<unknown> {
+  const text = await response.text();
+  return parseJsonTextAsCamel(text);
+}
+
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const baseReq = input instanceof Request ? input : null;
+  const method = (init.method ?? baseReq?.method ?? "GET").toUpperCase();
+  const headers = new Headers(baseReq?.headers);
+  new Headers(init.headers ?? undefined).forEach((v, k) => headers.set(k, v));
+  headers.set("X-Tenant-ID", resolveTenantHeader());
+  const accessToken = getAccessToken();
+  if (accessToken !== null && accessToken.length > 0) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  const unsafe = !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method);
+  if (unsafe) {
+    await primeCsrfCookie();
+    const token = readXsrfToken();
+    if (token.length > 0) {
+      headers.set("X-XSRF-TOKEN", token);
+    }
+  }
+  return fetch(input, { ...init, credentials: "include", headers });
+}
+
+// Re-export for call sites that already import tenant id from apiFetch
+export { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+</file>
+
+<file path="frontend/src/api/keywordApi.ts">
+import type {
+  KeywordRegistrationRequestPayload,
+  KeywordRegistrationResult,
+  KeywordSuggestionRequest,
+  KeywordSuggestionResponse,
+  SelectedKeywordPayload,
+} from "../types/keyword";
+import { apiFetch, parseJsonTextAsCamel } from "./apiFetch";
+
+function extractErrorMessage(text: string): string {
+  if (!text) return "リクエストに失敗しました";
+  try {
+    const o = parseJsonTextAsCamel(text) as unknown;
+    if (
+      typeof o === "object" &&
+      o !== null &&
+      "detail" in o &&
+      typeof (o as { detail: unknown }).detail === "string"
+    ) {
+      return (o as { detail: string }).detail;
+    }
+  } catch {}
+  return text.length > 280 ? `${text.slice(0, 280)}…` : text;
+}
+
+export async function suggestKeywords(
+  url: string,
+  targetDescription: string,
+  registeredKeywords?: string[],
+): Promise<KeywordSuggestionResponse> {
+  const body: KeywordSuggestionRequest = {
+    url: url.trim(),
+    target_description: targetDescription.trim(),
+    ...(registeredKeywords !== undefined && registeredKeywords.length > 0
+      ? { registered_keywords: registeredKeywords }
+      : {}),
+  };
+  const res = await apiFetch("/api/v1/keywords/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(extractErrorMessage(text));
+  }
+  const parsed: unknown = text ? parseJsonTextAsCamel(text) : null;
+  if (typeof parsed !== "object" || parsed === null || !("categories" in parsed)) {
+    throw new Error("レスポンス形式が不正です");
+  }
+  return parsed as KeywordSuggestionResponse;
+}
+
+export async function registerProjectKeywords(
+  projectId: string,
+  keywords: SelectedKeywordPayload[],
+): Promise<KeywordRegistrationResult> {
+  const body: KeywordRegistrationRequestPayload = { project_id: projectId, keywords };
+  const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/keywords/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(extractErrorMessage(text));
+  }
+  const parsed: unknown = text ? parseJsonTextAsCamel(text) : null;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("registeredCount" in parsed) ||
+    !("skippedCount" in parsed)
+  ) {
+    throw new Error("登録レスポンス形式が不正です");
+  }
+  const o = parsed as Record<string, unknown>;
+  const rc = o.registeredCount;
+  const sc = o.skippedCount;
+  if (typeof rc !== "number" || typeof sc !== "number") {
+    throw new Error("登録レスポンス形式が不正です");
+  }
+  return { registeredCount: rc, skippedCount: sc };
+}
+</file>
+
+<file path="frontend/src/api/tenantConstants.ts">
+/** Default workspace id (must match backend `DefaultTenantIds.WORKSPACE_ID`). */
+export const DEFAULT_WORKSPACE_TENANT_ID = "00000000-0000-0000-0000-000000000000";
+</file>
+
+<file path="frontend/src/App.tsx">
+import { Navigate, Route, Routes } from "react-router-dom";
+import RequireAuthLayout from "./auth/RequireAuthLayout";
+import { JobAnalysisPage } from "./pages/JobAnalysisPage";
+import JobCreationPage from "./pages/JobCreationPage";
+import LoginPage from "./pages/LoginPage";
+import PricingPage from "./pages/PricingPage";
+import ProjectSettingsPage from "./pages/ProjectSettingsPage";
+import ReportPrintPage from "./pages/ReportPrintPage";
+
+export default function App(): JSX.Element {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<RequireAuthLayout />}>
+        <Route path="/" element={<JobCreationPage />} />
+        <Route path="/job/:jobId" element={<JobAnalysisPage />} />
+        <Route path="/reports/print/:jobId" element={<ReportPrintPage />} />
+        <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+</file>
+
+<file path="frontend/src/auth/authSession.ts">
+import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+
+export const ACCESS_TOKEN_STORAGE_KEY = "geo_analytics.access_token";
+export const TENANT_STORAGE_KEY = "geo_analytics.tenant_id";
+
+let memoryToken: string | null = null;
+let hydratedFromStorage = false;
+
+function readSessionStorageToken(): string | null {
+  if (typeof sessionStorage === "undefined") {
+    return null;
+  }
+  try {
+    const raw = sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    return raw !== null && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function readLocalStorageToken(): string | null {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+  try {
+    const raw = localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+    return raw !== null && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Token resolution for the in-memory cache (first load only).
+ * Prefer sessionStorage (normal login) over localStorage (PDF init script may write both).
+ * Do not read {@code window.__PDF_AUTH_TOKEN__} here: it can outlive the print route on SPA
+ * navigation and would override a valid session token. The print page calls {@code setAccessToken}
+ * explicitly; Playwright also seeds session/local storage before the bundle runs.
+ */
+function readStorage(): string | null {
+  return readSessionStorageToken() ?? readLocalStorageToken();
+}
+
+function hydrateFromStorageOnce(): void {
+  if (hydratedFromStorage) {
+    return;
+  }
+  hydratedFromStorage = true;
+  memoryToken = readStorage();
+}
+
+export function getAccessToken(): string | null {
+  hydrateFromStorageOnce();
+  return memoryToken;
+}
+
+export function setAccessToken(token: string): void {
+  hydrateFromStorageOnce();
+  memoryToken = token;
+  try {
+    sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function clearAccessToken(): void {
+  memoryToken = null;
+  hydratedFromStorage = true;
+  try {
+    sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * When access token is absent but refresh cookie may exist, obtain a new access token.
+ * @returns true if an access token is now available
+ */
+export async function tryRestoreSession(): Promise<boolean> {
+  if (getAccessToken()) {
+    return true;
+  }
+  const res = await fetch("/api/auth/refresh", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+    },
+  });
+  if (!res.ok) {
+    return false;
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    return false;
+  }
+  if (typeof body !== "object" || body === null) {
+    return false;
+  }
+  const token = (body as Record<string, unknown>).accessToken;
+  if (typeof token !== "string" || token.length === 0) {
+    return false;
+  }
+  setAccessToken(token);
+  return true;
+}
+</file>
+
+<file path="frontend/src/auth/logout.ts">
+import { resetCsrfPrime } from "../api/apiFetch";
+import { clearAccessToken } from "./authSession";
+
+export function logout(): void {
+  clearAccessToken();
+  resetCsrfPrime();
+}
+</file>
+
+<file path="frontend/src/auth/RequireAuthLayout.tsx">
+import { Box, CircularProgress } from "@mui/material";
+import { useEffect, useState } from "react";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { getAccessToken, tryRestoreSession } from "./authSession";
+
+type GateState = "loading" | "authed" | "anon";
+
+export default function RequireAuthLayout(): JSX.Element {
+  const location = useLocation();
+  const [state, setState] = useState<GateState>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (getAccessToken()) {
+        if (!cancelled) {
+          setState("authed");
+        }
+        return;
+      }
+      await tryRestoreSession();
+      if (!cancelled) {
+        setState(getAccessToken() ? "authed" : "anon");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (state === "loading") {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="40vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (state === "anon") {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+  return <Outlet />;
+}
+</file>
+
+<file path="frontend/src/components/AnalysisCharts.tsx">
+import { PieChart as PieChartIcon, TrendingUp } from "lucide-react";
+import { useId, useLayoutEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { formatAuditDate, type CompetitorShare, type TrendData } from "../types/analysis";
+
+function useCssVarColor(variable: string, fallback: string): string {
+  const [color, setColor] = useState(fallback);
+  useLayoutEffect(() => {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+    if (raw.length > 0) {
+      setColor(raw);
+    }
+  }, [variable]);
+  return color;
+}
+
+function ChartPlaceholder(): JSX.Element {
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200/90 bg-gradient-to-b from-slate-50/40 to-white px-6 text-center">
+      <p className="max-w-sm text-sm font-light tracking-wide text-slate-500">データ蓄積中…</p>
+    </div>
+  );
+}
+
+export interface AnalysisChartsProps {
+  isPdfMode: boolean;
+  trendData: TrendData[];
+  shareData: CompetitorShare[];
+  brandLabel: string;
+}
+
+export function AnalysisCharts({
+  isPdfMode,
+  trendData,
+  shareData,
+  brandLabel,
+}: AnalysisChartsProps): JSX.Element {
+  const anim = !isPdfMode;
+  const gid = useId().replace(/:/g, "");
+  const brandColor = useCssVarColor("--brand-color", "#4f46e5");
+  const comp1 = useCssVarColor("--chart-competitor-1", "#94a3b8");
+  const comp2 = useCssVarColor("--chart-competitor-2", "#cbd5e1");
+  const piePalette = [brandColor, comp1, comp2, "#a5b4fc", "#818cf8", "#6366f1", "#475569"];
+  const trendOk = trendData.length >= 1;
+  const shareOk = shareData.length > 0 && shareData.some((s) => s.value > 0);
+  return (
+    <section className="pdf-avoid-break mb-8">
+      <div className="mb-5 flex items-end justify-between gap-4 border-b border-slate-200/80 pb-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight text-slate-900">インサイトサマリー</h2>
+          <p className="mt-0.5 text-xs font-light text-slate-500">{brandLabel}</p>
+        </div>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/40 to-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+          <div className="mb-4 flex items-center gap-2.5">
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
+              style={{ color: "var(--brand-color, #4f46e5)", backgroundColor: "rgba(255,255,255,0.9)" }}
+            >
+              <TrendingUp className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+            </span>
+            <h3 className="text-sm font-semibold tracking-tight text-slate-800">スコア推移</h3>
+          </div>
+          {trendOk ? (
+            <div className="h-[280px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={`${gid}-som`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={brandColor} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={brandColor} stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id={`${gid}-ov`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={comp1} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={comp1} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 6" stroke="rgba(148,163,184,0.35)" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickFormatter={(v: string) => formatAuditDate(v)}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    width={36}
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: "12px",
+                      border: "1px solid rgba(226,232,240,0.9)",
+                      boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                    }}
+                    labelFormatter={(v: string) => formatAuditDate(v)}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+                  <Area
+                    type="monotone"
+                    dataKey="somScore"
+                    name="SoM"
+                    stroke={brandColor}
+                    strokeWidth={2}
+                    fill={`url(#${gid}-som)`}
+                    isAnimationActive={anim}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="overallScore"
+                    name="Overall"
+                    stroke={comp1}
+                    strokeWidth={2}
+                    fill={`url(#${gid}-ov)`}
+                    isAnimationActive={anim}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <ChartPlaceholder />
+          )}
+        </div>
+        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/40 to-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+          <div className="mb-4 flex items-center gap-2.5">
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
+              style={{ color: "var(--brand-color, #4f46e5)", backgroundColor: "rgba(255,255,255,0.9)" }}
+            >
+              <PieChartIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+            </span>
+            <h3 className="text-sm font-semibold tracking-tight text-slate-800">SoM 占有率</h3>
+          </div>
+          {shareOk ? (
+            <div className="h-[280px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={shareData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={58}
+                    outerRadius={92}
+                    paddingAngle={2}
+                    isAnimationActive={anim}
+                  >
+                    {shareData.map((_, i) => (
+                      <Cell key={`${i}-${shareData[i]?.name ?? ""}`} fill={piePalette[i % piePalette.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: "12px",
+                      border: "1px solid rgba(226,232,240,0.9)",
+                      boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <ChartPlaceholder />
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+</file>
+
+<file path="frontend/src/components/KeywordSuggestionWizard.tsx">
+import { registerProjectKeywords, suggestKeywords } from "../api/keywordApi";
+import type { KeywordCategory, KeywordRegistrationResult, KeywordSuggestionResponse } from "../types/keyword";
+import { AlertCircle, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { useCallback, useState } from "react";
+
+export type KeywordSuggestionWizardProps = {
+  projectId: string | null;
+  ensureProjectReady?: () => Promise<boolean>;
+  onKeywordsSelected: (selectedKeywords: string[]) => void | Promise<void>;
+  onRegistered?: (result: KeywordRegistrationResult) => void;
+  isSubmitting: boolean;
+  registeredKeywords?: readonly string[];
+};
+
+type Phase = "input" | "loading" | "review" | "error";
+
+function isValidHttpUrl(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function KeywordSuggestionWizard({
+  projectId,
+  ensureProjectReady,
+  onKeywordsSelected,
+  onRegistered,
+  isSubmitting,
+  registeredKeywords = [],
+}: KeywordSuggestionWizardProps): JSX.Element {
+  const [phase, setPhase] = useState<Phase>("input");
+  const [url, setUrl] = useState("");
+  const [targetDescription, setTargetDescription] = useState("");
+  const [response, setResponse] = useState<KeywordSuggestionResponse | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [keywordCategoryByText, setKeywordCategoryByText] = useState<Map<string, string>>(() => new Map());
+  const [errorMessage, setErrorMessage] = useState("");
+  const [registerPending, setRegisterPending] = useState(false);
+  const canSuggest = isValidHttpUrl(url) && targetDescription.trim().length > 0;
+  const busy = isSubmitting || registerPending;
+  const categories = response?.categories ?? [];
+  const selectedCount = selected.size;
+  const toggleKeyword = useCallback((kw: string, categoryName: string) => {
+    setSelected((prevSel) => {
+      const wasOn = prevSel.has(kw);
+      setKeywordCategoryByText((pm) => {
+        const m = new Map(pm);
+        if (wasOn) m.delete(kw);
+        else m.set(kw, categoryName);
+        return m;
+      });
+      const next = new Set(prevSel);
+      if (wasOn) next.delete(kw);
+      else next.add(kw);
+      return next;
+    });
+  }, []);
+  const categoryKeywordTexts = useCallback((cat: KeywordCategory) => {
+    return cat.keywords.map((k) => k.trim()).filter((t) => t.length > 0);
+  }, []);
+  const toggleCategoryAll = useCallback((cat: KeywordCategory) => {
+    const keys = categoryKeywordTexts(cat);
+    if (keys.length === 0) return;
+    setSelected((prevSel) => {
+      const allOn = keys.every((k) => prevSel.has(k));
+      const selectAll = !allOn;
+      setKeywordCategoryByText((pm) => {
+        const m = new Map(pm);
+        for (const k of keys) {
+          if (selectAll) m.set(k, cat.categoryName);
+          else m.delete(k);
+        }
+        return m;
+      });
+      const next = new Set(prevSel);
+      for (const k of keys) {
+        if (selectAll) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+  }, [categoryKeywordTexts]);
+  const clearAllSelections = useCallback(() => {
+    setSelected(new Set());
+    setKeywordCategoryByText(new Map());
+  }, []);
+  const runSuggest = useCallback(async () => {
+    if (!canSuggest) return;
+    if (ensureProjectReady) {
+      const ok = await ensureProjectReady();
+      if (!ok) return;
+    }
+    setPhase("loading");
+    setErrorMessage("");
+    try {
+      const data = await suggestKeywords(url, targetDescription, [...registeredKeywords]);
+      setResponse(data);
+      const init = new Set<string>();
+      const catMap = new Map<string, string>();
+      for (const c of data.categories) {
+        for (const k of c.keywords) {
+          const t = k.trim();
+          if (!t) continue;
+          init.add(t);
+          catMap.set(t, c.categoryName);
+        }
+      }
+      setSelected(init);
+      setKeywordCategoryByText(catMap);
+      setPhase("review");
+    } catch (e: unknown) {
+      setErrorMessage(e instanceof Error ? e.message : String(e));
+      setPhase("error");
+    }
+  }, [canSuggest, ensureProjectReady, url, targetDescription, registeredKeywords]);
+  const handleRegister = useCallback(async () => {
+    if (busy || selectedCount === 0) return;
+    setRegisterPending(true);
+    try {
+      const list = Array.from(selected);
+      if (projectId) {
+        const payload = list.map((k) => ({
+          text: k,
+          category_name: keywordCategoryByText.get(k) ?? "業界・一般",
+        }));
+        const result = await registerProjectKeywords(projectId, payload);
+        onRegistered?.(result);
+      }
+      await Promise.resolve(onKeywordsSelected(list));
+      setUrl("");
+      setTargetDescription("");
+      setResponse(null);
+      setSelected(new Set());
+      setKeywordCategoryByText(new Map());
+      setPhase("input");
+    } catch (e: unknown) {
+      setErrorMessage(e instanceof Error ? e.message : String(e));
+      setPhase("error");
+    } finally {
+      setRegisterPending(false);
+    }
+  }, [busy, keywordCategoryByText, onKeywordsSelected, onRegistered, projectId, selected, selectedCount]);
+  return (
+    <div className="flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/80 shadow-[0_1px_0_rgba(15,23,42,0.06),0_12px_40px_-12px_rgba(15,23,42,0.12)]">
+      <div className="border-b border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur-sm">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+            <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold tracking-tight text-slate-900">AIキーワード提案</h2>
+            <p className="text-xs text-slate-500">サイトとターゲットから、SGE向け候補を生成します</p>
+          </div>
+        </div>
+      </div>
+      <div className="relative max-h-[min(70vh,520px)] flex-1 overflow-y-auto">
+        {phase === "input" && (
+          <div className="space-y-4 p-5">
+            <div className="space-y-1.5">
+              <label htmlFor="kw-wizard-url" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                解析したいサイトURL
+              </label>
+              <input
+                id="kw-wizard-url"
+                type="url"
+                inputMode="url"
+                autoComplete="url"
+                placeholder="https://example.com"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none ring-indigo-500/0 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="kw-wizard-target" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                ターゲット層
+              </label>
+              <textarea
+                id="kw-wizard-target"
+                rows={4}
+                placeholder="例：共働きの30代、BtoBの情シス担当者など"
+                value={targetDescription}
+                onChange={(e) => setTargetDescription(e.target.value)}
+                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none ring-indigo-500/0 transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={!canSuggest || isSubmitting}
+              onClick={() => void runSuggest()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              提案させる
+            </button>
+          </div>
+        )}
+        {phase === "loading" && (
+          <div className="flex min-h-[240px] flex-col items-center justify-center gap-5 px-6 py-12">
+            <div className="relative">
+              <div className="absolute inset-0 animate-ping rounded-full bg-indigo-400/30" />
+              <Loader2 className="relative h-11 w-11 animate-spin text-indigo-600" strokeWidth={2.25} />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-800">AIが分析中…</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">数十秒かかる場合があります</p>
+            </div>
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="h-1.5 w-1.5 rounded-full bg-indigo-500/40 animate-pulse"
+                  style={{ animationDelay: `${i * 160}ms` }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        {phase === "review" && (
+          <div className="space-y-6 p-5 pb-28">
+            <div className="rounded-xl border border-amber-200/80 bg-gradient-to-r from-amber-50/90 to-orange-50/50 px-4 py-3 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs font-medium leading-relaxed text-slate-700">
+                  カテゴリ別に選び直したい場合は、ここからすべて未選択にできます。
+                </p>
+                <button
+                  type="button"
+                  onClick={clearAllSelections}
+                  disabled={selectedCount === 0}
+                  className="shrink-0 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
+                >
+                  すべての選択を解除する
+                </button>
+              </div>
+            </div>
+            {categories.map((cat: KeywordCategory) => {
+              const catKeys = categoryKeywordTexts(cat);
+              const allInCategorySelected =
+                catKeys.length > 0 && catKeys.every((k) => selected.has(k));
+              return (
+              <section key={cat.categoryName} className="rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-700">{cat.categoryName}</h3>
+                  {catKeys.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryAll(cat)}
+                      className="shrink-0 text-xs text-indigo-600 hover:underline"
+                    >
+                      {allInCategorySelected ? "すべて解除" : "すべて選択"}
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {cat.keywords.map((kw) => {
+                    const k = kw.trim();
+                    if (!k) return null;
+                    const on = selected.has(k);
+                    return (
+                      <button
+                        key={`${cat.categoryName}:${k}`}
+                        type="button"
+                        onClick={() => toggleKeyword(k, cat.categoryName)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-[0.97] ${
+                          on
+                            ? "border-indigo-500 bg-indigo-600 text-white shadow-md shadow-indigo-500/25 ring-2 ring-indigo-400/40"
+                            : "border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        {k}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+            })}
+          </div>
+        )}
+        {phase === "error" && (
+          <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <p className="max-w-sm text-sm text-slate-700">{errorMessage}</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runSuggest()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:bg-indigo-700"
+              >
+                <RotateCcw className="h-4 w-4" />
+                リトライ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase("input");
+                  setErrorMessage("");
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                入力に戻る
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      {phase === "review" && (
+        <div className="sticky bottom-0 z-20 border-t border-slate-200/90 bg-white/95 px-5 py-4 shadow-[0_-8px_30px_-12px_rgba(15,23,42,0.15)] backdrop-blur-md">
+          <button
+            type="button"
+            disabled={busy || selectedCount === 0}
+            onClick={() => void handleRegister()}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 active:scale-[0.995] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            選択した{selectedCount}件を登録する
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/components/LoadingCharacter.tsx">
+import { Bot, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+
+const MESSAGES = [
+  "AIがウェブサイトを調査しています...",
+  "ブランドの露出度を計測中...",
+  "ユーザーのアテンションをシミュレーション中...",
+  "SoMスコアを数理モデルで算出しています...",
+] as const;
+
+const INTERVAL_MS = 3200;
+
+export type LoadingCharacterProps = {
+  className?: string;
+};
+
+export function LoadingCharacter({ className = "" }: LoadingCharacterProps): JSX.Element {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setIndex((i) => (i + 1) % MESSAGES.length);
+    }, INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`rounded-2xl border border-indigo-200/70 bg-gradient-to-br from-sky-50 via-violet-50/90 to-indigo-50 p-5 shadow-md shadow-indigo-100/40 ${className}`.trim()}
+    >
+      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
+        <div className="relative flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center">
+          <span className="absolute inset-0 rounded-full bg-violet-200/40 blur-md animate-pulse" aria-hidden />
+          <Sparkles
+            className="absolute -right-0.5 -top-1 h-5 w-5 text-violet-500 drop-shadow-sm animate-bounce"
+            style={{ animationDuration: "1.4s" }}
+            aria-hidden
+          />
+          <Sparkles
+            className="absolute -left-1 bottom-0 h-4 w-4 text-sky-500 opacity-90 animate-pulse"
+            aria-hidden
+          />
+          <Bot
+            className="relative z-10 h-11 w-11 text-indigo-600 drop-shadow-md animate-bounce"
+            style={{ animationDuration: "1.1s" }}
+            aria-hidden
+          />
+        </div>
+        <p className="min-h-[2.75rem] flex-1 text-center text-sm font-medium leading-relaxed text-indigo-950/90 transition-opacity duration-300 sm:text-left">
+          {MESSAGES[index]}
+        </p>
+      </div>
+      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-indigo-100/80">
+        <div className="h-full w-1/4 rounded-full bg-gradient-to-r from-sky-400 via-violet-500 to-indigo-500 animate-shimmer" />
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/components/SafeHtmlRenderer.tsx">
+import DOMPurify, { type Config } from "dompurify";
+import { useMemo } from "react";
+export type SafeHtmlRendererProps = {
+  html: string;
+  className?: string;
+  sanitizeConfig?: Config;
+};
+const defaultConfig: Config = {
+  USE_PROFILES: { html: true },
+};
+export function SafeHtmlRenderer({ html, className, sanitizeConfig }: SafeHtmlRendererProps) {
+  const sanitized = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    const cfg = sanitizeConfig ?? defaultConfig;
+    return DOMPurify.sanitize(html, cfg);
+  }, [html, sanitizeConfig]);
+  return <div className={className} dangerouslySetInnerHTML={{ __html: sanitized }} />;
+}
+</file>
+
+<file path="frontend/src/components/TierDiagnosisCard.tsx">
+import { Lightbulb, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { getSomTierInfo, somScoreProgressRatio, type SomTierInfo } from "../utils/somTierUtils";
+
+const R = 52;
+const C = 2 * Math.PI * R;
+
+export type TierDiagnosisCardProps = {
+  somScore: number | null;
+  isProPlan: boolean;
+  skeleton?: boolean;
+};
+
+function TierSkeleton(): JSX.Element {
+  return (
+    <div className="pdf-avoid-break overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="animate-pulse">
+        <div className="h-5 w-40 rounded bg-slate-200" />
+        <div className="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:items-start sm:gap-8">
+          <div className="relative mx-auto h-36 w-36 shrink-0 rounded-full bg-slate-100 sm:mx-0" />
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="h-4 w-full max-w-md rounded bg-slate-200" />
+            <div className="h-4 w-full max-w-lg rounded bg-slate-200" />
+            <div className="h-4 w-2/3 max-w-sm rounded bg-slate-200" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressRing({ score, tier }: { score: number; tier: SomTierInfo }): JSX.Element {
+  const ratio = somScoreProgressRatio(score);
+  const dash = C * ratio;
+  return (
+    <div className="relative mx-auto h-36 w-36 shrink-0 sm:mx-0">
+      <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120" aria-hidden>
+        <circle
+          className="text-slate-200"
+          cx="60"
+          cy="60"
+          r={R}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="10"
+        />
+        <circle
+          className={tier.ringClass}
+          cx="60"
+          cy="60"
+          r={R}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${C}`}
+        />
+      </svg>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold tabular-nums text-slate-900">{score.toFixed(1)}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">SoM</span>
+      </div>
+    </div>
+  );
+}
+
+export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnosisCardProps): JSX.Element {
+  const navigate = useNavigate();
+  if (skeleton) {
+    return <TierSkeleton />;
+  }
+  if (somScore === null) {
+    return <></>;
+  }
+  const tier = getSomTierInfo(somScore);
+  const showUpsell = !isProPlan && somScore >= 69.5;
+  return (
+    <div className="pdf-avoid-break overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-col gap-1 border-b border-slate-200 pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Sparkles className="h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+          <h2 className="text-lg font-semibold tracking-tight text-slate-900">市場ポジション診断（Tier）</h2>
+        </div>
+        <p className="text-xs text-slate-600">バックエンド算出のSoMスコア（0〜100）に基づくGEO戦略の目安です。</p>
+      </div>
+      <div className="mt-6 flex flex-col items-stretch gap-6 sm:flex-row sm:items-center">
+        <ProgressRing score={somScore} tier={tier} />
+        <div className="min-w-0 flex-1">
+          <div className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border px-4 py-2 ${tier.accentClass}`}>
+            <span className="text-lg font-bold">{tier.title}</span>
+            <span className="text-sm font-medium opacity-90">（{tier.subtitle}）</span>
+          </div>
+          <div className="mt-5 flex gap-3 rounded-xl border border-slate-200 bg-slate-50/90 p-4">
+            <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+            <p className="text-sm leading-relaxed text-slate-800">{tier.advice}</p>
+          </div>
+        </div>
+      </div>
+      {showUpsell && (
+        <div className="pdf-no-print mt-6 rounded-xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-inner">
+          <p className="text-sm font-semibold text-amber-950">
+            Standardプランの計測上限に達しました。より精密な100点満点の評価と競合比較を行うには、Proプランへアップグレードしてください。
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/pricing")}
+            className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:w-auto"
+          >
+            プランを確認する
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/hooks/useJobNotification.ts">
+import { Client, IMessage } from "@stomp/stompjs";
+import { useCallback, useEffect, useRef, useState } from "react";
+import SockJS from "sockjs-client";
+import { apiFetch, parseJsonTextAsCamel } from "../api/apiFetch";
+import {
+  normalizeJobStatusResponse,
+  type JobStatusResponse,
+} from "../types/analysis";
+
+export type JobNotificationConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
+
+function parseJobUpdatedAtMs(updatedAt: string): number {
+  const ms = Date.parse(updatedAt);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function shouldApplyJobStatusUpdate(
+  previous: JobStatusResponse | null,
+  incoming: JobStatusResponse,
+): boolean {
+  if (previous === null) {
+    return true;
+  }
+  return (
+    parseJobUpdatedAtMs(incoming.updatedAt) >=
+    parseJobUpdatedAtMs(previous.updatedAt)
+  );
+}
+
+function mergeJobStatusPreservingSummary(
+  previous: JobStatusResponse | null,
+  incoming: JobStatusResponse,
+): JobStatusResponse {
+  const incomingHasSummary =
+    (incoming.diagnosticMessage != null && incoming.diagnosticMessage.trim().length > 0) ||
+    incoming.recommendedActions.length > 0 ||
+    (incoming.jobMedianModifiedZ != null && !Number.isNaN(incoming.jobMedianModifiedZ));
+  if (incomingHasSummary) {
+    return incoming;
+  }
+  if (previous === null) {
+    return incoming;
+  }
+  const previousHasSummary =
+    (previous.diagnosticMessage != null && previous.diagnosticMessage.trim().length > 0) ||
+    previous.recommendedActions.length > 0 ||
+    (previous.jobMedianModifiedZ != null && !Number.isNaN(previous.jobMedianModifiedZ));
+  if (!previousHasSummary) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    diagnosticMessage: previous.diagnosticMessage,
+    recommendedActions: previous.recommendedActions,
+    jobMedianModifiedZ: previous.jobMedianModifiedZ,
+  };
+}
+
+function parseJobStatusMessage(body: string): JobStatusResponse | null {
+  try {
+    const parsed: unknown = parseJsonTextAsCamel(body);
+    return normalizeJobStatusResponse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function buildSockJsUrl(): string {
+  if (typeof window === "undefined") {
+    return "/ws";
+  }
+  return `${window.location.origin}/ws`;
+}
+
+export interface UseJobNotificationResult {
+  jobStatus: JobStatusResponse | null;
+  connectionState: JobNotificationConnectionState;
+  lastError: string | null;
+  isLoading: boolean;
+  refetchJobFromRest: () => Promise<void>;
+}
+
+export function useJobNotification(jobId: string): UseJobNotificationResult {
+  const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
+  const [connectionState, setConnectionState] =
+    useState<JobNotificationConnectionState>("idle");
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const previousJobIdRef = useRef<string>("");
+
+  const handleMessage = useCallback((message: IMessage) => {
+    const next = parseJobStatusMessage(message.body);
+    if (next === null) {
+      return;
+    }
+    setJobStatus((prev) => {
+      if (!shouldApplyJobStatusUpdate(prev, next)) {
+        return prev;
+      }
+      return mergeJobStatusPreservingSummary(prev, next);
+    });
+  }, []);
+
+  const refetchJobFromRest = useCallback(async () => {
+    const trimmedJobId = jobId.trim();
+    if (trimmedJobId.length === 0) {
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/v1/jobs/${trimmedJobId}`);
+      const responseText = await res.text();
+      if (!res.ok) {
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = parseJsonTextAsCamel(responseText) as unknown;
+      } catch {
+        return;
+      }
+      const normalized = normalizeJobStatusResponse(parsed);
+      if (normalized === null) {
+        return;
+      }
+      setJobStatus((prev) => {
+        if (!shouldApplyJobStatusUpdate(prev, normalized)) {
+          return prev;
+        }
+        return mergeJobStatusPreservingSummary(prev, normalized);
+      });
+    } catch {
+      return;
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    const trimmedJobId = jobId.trim();
+    if (trimmedJobId.length === 0) {
+      previousJobIdRef.current = "";
+      setJobStatus(null);
+      setConnectionState("idle");
+      setLastError(null);
+      setIsLoading(false);
+      return undefined;
+    }
+
+    if (previousJobIdRef.current !== trimmedJobId) {
+      setJobStatus(null);
+      previousJobIdRef.current = trimmedJobId;
+    }
+
+    let cancelled = false;
+    let skipWebSocket = false;
+    const abortController = new AbortController();
+    let stompClient: Client | null = null;
+
+    setConnectionState("connecting");
+    setLastError(null);
+    setIsLoading(true);
+
+    void (async (): Promise<void> => {
+      try {
+        const res = await apiFetch(`/api/v1/jobs/${trimmedJobId}`, {
+          signal: abortController.signal,
+        });
+        if (cancelled) {
+          return;
+        }
+
+        const responseText = await res.text();
+
+        if (res.status === 404) {
+          console.error("job status fetch not found", res.status, responseText);
+          setJobStatus(null);
+          setLastError("ジョブが見つかりません");
+          setConnectionState("idle");
+          skipWebSocket = true;
+          return;
+        }
+
+        if (!res.ok) {
+          console.error("job status fetch failed", res.status, responseText);
+          setLastError(
+            responseText.length > 0 ? responseText : `HTTP ${res.status}`,
+          );
+        } else {
+          let parsed: unknown;
+          try {
+            parsed = parseJsonTextAsCamel(responseText) as unknown;
+          } catch {
+            console.error(
+              "job status JSON parse error",
+              res.status,
+              responseText,
+            );
+            setLastError("ジョブ状態の形式が不正です");
+            parsed = null;
+          }
+          if (parsed !== null && !cancelled) {
+            const normalized = normalizeJobStatusResponse(parsed);
+            if (normalized === null) {
+              console.error(
+                "job status validation failed",
+                res.status,
+                responseText,
+              );
+              setLastError("ジョブ状態の形式が不正です");
+            } else {
+              setJobStatus((prev) => {
+                if (!shouldApplyJobStatusUpdate(prev, normalized)) {
+                  return prev;
+                }
+                return mergeJobStatusPreservingSummary(prev, normalized);
+              });
+            }
+          }
+        }
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("job status fetch error", message, err);
+        setLastError(message);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+
+      if (cancelled || skipWebSocket) {
+        return;
+      }
+
+      stompClient = new Client({
+        webSocketFactory: () => new SockJS(buildSockJsUrl()),
+        reconnectDelay: 5000,
+        onConnect: () => {
+          if (cancelled) {
+            return;
+          }
+          setConnectionState("connected");
+          stompClient?.subscribe(`/topic/jobs/${trimmedJobId}`, handleMessage);
+        },
+        onStompError: (frame) => {
+          setConnectionState("error");
+          const headerMessage = frame.headers["message"];
+          const message =
+            typeof headerMessage === "string" && headerMessage.length > 0
+              ? headerMessage
+              : typeof frame.body === "string" && frame.body.length > 0
+                ? frame.body
+                : "STOMP error";
+          console.error("STOMP error", message, frame.body);
+          setLastError(message);
+        },
+        onWebSocketClose: () => {
+          setConnectionState("disconnected");
+        },
+        onDisconnect: () => {
+          setConnectionState("disconnected");
+        },
+      });
+
+      if (cancelled) {
+        stompClient?.deactivate();
+        stompClient = null;
+        return;
+      }
+
+      stompClient.activate();
+    })();
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      stompClient?.deactivate();
+      stompClient = null;
+    };
+  }, [jobId, handleMessage]);
+
+  return { jobStatus, connectionState, lastError, isLoading, refetchJobFromRest };
+}
+</file>
+
+<file path="frontend/src/hooks/useJobStreaming.ts">
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { keysToCamelDeep } from "../api/apiFetch";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import { getAccessToken } from "../auth/authSession";
+import { Allow, MalformedJSON, PartialJSON, parse } from "partial-json";
+import { useCallback, useRef, useState } from "react";
+import type { VerifyStreamChunkPayload } from "../types/analysis";
+
+function parseVerifyStreamChunkPayload(raw: string): VerifyStreamChunkPayload | null {
+  try {
+    const parsed: unknown = keysToCamelDeep(JSON.parse(raw));
+    if (typeof parsed !== "object" || parsed === null || !("kind" in parsed) || !("text" in parsed)) {
+      return null;
+    }
+    const rec = parsed as Record<string, unknown>;
+    if (typeof rec.kind !== "string" || typeof rec.text !== "string") {
+      return null;
+    }
+    const kind = rec.kind;
+    if (kind !== "delta" && kind !== "done" && kind !== "error") {
+      return null;
+    }
+    const queryId = typeof rec.queryId === "string" ? rec.queryId : undefined;
+    return { kind, text: rec.text, queryId };
+  } catch {
+    return null;
+  }
+}
+
+function tryParseModelJson(json: string): unknown | null {
+  if (json.length === 0) {
+    return null;
+  }
+  try {
+    return parse(json, Allow.ALL);
+  } catch (caught: unknown) {
+    if (caught instanceof PartialJSON || caught instanceof MalformedJSON) {
+      return null;
+    }
+    return null;
+  }
+}
+
+export interface UseJobStreamingResult {
+  isStreaming: boolean;
+  streamError: string | null;
+  parsedByQueryId: Record<string, unknown>;
+  connectJobStream: (jobId: string) => Promise<void>;
+  disconnectJobStream: () => void;
+}
+
+export function useJobStreaming(
+  onStreamSettled: () => void | Promise<void>,
+): UseJobStreamingResult {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [parsedByQueryId, setParsedByQueryId] = useState<Record<string, unknown>>({});
+  const buffersRef = useRef<Record<string, string>>({});
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const settledRef = useRef(false);
+  const onSettledRef = useRef(onStreamSettled);
+  onSettledRef.current = onStreamSettled;
+
+  const runSettledOnce = useCallback(async () => {
+    if (settledRef.current) {
+      return;
+    }
+    settledRef.current = true;
+    setIsStreaming(false);
+    try {
+      await onSettledRef.current();
+    } catch {
+      return;
+    }
+  }, []);
+
+  const disconnectJobStream = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsStreaming(false);
+  }, []);
+
+  const connectJobStream = useCallback(
+    async (jobId: string) => {
+      const trimmed = jobId.trim();
+      if (trimmed.length === 0) {
+        return;
+      }
+      disconnectJobStream();
+      settledRef.current = false;
+      buffersRef.current = {};
+      setParsedByQueryId({});
+      setStreamError(null);
+      setIsStreaming(true);
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+      try {
+        const streamHeaders: Record<string, string> = {
+          "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+        };
+        const accessToken = getAccessToken();
+        if (accessToken !== null && accessToken.length > 0) {
+          streamHeaders.Authorization = `Bearer ${accessToken}`;
+        }
+        await fetchEventSource(`/api/v1/jobs/${trimmed}/stream`, {
+          signal: abortController.signal,
+          credentials: "include",
+          headers: streamHeaders,
+          openWhenHidden: true,
+          async onopen(response) {
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(text.length > 0 ? text : `HTTP ${response.status}`);
+            }
+          },
+          onmessage(event) {
+            if (event.event === "chunk") {
+              const payload = parseVerifyStreamChunkPayload(event.data);
+              if (payload === null) {
+                return;
+              }
+              if (payload.kind === "error") {
+                setStreamError(payload.text);
+                void runSettledOnce();
+                return;
+              }
+              const bufferKey = payload.queryId ?? "_";
+              const buffers = buffersRef.current;
+              if (payload.kind === "delta") {
+                buffers[bufferKey] = (buffers[bufferKey] ?? "") + payload.text;
+              } else {
+                buffers[bufferKey] = payload.text;
+              }
+              const partial = tryParseModelJson(buffers[bufferKey] ?? "");
+              setParsedByQueryId((previous) => {
+                const next: Record<string, unknown> = { ...previous };
+                if (partial !== null) {
+                  next[bufferKey] = partial;
+                }
+                return next;
+              });
+              if (payload.kind === "done" && payload.queryId === undefined) {
+                void runSettledOnce();
+              }
+              return;
+            }
+            if (event.event === "error") {
+              try {
+                const parsed: unknown = keysToCamelDeep(JSON.parse(event.data));
+                const rec = parsed as Record<string, unknown>;
+                const message = typeof rec.message === "string" ? rec.message : "stream error";
+                setStreamError(message);
+              } catch {
+                setStreamError(event.data);
+              }
+              void runSettledOnce();
+            }
+          },
+          onclose() {
+            void runSettledOnce();
+          },
+          onerror(err) {
+            setStreamError(err instanceof Error ? err.message : String(err));
+            void runSettledOnce();
+            throw err;
+          },
+        });
+      } catch (caught: unknown) {
+        if (caught instanceof Error && caught.name === "AbortError") {
+          setIsStreaming(false);
+          return;
+        }
+        if (!settledRef.current) {
+          const message = caught instanceof Error ? caught.message : String(caught);
+          setStreamError(message);
+          await runSettledOnce();
+        }
+      } finally {
+        abortControllerRef.current = null;
+      }
+    },
+    [disconnectJobStream, runSettledOnce],
+  );
+
+  return {
+    isStreaming,
+    streamError,
+    parsedByQueryId,
+    connectJobStream,
+    disconnectJobStream,
+  };
+}
+</file>
+
+<file path="frontend/src/main.tsx">
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
+</file>
+
+<file path="frontend/src/pages/JobAnalysisPage.tsx">
+import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { AnalysisCharts } from "../components/AnalysisCharts";
+import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
+import { useJobNotification } from "../hooks/useJobNotification";
+import { useJobStreaming } from "../hooks/useJobStreaming";
+import {
+  competitorLabelsFromProject,
+  formatAuditDate,
+  liveMetricsFromParsed,
+  normalizeAnalyticsSummary,
+  parseJobAnalysisDetail,
+  resolveAverageSomScore,
+  resolveChartShareData,
+  resolveChartTrendData,
+  type AnalyticsSummaryNormalized,
+  type JobAnalysisDetail,
+  type JobProjectInfo,
+  type ResultDetail,
+} from "../types/analysis";
+
+const PROCESSING_STATUSES = new Set([
+  "CREATED",
+  "REALTIME_PROCESSING",
+  "FILE_UPLOADED",
+  "SUBMITTED",
+  "RUNNING",
+]);
+
+const PDF_COMPLETED = "COMPLETED";
+const PDF_GENERATING = "GENERATING";
+const PDF_FAILED = "FAILED";
+
+type PdfRequestResponse = {
+  accepted: boolean;
+  message: string | null;
+};
+
+function parseDownloadFilename(contentDisposition: string | null): string {
+  if (contentDisposition == null || contentDisposition.length === 0) {
+    return "report.pdf";
+  }
+  const utf8 = /filename\*=(?:UTF-8'')?([^;\s]+)/i.exec(contentDisposition);
+  if (utf8) {
+    return decodeURIComponent(utf8[1].trim().replace(/^"+|"+$/g, ""));
+  }
+  const quoted = /filename="([^"]+)"/i.exec(contentDisposition);
+  if (quoted) {
+    return quoted[1];
+  }
+  const plain = /filename=([^;\s]+)/i.exec(contentDisposition);
+  if (plain) {
+    return plain[1].trim().replace(/^"+|"+$/g, "");
+  }
+  return "report.pdf";
+}
+
+function isCompletedJobStatus(status: string): boolean {
+  return status === "COMPLETED" || status === "SUCCEEDED";
+}
+
+function rowShowsDetailedStrategy(
+  row: ResultDetail,
+  jobMedianModifiedZ: number | null | undefined,
+): boolean {
+  if (row.significantDeviation === true) {
+    return true;
+  }
+  if (row.significantDeviation === false) {
+    return false;
+  }
+  if (jobMedianModifiedZ == null || Number.isNaN(jobMedianModifiedZ)) {
+    return false;
+  }
+  if (row.modifiedZScore == null || Number.isNaN(row.modifiedZScore)) {
+    return false;
+  }
+  return Math.abs(row.modifiedZScore - jobMedianModifiedZ) >= 1.0;
+}
+
+function shouldDataBeReadyForPdf(
+  effectiveJobId: string,
+  loading: boolean,
+  loadError: string | null,
+  data: JobAnalysisDetail | null,
+): boolean {
+  if (!effectiveJobId) {
+    return false;
+  }
+  if (loading || loadError || !data) {
+    return false;
+  }
+  if (isCompletedJobStatus(data.jobStatus)) {
+    return Array.isArray(data.results);
+  }
+  return true;
+}
+
+function ProjectInfoBlock({
+  project,
+  jobIdForReturn,
+}: {
+  project: JobProjectInfo;
+  jobIdForReturn: string;
+}): JSX.Element {
+  return (
+    <div className="pdf-avoid-break mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-800">プロジェクト</h3>
+        <RouterLink
+          to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
+          className="pdf-no-print text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+        >
+          定期監査・通知設定
+        </RouterLink>
+      </div>
+      <p className="mt-2 text-sm text-slate-600">
+        <span className="font-medium text-slate-800">名称</span> {project.projectName}
+      </p>
+      <p className="mt-1 text-sm text-slate-600">
+        <span className="font-medium text-slate-800">対象URL</span>{" "}
+        <a
+          href={project.targetUrl}
+          className="break-all text-sky-700 underline hover:text-sky-900"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {project.targetUrl}
+        </a>
+      </p>
+      {project.competitorUrls.length > 0 && (
+        <div className="mt-2 text-sm text-slate-600">
+          <span className="font-medium text-slate-800">競合URL</span>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {project.competitorUrls.map((url) => (
+              <li key={url} className="break-all">
+                <a href={url} className="text-sky-700 underline hover:text-sky-900" target="_blank" rel="noreferrer">
+                  {url}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveMetricText({ value }: { value: string }): JSX.Element {
+  return (
+    <span className="inline-block min-w-[2.25rem] tabular-nums transition-all duration-500 ease-out will-change-transform">
+      {value}
+    </span>
+  );
+}
+
+function CompletedScoreCell({ value }: { value: string | number }): JSX.Element {
+  return (
+    <span className="inline-block tabular-nums transition-all duration-500 ease-out">{value}</span>
+  );
+}
+
+export function JobAnalysisPage(): JSX.Element {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { jobId: jobIdFromRoute } = useParams<{ jobId: string }>();
+  const [jobIdInput, setJobIdInput] = useState(jobIdFromRoute ?? "");
+  const [data, setData] = useState<JobAnalysisDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isReadyForPdf, setIsReadyForPdf] = useState(false);
+  const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
+  const [pdfRequestNotice, setPdfRequestNotice] = useState<string | null>(null);
+  const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
+  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
+
+  const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
+  const effectiveJobIdRef = useRef(effectiveJobId);
+  effectiveJobIdRef.current = effectiveJobId;
+
+  const {
+    jobStatus,
+    lastError: jobNotifyError,
+    isLoading: jobNotifyLoading,
+    refetchJobFromRest,
+  } = useJobNotification(effectiveJobId);
+
+  const refetchAnalysis = useCallback(async (jobIdStr: string): Promise<JobAnalysisDetail | null> => {
+    const id = jobIdStr.trim();
+    if (id.length === 0) {
+      return null;
+    }
+    const res = await apiFetch(`/api/v1/jobs/${id}/analysis`);
+    if (!res.ok) {
+      return null;
+    }
+    const body: unknown = await responseJsonAsCamel(res);
+    const p = parseJobAnalysisDetail(body);
+    setData(p);
+    return p;
+  }, []);
+
+  const fetchProjectAnalytics = useCallback(async (projectId: string) => {
+    const pid = projectId.trim();
+    if (pid.length === 0) {
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`);
+      if (!res.ok) {
+        setApiCharts(undefined);
+        return;
+      }
+      const body: unknown = await responseJsonAsCamel(res);
+      const normalized = normalizeAnalyticsSummary(body);
+      setApiCharts(normalized ?? undefined);
+    } catch {
+      setApiCharts(undefined);
+    }
+  }, []);
+
+  const handleStreamSettled = useCallback(async () => {
+    const id = effectiveJobIdRef.current.trim();
+    if (id.length === 0) {
+      return;
+    }
+    await refetchJobFromRest();
+    const latest = await refetchAnalysis(id);
+    const projectId = latest?.project?.projectId?.trim();
+    if (projectId !== undefined && projectId.length > 0) {
+      await fetchProjectAnalytics(projectId);
+    }
+  }, [refetchJobFromRest, refetchAnalysis, fetchProjectAnalytics]);
+
+  const {
+    isStreaming,
+    streamError,
+    parsedByQueryId,
+    connectJobStream,
+    disconnectJobStream,
+  } = useJobStreaming(handleStreamSettled);
+
+  const displayJobId = jobStatus?.jobId ?? data?.jobId ?? null;
+  const displayJobStatus = jobStatus?.jobStatus ?? data?.jobStatus ?? null;
+  const displayBrand = jobStatus?.brandName ?? data?.brandName ?? null;
+  const resolvedStatus = displayJobStatus ?? "";
+  const isCompletedDisplay = isCompletedJobStatus(resolvedStatus);
+  const displayJobRollupDiagnostic = useMemo(() => {
+    const a =
+      jobStatus?.diagnosticMessage != null && jobStatus.diagnosticMessage.trim().length > 0
+        ? jobStatus.diagnosticMessage
+        : null;
+    if (a !== null) {
+      return a;
+    }
+    const b =
+      data?.jobSummaryDiagnostic != null && data.jobSummaryDiagnostic.trim().length > 0
+        ? data.jobSummaryDiagnostic
+        : null;
+    return b;
+  }, [jobStatus?.diagnosticMessage, data?.jobSummaryDiagnostic]);
+  const displayJobRollupActions = useMemo(() => {
+    if (jobStatus?.recommendedActions != null && jobStatus.recommendedActions.length > 0) {
+      return jobStatus.recommendedActions;
+    }
+    return data?.jobSummaryRecommendedActions ?? [];
+  }, [jobStatus?.recommendedActions, data?.jobSummaryRecommendedActions]);
+  const displayJobRollupMedZ = useMemo(() => {
+    if (jobStatus?.jobMedianModifiedZ != null && !Number.isNaN(jobStatus.jobMedianModifiedZ)) {
+      return jobStatus.jobMedianModifiedZ;
+    }
+    if (data?.jobMedianModifiedZ != null && !Number.isNaN(data.jobMedianModifiedZ)) {
+      return data.jobMedianModifiedZ;
+    }
+    return null;
+  }, [jobStatus?.jobMedianModifiedZ, data?.jobMedianModifiedZ]);
+  const showJobStrategyBlock = useMemo(() => {
+    return (
+      (displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0) ||
+      displayJobRollupActions.length > 0 ||
+      displayJobRollupMedZ != null
+    );
+  }, [displayJobRollupDiagnostic, displayJobRollupActions, displayJobRollupMedZ]);
+  const isProcessingDisplay =
+    resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
+  const analysisLocked = isStreaming || isProcessingDisplay;
+  const resultRows: ResultDetail[] =
+    data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
+  const isPdfGeneratingUi =
+    pdfRequestInFlight || (jobStatus?.pdfStatus != null && jobStatus.pdfStatus === PDF_GENERATING);
+  const isPdfMode = searchParams.get("pdf") === "1";
+  const brandForCharts = displayBrand ?? "自社";
+  const competitorPair = useMemo(
+    () => competitorLabelsFromProject(data?.project ?? null),
+    [data?.project],
+  );
+  const chartTrendData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.trend;
+    }
+    return resolveChartTrendData(resultRows, parsedByQueryId, isStreaming);
+  }, [apiCharts, resultRows, parsedByQueryId, isStreaming]);
+  const chartShareData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.share;
+    }
+    return resolveChartShareData(
+      brandForCharts,
+      competitorPair,
+      resultRows,
+      parsedByQueryId,
+      isStreaming,
+    );
+  }, [apiCharts, brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming]);
+  const showCharts =
+    effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
+  const displaySomForTier = useMemo(() => {
+    const avg = resolveAverageSomScore(resultRows, parsedByQueryId, isStreaming);
+    if (avg !== null) {
+      return avg;
+    }
+    if (isCompletedDisplay && resultRows.length === 0) {
+      return 0;
+    }
+    return null;
+  }, [resultRows, parsedByQueryId, isStreaming, isCompletedDisplay]);
+  const showTierSkeleton = useMemo(() => {
+    if (effectiveJobId.length === 0) {
+      return false;
+    }
+    if (loading) {
+      return true;
+    }
+    if (displaySomForTier !== null) {
+      return false;
+    }
+    return isProcessingDisplay || isStreaming;
+  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay, isStreaming]);
+  const showTierBlock = useMemo(() => {
+    return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
+  }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
+  const isProPlanUi = apiCharts?.subscriptionPlan === "PRO";
+  const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
+  const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
+
+  const requestPdfReport = useCallback(async () => {
+    if (!effectiveJobId.trim()) {
+      return;
+    }
+    setPdfRequestInFlight(true);
+    setPdfRequestNotice(null);
+    try {
+      const res = await apiFetch(`/api/v1/jobs/${effectiveJobId}/pdf/request`, {
+        method: "POST",
+      });
+      let body: PdfRequestResponse | null = null;
+      try {
+        body = (await responseJsonAsCamel(res)) as PdfRequestResponse;
+      } catch {
+        body = null;
+      }
+      if (!res.ok) {
+        setPdfRequestInFlight(false);
+        if (body?.message != null && body.message.length > 0) {
+          setPdfRequestNotice(body.message);
+        }
+        console.error("pdf request failed", res.status);
+        return;
+      }
+      if (body === null || typeof body.accepted !== "boolean") {
+        setPdfRequestInFlight(false);
+        setPdfRequestNotice("PDFリクエストの応答が不正です");
+        return;
+      }
+      if (!body.accepted) {
+        setPdfRequestInFlight(false);
+        setPdfRequestNotice(body?.message ?? "PDFレポートを開始できませんでした");
+        return;
+      }
+    } catch (e: unknown) {
+      setPdfRequestInFlight(false);
+      console.error("pdf request error", e);
+    }
+  }, [effectiveJobId]);
+
+  const downloadPdfWithAuth = useCallback(async () => {
+    const id = effectiveJobId.trim();
+    if (id.length === 0) {
+      return;
+    }
+    setPdfDownloadInFlight(true);
+    try {
+      const res = await apiFetch(`/api/v1/jobs/${id}/pdf/download`);
+      if (!res.ok) {
+        const t = await res.text();
+        console.error("pdf download failed", res.status, t);
+        return;
+      }
+      const blob = await res.blob();
+      const name = parseDownloadFilename(res.headers.get("Content-Disposition"));
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = name;
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: unknown) {
+      console.error("pdf download error", e);
+    } finally {
+      setPdfDownloadInFlight(false);
+    }
+  }, [effectiveJobId]);
+
+  const goToJobCreation = useCallback((): void => {
+    navigate("/");
+  }, [navigate]);
+
+  useEffect(() => {
+    if (jobIdFromRoute) {
+      setJobIdInput(jobIdFromRoute);
+    }
+  }, [jobIdFromRoute]);
+
+  useEffect(() => {
+    setPdfRequestInFlight(false);
+    setPdfDownloadInFlight(false);
+    setPdfRequestNotice(null);
+  }, [effectiveJobId]);
+
+  useEffect(() => {
+    setApiCharts(undefined);
+  }, [effectiveJobId]);
+
+  useEffect(() => {
+    const pid = data?.project?.projectId?.trim();
+    if (pid === undefined || pid.length === 0) {
+      return;
+    }
+    void fetchProjectAnalytics(pid);
+  }, [data?.project?.projectId, fetchProjectAnalytics]);
+
+  useEffect(() => {
+    const pdfStatus = jobStatus?.pdfStatus;
+    if (pdfStatus === PDF_COMPLETED || pdfStatus === PDF_FAILED) {
+      setPdfRequestInFlight(false);
+    }
+  }, [jobStatus?.pdfStatus]);
+
+  useEffect(() => {
+    const trimmed = effectiveJobId.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+    void connectJobStream(trimmed);
+    return () => {
+      disconnectJobStream();
+    };
+  }, [effectiveJobId, connectJobStream, disconnectJobStream]);
+
+  useEffect(() => {
+    if (!effectiveJobId) {
+      setData(null);
+      setLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setLoadError(null);
+    apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `HTTP ${response.status}`);
+        }
+        return responseJsonAsCamel(response);
+      })
+      .then((body: unknown) => {
+        const p = parseJobAnalysisDetail(body);
+        if (p === null) {
+          setLoadError("解析データの形式が不正です");
+          setData(null);
+        } else {
+          setData(p);
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        const message = err instanceof Error ? err.message : String(err);
+        setLoadError(message);
+        setData(null);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [effectiveJobId]);
+
+  useEffect(() => {
+    const ready = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
+    if (!ready) {
+      setIsReadyForPdf(false);
+      return;
+    }
+    let cancelled = false;
+    const outer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          setIsReadyForPdf(true);
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(outer);
+      setIsReadyForPdf(false);
+    };
+  }, [effectiveJobId, loading, loadError, data]);
+
+  useEffect(() => {
+    if (!isReadyForPdf || !isPdfMode) {
+      setPdfDelayedReady(false);
+      return;
+    }
+    const t = window.setTimeout(() => setPdfDelayedReady(true), 100);
+    return () => window.clearTimeout(t);
+  }, [isReadyForPdf, isPdfMode]);
+
+  return (
+    <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
+      <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
+      {jobNotifyLoading && jobStatus === null && effectiveJobId && (
+        <div className="pdf-no-print mb-4 flex items-center gap-3 text-slate-600">
+          <span
+            className="inline-block h-8 w-8 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
+            aria-hidden
+          />
+          <span>ジョブ状態を読み込み中です…</span>
+        </div>
+      )}
+      {effectiveJobId && jobNotifyError && (
+        <div className="pdf-no-print mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+          <strong className="font-semibold">ジョブ状態の取得に失敗しました</strong>
+          <p className="mt-2 text-sm">{jobNotifyError}</p>
+        </div>
+      )}
+      <div className="pdf-no-print mb-6 flex flex-wrap items-center gap-2">
+        <label htmlFor="jobId" className="text-sm font-medium text-slate-700">
+          ジョブID
+        </label>
+        <input
+          id="jobId"
+          type="text"
+          value={jobIdInput}
+          onChange={(e) => setJobIdInput(e.target.value)}
+          placeholder="UUIDを入力"
+          className="min-w-[200px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+        />
+      </div>
+      {!effectiveJobId && (
+        <p className="pdf-no-print text-slate-600">
+          ジョブIDを入力するか、URLに /job/&lt;UUID&gt; でアクセスしてください。
+        </p>
+      )}
+      {loading && effectiveJobId && <p className="pdf-no-print text-slate-600">読み込み中です…</p>}
+      {loadError && (
+        <div className="pdf-no-print mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+          <strong className="font-semibold">取得に失敗しました</strong>
+          <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{loadError}</pre>
+        </div>
+      )}
+      {displayJobId && isProcessingDisplay && displayBrand && (
+        <div className="pdf-avoid-break pdf-no-print mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-lg font-medium text-slate-900">解析中です。しばらくお待ちください。</p>
+          <p className="mt-2 text-sm text-slate-600">
+            ステータス: {resolvedStatus} / ブランド: {displayBrand}
+          </p>
+          {isStreaming && (
+            <p className="mt-2 text-sm text-sky-700">AI応答をストリーミング受信中です…</p>
+          )}
+          {streamError && (
+            <p className="mt-2 text-sm text-amber-800">ストリーム: {streamError}</p>
+          )}
+          {Object.keys(parsedByQueryId).length > 0 && (
+            <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                ライブプレビュー（partial-json）
+              </div>
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80">
+                    <th className="px-3 py-2 font-semibold text-slate-700">クエリID</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">SoM</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">overall</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">言及</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">順位</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(parsedByQueryId).map(([queryIdKey, parsedValue]) => {
+                    const m = liveMetricsFromParsed(parsedValue);
+                    return (
+                      <tr key={queryIdKey} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs text-slate-800">{queryIdKey}</td>
+                        <td className="px-3 py-2 tabular-nums text-slate-800">
+                          <LiveMetricText value={m.somScore === null ? "…" : String(m.somScore)} />
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-slate-800">
+                          <LiveMetricText value={m.overallScore === null ? "…" : String(m.overallScore)} />
+                        </td>
+                        <td className="px-3 py-2 text-slate-800">
+                          <LiveMetricText
+                            value={
+                              m.brandMentioned === null ? "…" : m.brandMentioned ? "あり" : "なし"
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-slate-800">
+                          <LiveMetricText value={m.mentionRank === null ? "—" : String(m.mentionRank)} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
+        </div>
+      )}
+      {resolvedStatus === "FAILED" && (jobStatus !== null || data !== null) && (
+        <div className="pdf-avoid-break mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+          <strong className="font-semibold">ジョブが失敗しました</strong>
+          <pre className="mt-2 whitespace-pre-wrap break-words text-sm">
+            {jobStatus?.errorMessage ?? data?.errorMessage ?? "理由は記録されていません"}
+          </pre>
+        </div>
+      )}
+      {displayJobId && isCompletedDisplay && (
+        <div className="pdf-avoid-break mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm text-slate-600">
+            <span className="font-medium text-slate-800">ジョブ</span> {displayJobId}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            <span className="font-medium text-slate-800">ステータス</span> {resolvedStatus}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            <span className="font-medium text-slate-800">ブランド</span> {displayBrand ?? "—"}
+          </p>
+          {jobStatus && (
+            <p className="mt-1 text-sm text-slate-600">
+              <span className="font-medium text-slate-800">PDF</span>{" "}
+              {jobStatus.pdfStatus ?? "未生成"}
+            </p>
+          )}
+          {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
+        </div>
+      )}
+      {effectiveJobId && jobStatus && (
+        <div className="pdf-no-print mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          {pdfRequestNotice !== null && pdfRequestNotice.length > 0 && (
+            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {pdfRequestNotice}
+            </div>
+          )}
+          {jobStatus.pdfStatus === PDF_COMPLETED && (
+            <button
+              type="button"
+              onClick={() => void downloadPdfWithAuth()}
+              disabled={pdfDownloadInFlight}
+              className={
+                pdfDownloadInFlight
+                  ? "inline-flex cursor-not-allowed rounded-lg bg-sky-400 px-4 py-2 text-sm font-semibold text-white opacity-70 shadow-sm"
+                  : "inline-flex cursor-pointer rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+              }
+            >
+              PDFをダウンロード
+            </button>
+          )}
+          {isPdfGeneratingUi && (
+            <span className="inline-flex items-center gap-2 text-sm text-slate-600">
+              <span
+                className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
+                aria-hidden
+              />
+              生成中…
+            </span>
+          )}
+          {!isPdfGeneratingUi && (jobStatus.pdfStatus === null || jobStatus.pdfStatus === PDF_FAILED) && (
+            <button
+              type="button"
+              onClick={requestPdfReport}
+              disabled={analysisLocked || !isCompletedDisplay || pdfRequestInFlight}
+              className={
+                !analysisLocked && isCompletedDisplay && !pdfRequestInFlight
+                  ? "inline-flex cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+                  : "inline-flex cursor-not-allowed rounded-lg border border-slate-200 bg-slate-200 px-4 py-2 text-sm font-medium text-slate-600 opacity-60"
+              }
+            >
+              PDFレポートを生成
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={analysisLocked}
+            onClick={goToJobCreation}
+            className={
+              !analysisLocked
+                ? "inline-flex cursor-pointer rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-sm font-normal text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900"
+                : "inline-flex cursor-not-allowed rounded-lg border border-slate-200 bg-transparent px-4 py-2 text-sm font-normal text-slate-400 opacity-70"
+            }
+          >
+            新規ジョブを作成
+          </button>
+        </div>
+      )}
+      {showJobStrategyBlock && (
+        <div className="pdf-avoid-break pdf-no-print mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+          {displayJobRollupMedZ != null && (
+            <p className="mt-1 text-xs text-sky-900/80">
+              中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
+            </p>
+          )}
+          {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
+            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
+          ) : null}
+          {displayJobRollupActions.length > 0 ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
+              {displayJobRollupActions.map((action, idx) => (
+                <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+      {showTierBlock && (
+        <div className="pdf-avoid-break mb-6">
+          <TierDiagnosisCard
+            somScore={showTierSkeleton ? null : displaySomForTier}
+            isProPlan={isProPlanUi}
+            skeleton={showTierSkeleton}
+          />
+        </div>
+      )}
+      {showCharts &&
+        (isProcessingDisplay ||
+          (data !== null && isCompletedJobStatus(data.jobStatus))) && (
+          <AnalysisCharts
+            isPdfMode={isPdfMode}
+            trendData={chartTrendData}
+            shareData={chartShareData}
+            brandLabel={brandForCharts}
+          />
+        )}
+      {data && isCompletedJobStatus(data.jobStatus) && (
+        <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="pdf-avoid-break border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-800">解析結果一覧</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/80">
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">改Z&apos;</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GBVS</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
+                  <th className="min-w-[12rem] px-4 py-3 font-semibold text-slate-700">戦略診断・推奨</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultRows.length === 0 ? (
+                  <tr className="pdf-avoid-break">
+                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                      完了しましたが、保存された解析結果はまだありません。
+                    </td>
+                  </tr>
+                ) : (
+                  resultRows.map((row) => (
+                    <tr
+                      key={row.resultId}
+                      className="pdf-avoid-break border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+                    >
+                      <td className="max-w-md px-4 py-3 align-top text-slate-800 transition-all duration-500 ease-out">
+                        {row.query}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
+                        <CompletedScoreCell value={formatAuditDate(row.auditDate)} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
+                        <CompletedScoreCell
+                          value={
+                            row.modifiedZScore != null && !Number.isNaN(row.modifiedZScore)
+                              ? row.modifiedZScore.toFixed(2)
+                              : "—"
+                          }
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
+                        <CompletedScoreCell
+                          value={row.gbvsNormalizedScore ?? row.somScore}
+                        />
+                      </td>
+                      <td
+                        className="max-w-[14rem] px-4 py-3 align-top text-slate-800"
+                        title={
+                          row.visibilityStageNarrative != null && row.visibilityStageNarrative !== ""
+                            ? row.visibilityStageNarrative
+                            : undefined
+                        }
+                      >
+                        {row.visibilityStage != null && row.visibilityStage > 0 ? (
+                          <span className="block text-xs leading-snug">
+                            <span className="font-semibold text-slate-900">S{row.visibilityStage}</span>
+                            {row.visibilityStageBand != null && row.visibilityStageBand !== "" ? (
+                              <span className="mt-0.5 block text-slate-600">{row.visibilityStageBand}</span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="max-w-sm px-4 py-3 align-top text-xs leading-snug text-slate-700">
+                        {rowShowsDetailedStrategy(row, data.jobMedianModifiedZ) ? (
+                          <>
+                            {row.diagnosticMessage != null && row.diagnosticMessage.length > 0 ? (
+                              <p className="mb-2 text-slate-800">{row.diagnosticMessage}</p>
+                            ) : null}
+                            {row.recommendedActions != null && row.recommendedActions.length > 0 ? (
+                              <ul className="list-disc space-y-0.5 pl-4">
+                                {row.recommendedActions.map((action, ai) => (
+                                  <li key={`${row.resultId}-${ai}`}>{action}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-500">偏差基準内</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        {row.brandMentioned ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 transition-all duration-500 ease-out">
+                            言及あり
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 transition-all duration-500 ease-out">
+                            なし
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
+                        <CompletedScoreCell value={row.mentionRank === null ? "—" : String(row.mentionRank)} />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 align-top">
+                        {row.negativeAlert === true ? (
+                          <span className="inline-flex rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800">
+                            要注意
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {showPdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/JobCreationPage.tsx">
+import AddIcon from "@mui/icons-material/Add";
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Container,
+  CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Link,
+  Snackbar,
+  Stack,
+  TextField,
+  ThemeProvider,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+  createTheme,
+} from "@mui/material";
+import type { MouseEvent } from "react";
+import { useState } from "react";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { KeywordSuggestionWizard } from "../components/KeywordSuggestionWizard";
+import { LoadingCharacter } from "../components/LoadingCharacter";
+import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
+
+const theme = createTheme();
+
+/** 解析開始フロー: 握り潰し禁止（コンソール + アラート + 呼び出し元で UI 表示用メッセージ返却） */
+function exposeAndFormatJobApiError(context: string, e: unknown): string {
+  console.error(`[JobCreationPage:${context}]`, e);
+  const message =
+    e instanceof Error ? e.message : typeof e === "string" ? e : `不明なエラー: ${String(e)}`;
+  window.alert(`エラーが発生しました: ${message}`);
+  return message;
+}
+
+function isThresholdError(message: string): boolean {
+  return message.includes("キーワードの上限を超えています");
+}
+
+export default function JobCreationPage(): JSX.Element {
+  const navigate = useNavigate();
+  const [brandName, setBrandName] = useState("");
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [analysisMode, setAnalysisMode] = useState<"realtime" | "deep">("realtime");
+  const [upsellOpen, setUpsellOpen] = useState(false);
+  const [draftJobId, setDraftJobId] = useState<string | null>(null);
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+  const [wizardPreparing, setWizardPreparing] = useState(false);
+  const [kwRegSnackbar, setKwRegSnackbar] = useState<string | null>(null);
+
+  const handleAnalysisModeChange = (
+    _event: MouseEvent<HTMLElement>,
+    newValue: "realtime" | "deep" | null,
+  ) => {
+    if (newValue === null) {
+      return;
+    }
+    if (newValue === "deep") {
+      setUpsellOpen(true);
+      return;
+    }
+    setAnalysisMode(newValue);
+  };
+
+  const addKeyword = () => {
+    const trimmed = keywordDraft.trim();
+    if (!trimmed) return;
+    if (keywords.includes(trimmed)) {
+      setKeywordDraft("");
+      return;
+    }
+    setKeywords((prev) => [...prev, trimmed]);
+    setKeywordDraft("");
+  };
+
+  const removeKeyword = (value: string) => {
+    setKeywords((prev) => prev.filter((k) => k !== value));
+  };
+
+  const ensureProjectForWizard = async (): Promise<boolean> => {
+    setError(null);
+    const brand = brandName.trim();
+    if (!brand) {
+      setError("AI提案を使うにはブランド名を入力してください。");
+      return false;
+    }
+    if (draftJobId !== null && draftProjectId !== null) return true;
+    setWizardPreparing(true);
+    try {
+      const createRes = await apiFetch("/api/v1/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandName: brand }),
+      });
+      if (!createRes.ok) {
+        const text = await createRes.text();
+        throw new Error(text || `HTTP ${createRes.status}`);
+      }
+      const raw: unknown = await responseJsonAsCamel(createRes);
+      const created = normalizeJobStatusResponse(raw);
+      if (created === null || created.projectId === null) {
+        throw new Error("ジョブ作成レスポンスの形式が不正です");
+      }
+      setDraftJobId(created.jobId);
+      setDraftProjectId(created.projectId);
+      return true;
+    } catch (e: unknown) {
+      setError(exposeAndFormatJobApiError("ensureProjectForWizard", e));
+      return false;
+    } finally {
+      setWizardPreparing(false);
+    }
+  };
+
+  const createJob = async () => {
+    setError(null);
+    const brand = brandName.trim();
+    if (!brand) {
+      setError("ブランド名を入力してください。");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      let jobId = draftJobId;
+      if (jobId === null) {
+        const createRes = await apiFetch("/api/v1/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandName: brand }),
+        });
+        if (!createRes.ok) {
+          const text = await createRes.text();
+          throw new Error(text || `HTTP ${createRes.status}`);
+        }
+        const raw: unknown = await responseJsonAsCamel(createRes);
+        const created = normalizeJobStatusResponse(raw);
+        if (created === null) {
+          throw new Error("ジョブ作成レスポンスの形式が不正です");
+        }
+        jobId = created.jobId;
+        setDraftJobId(created.jobId);
+        if (created.projectId !== null) setDraftProjectId(created.projectId);
+      }
+      if (jobId === null) {
+        throw new Error("ジョブIDがありません");
+      }
+      if (keywords.length > 0) {
+        const queriesRes = await apiFetch(`/api/v1/jobs/${jobId}/queries`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ queries: keywords, plan: "STANDARD" }),
+        });
+        if (!queriesRes.ok) {
+          const text = await queriesRes.text();
+          let message = text || `HTTP ${queriesRes.status}`;
+          try {
+            const parsed: unknown = parseJsonTextAsCamel(text);
+            const em = extractApiErrorMessage(parsed);
+            if (em !== undefined) {
+              message = em;
+            }
+          } catch {}
+          throw new Error(message);
+        }
+      }
+      navigate(`/job/${jobId}`);
+    } catch (e: unknown) {
+      setError(exposeAndFormatJobApiError("createJob", e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Container maxWidth="sm" sx={{ py: 4 }}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 2,
+            mb: 3,
+            flexWrap: "wrap",
+          }}
+        >
+          <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
+            <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>
+              ジョブ作成
+            </Typography>
+            <Typography color="text.secondary">
+              ブランド名と解析したいキーワードを登録します。
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              flexShrink: 0,
+            }}
+          >
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              fontWeight={600}
+              sx={{ mb: 0.75, display: "block" }}
+            >
+              解析モード
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={analysisMode}
+              onChange={handleAnalysisModeChange}
+              color="primary"
+              sx={{
+                gap: 0.75,
+                "& .MuiToggleButtonGroup-grouped": {
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: "8px !important",
+                  mx: 0,
+                  px: 1.25,
+                  fontWeight: 600,
+                  textTransform: "none",
+                  "&.Mui-selected": {
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    borderColor: "primary.main",
+                    "&:hover": {
+                      bgcolor: "primary.dark",
+                    },
+                  },
+                },
+              }}
+            >
+              <ToggleButton value="realtime" sx={{ whiteSpace: "nowrap" }}>
+                Realtime Mode
+              </ToggleButton>
+              <ToggleButton value="deep" sx={{ whiteSpace: "nowrap" }}>
+                Deep Analysis Mode 💎
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+        </Box>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            <Stack spacing={0.5}>
+              <Typography variant="body2" component="span">
+                {error}
+              </Typography>
+              {isThresholdError(error) && (
+                <Box sx={{ mt: 1.5 }}>
+                  <Link
+                    component={RouterLink}
+                    to="/pricing"
+                    variant="body2"
+                    fontWeight={600}
+                    underline="hover"
+                  >
+                    Proプランへのアップグレードはこちら
+                  </Link>
+                </Box>
+              )}
+            </Stack>
+          </Alert>
+        )}
+        <Stack spacing={3}>
+          <TextField
+            label="ブランド名"
+            value={brandName}
+            onChange={(e) => setBrandName(e.target.value)}
+            fullWidth
+            required
+            autoComplete="organization"
+          />
+          <Box>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
+              <TextField
+                label="キーワード"
+                value={keywordDraft}
+                onChange={(e) => setKeywordDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addKeyword();
+                  }
+                }}
+                fullWidth
+                placeholder="キーワードを入力して追加"
+              />
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={addKeyword}
+                sx={{ flexShrink: 0, alignSelf: { xs: "stretch", sm: "center" } }}
+              >
+                追加
+              </Button>
+            </Stack>
+            {keywords.length > 0 && (
+              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
+                {keywords.map((k) => (
+                  <Chip key={k} label={k} onDelete={() => removeKeyword(k)} />
+                ))}
+              </Stack>
+            )}
+          </Box>
+          <Box sx={{ mt: 2 }}>
+            <KeywordSuggestionWizard
+              projectId={draftProjectId}
+              ensureProjectReady={ensureProjectForWizard}
+              registeredKeywords={keywords}
+              isSubmitting={submitting || wizardPreparing}
+              onRegistered={(r) =>
+                setKwRegSnackbar(
+                  `プロジェクトへ登録しました（新規${r.registeredCount}件・スキップ${r.skippedCount}件）`,
+                )
+              }
+              onKeywordsSelected={(selectedKeywords) => {
+                setKeywords((prev) => {
+                  const next = [...prev];
+                  for (const k of selectedKeywords) {
+                    const t = k.trim();
+                    if (t && !next.includes(t)) next.push(t);
+                  }
+                  return next;
+                });
+              }}
+            />
+          </Box>
+          {submitting && (
+            <Box sx={{ mb: 1 }}>
+              <LoadingCharacter />
+            </Box>
+          )}
+          <Button
+            variant="contained"
+            size="large"
+            onClick={createJob}
+            disabled={submitting}
+            sx={
+              submitting
+                ? {
+                    py: 1.5,
+                    background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                    color: "#fff",
+                    boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
+                    "&.Mui-disabled": {
+                      color: "rgba(255,255,255,0.95)",
+                      opacity: 1,
+                      background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                    },
+                  }
+                : { py: 1.5 }
+            }
+          >
+            {submitting ? "作成中…" : "ジョブを作成"}
+          </Button>
+        </Stack>
+        <Snackbar
+          open={kwRegSnackbar !== null}
+          autoHideDuration={6000}
+          onClose={() => setKwRegSnackbar(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
+          <Alert
+            onClose={() => setKwRegSnackbar(null)}
+            severity="success"
+            variant="filled"
+            sx={{ width: "100%" }}
+          >
+            {kwRegSnackbar}
+          </Alert>
+        </Snackbar>
+        <Dialog open={upsellOpen} onClose={() => setUpsellOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle fontWeight={700}>Proプラン限定機能</DialogTitle>
+          <DialogContent>
+            <Typography variant="body1" color="text.secondary">
+              Deep Analysis Modeによる大規模・一括解析は、Proプラン限定の機能です。
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+            <Button onClick={() => setUpsellOpen(false)} color="inherit">
+              閉じる
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              component={RouterLink}
+              to="/pricing"
+              onClick={() => setUpsellOpen(false)}
+            >
+              アップグレードはこちら
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Container>
+    </ThemeProvider>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/LoginPage.tsx">
+import {
+  Alert,
+  Box,
+  Button,
+  Container,
+  CssBaseline,
+  Stack,
+  TextField,
+  ThemeProvider,
+  Typography,
+  createTheme,
+} from "@mui/material";
+import { useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { resetCsrfPrime } from "../api/apiFetch";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import { getAccessToken, setAccessToken } from "../auth/authSession";
+
+const theme = createTheme();
+
+export default function LoginPage(): JSX.Element {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const fromPath =
+    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (getAccessToken()) {
+    return <Navigate to={fromPath} replace />;
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+        },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setError(text.length > 0 ? text : `ログインに失敗しました (${res.status})`);
+        return;
+      }
+      const body: unknown = await res.json();
+      if (typeof body !== "object" || body === null) {
+        setError("レスポンス形式が不正です");
+        return;
+      }
+      const token = (body as Record<string, unknown>).accessToken;
+      if (typeof token !== "string" || token.length === 0) {
+        setError("アクセストークンがありません");
+        return;
+      }
+      resetCsrfPrime();
+      setAccessToken(token);
+      navigate(fromPath, { replace: true });
+    } catch {
+      setError("通信エラーが発生しました");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Container maxWidth="sm" sx={{ py: 6 }}>
+        <Typography variant="h5" component="h1" gutterBottom>
+          ログイン
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          開発環境の初期ユーザー: <code>bootstrap@example.com</code> / <code>bootstrap</code>
+        </Typography>
+        <Box component="form" onSubmit={(e) => void handleSubmit(e)}>
+          <Stack spacing={2}>
+            {error !== null ? <Alert severity="error">{error}</Alert> : null}
+            <TextField
+              label="メールアドレス"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(ev) => setEmail(ev.target.value)}
+              required
+              fullWidth
+            />
+            <TextField
+              label="パスワード"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(ev) => setPassword(ev.target.value)}
+              required
+              fullWidth
+            />
+            <Button type="submit" variant="contained" disabled={submitting} fullWidth>
+              {submitting ? "送信中…" : "ログイン"}
+            </Button>
+          </Stack>
+        </Box>
+      </Container>
+    </ThemeProvider>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/PricingPage.tsx">
+import { Container, Typography } from "@mui/material";
+
+export default function PricingPage(): JSX.Element {
+  return (
+    <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Typography variant="h4" component="h1" fontWeight={600}>
+        料金プラン
+      </Typography>
+      <Typography color="text.secondary" sx={{ mt: 2 }}>
+        準備中です。
+      </Typography>
+    </Container>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/ProjectSettingsPage.tsx">
+import {
+  Alert,
+  Box,
+  Button,
+  Container,
+  CssBaseline,
+  FormControlLabel,
+  Snackbar,
+  Stack,
+  Switch,
+  TextField,
+  ThemeProvider,
+  Typography,
+  createTheme,
+} from "@mui/material";
+import { ArrowLeft, PlusCircle } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+
+const theme = createTheme();
+const SLACK_PREFIX = "https://hooks.slack.com/";
+const EMAIL_RE =
+  /^[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+
+type ProjectSettings = {
+  projectId: string;
+  autoAuditEnabled: boolean;
+  slackWebhookUrl: string | null;
+  notificationEmail: string | null;
+  lastAuditAt: string | null;
+};
+
+function parseSettings(raw: unknown): ProjectSettings | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.projectId !== "string") return null;
+  if (typeof r.autoAuditEnabled !== "boolean") return null;
+  return {
+    projectId: r.projectId,
+    autoAuditEnabled: r.autoAuditEnabled,
+    slackWebhookUrl:
+      r.slackWebhookUrl === undefined || r.slackWebhookUrl === null
+        ? null
+        : typeof r.slackWebhookUrl === "string"
+          ? r.slackWebhookUrl
+          : null,
+    notificationEmail:
+      r.notificationEmail === undefined || r.notificationEmail === null
+        ? null
+        : typeof r.notificationEmail === "string"
+          ? r.notificationEmail
+          : null,
+    lastAuditAt:
+      r.lastAuditAt === undefined || r.lastAuditAt === null
+        ? null
+        : typeof r.lastAuditAt === "string"
+          ? r.lastAuditAt
+          : null,
+  };
+}
+
+export default function ProjectSettingsPage(): JSX.Element {
+  const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnJobId = searchParams.get("returnJob")?.trim() ?? "";
+  const goBackToAnalysis = useCallback(() => {
+    if (returnJobId.length > 0) {
+      navigate(`/job/${returnJobId}`);
+    } else {
+      navigate(-1);
+    }
+  }, [navigate, returnJobId]);
+  const goToNewJob = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [autoAudit, setAutoAudit] = useState(false);
+  const [slackUrl, setSlackUrl] = useState("");
+  const [email, setEmail] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ slack?: string; email?: string }>({});
+
+  const load = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/settings`);
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const parsed = parseSettings(await responseJsonAsCamel(res));
+      if (!parsed) throw new Error("設定の形式が不正です");
+      setAutoAudit(parsed.autoAuditEnabled);
+      setSlackUrl(parsed.slackWebhookUrl ?? "");
+      setEmail(parsed.notificationEmail ?? "");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const validate = useCallback((): boolean => {
+    const next: { slack?: string; email?: string } = {};
+    const s = slackUrl.trim();
+    if (s.length > 0 && !s.startsWith(SLACK_PREFIX)) {
+      next.slack = `Slack Webhookは ${SLACK_PREFIX} で始まる必要があります`;
+    }
+    const em = email.trim();
+    if (em.length > 0 && !EMAIL_RE.test(em)) {
+      next.email = "メール形式が正しくありません";
+    }
+    setFieldErrors(next);
+    return Object.keys(next).length === 0;
+  }, [slackUrl, email]);
+
+  const save = async () => {
+    if (!projectId || !validate()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auto_audit_enabled: autoAudit,
+          slack_webhook_url: slackUrl.trim(),
+          notification_email: email.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        let msg = t || `HTTP ${res.status}`;
+        try {
+          const o = parseJsonTextAsCamel(t) as { detail?: string };
+          if (typeof o.detail === "string") msg = o.detail;
+        } catch {}
+        throw new Error(msg);
+      }
+      setToast("設定を保存しました");
+      void load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Container maxWidth="sm" sx={{ py: 4 }}>
+        <nav
+          className="mb-5 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/90 pb-4"
+          aria-label="ページ導線"
+        >
+          <button
+            type="button"
+            onClick={() => goBackToAnalysis()}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 hover:text-indigo-800"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+            解析結果に戻る
+          </button>
+          <span className="mx-1 hidden h-4 w-px bg-slate-200 sm:inline-block" aria-hidden />
+          <button
+            type="button"
+            onClick={() => goToNewJob()}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <PlusCircle className="h-4 w-4 shrink-0 text-indigo-500" strokeWidth={2} aria-hidden />
+            新規ジョブ作成
+          </button>
+        </nav>
+        <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
+          プロジェクト設定
+        </Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
+          定期監査と通知チャネルを管理します。
+        </Typography>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+        {loading ? (
+          <Typography color="text.secondary">読み込み中…</Typography>
+        ) : (
+          <Stack spacing={3}>
+            <Box sx={{ borderRadius: 2, border: 1, borderColor: "divider", p: 2 }}>
+              <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                定期監査と通知設定
+              </Typography>
+              <FormControlLabel
+                control={<Switch checked={autoAudit} onChange={(_, v) => setAutoAudit(v)} color="primary" />}
+                label="毎月1日2:00（日本時間）に自動監査を実行"
+              />
+              <TextField
+                label="Slack Incoming Webhook URL"
+                value={slackUrl}
+                onChange={(e) => setSlackUrl(e.target.value)}
+                fullWidth
+                margin="normal"
+                placeholder="https://hooks.slack.com/services/..."
+                error={Boolean(fieldErrors.slack)}
+                helperText={fieldErrors.slack ?? "空欄でSlack通知を無効化"}
+              />
+              <TextField
+                label="通知メールアドレス"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                fullWidth
+                margin="normal"
+                type="email"
+                autoComplete="email"
+                error={Boolean(fieldErrors.email)}
+                helperText={fieldErrors.email ?? "SMTP設定済みの環境でのみ送信されます"}
+              />
+              <Button variant="contained" size="large" onClick={() => void save()} disabled={saving} sx={{ mt: 2 }}>
+                {saving ? "保存中…" : "設定を保存"}
+              </Button>
+            </Box>
+          </Stack>
+        )}
+        <Snackbar
+          open={toast !== null}
+          autoHideDuration={4000}
+          onClose={() => setToast(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
+          <Alert severity="success" variant="filled" onClose={() => setToast(null)}>
+            {toast}
+          </Alert>
+        </Snackbar>
+      </Container>
+    </ThemeProvider>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/ReportPrintPage.tsx">
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { apiFetch, resetCsrfPrime, responseJsonAsCamel, setPdfPrintTenantIdOverride } from "../api/apiFetch";
+import { ACCESS_TOKEN_STORAGE_KEY, setAccessToken, TENANT_STORAGE_KEY } from "../auth/authSession";
+import { AnalysisCharts } from "../components/AnalysisCharts";
+import {
+  competitorLabelsFromProject,
+  formatAuditDate,
+  mergeJobAnalysisWithPdfContext,
+  normalizeAnalyticsSummary,
+  parseJobAnalysisDetail,
+  resolveChartShareData,
+  resolveChartTrendData,
+  type AnalyticsSummaryNormalized,
+  type JobAnalysisDetail,
+  type ResultDetail,
+} from "../types/analysis";
+
+const TOKEN_FALLBACK = "dev-internal-token";
+
+function readInjectedAccessToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const g = window as unknown as { __PDF_AUTH_TOKEN__?: string };
+  if (typeof g.__PDF_AUTH_TOKEN__ === "string" && g.__PDF_AUTH_TOKEN__.trim().length > 0) {
+    return g.__PDF_AUTH_TOKEN__.trim();
+  }
+  for (const st of [localStorage, sessionStorage]) {
+    try {
+      const v = st.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      if (v != null && v.trim().length > 0) {
+        return v.trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function readInjectedTenantId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const g = window as unknown as { __PDF_TENANT_ID__?: string };
+  if (typeof g.__PDF_TENANT_ID__ === "string" && g.__PDF_TENANT_ID__.trim().length > 0) {
+    return g.__PDF_TENANT_ID__.trim();
+  }
+  for (const st of [localStorage, sessionStorage]) {
+    try {
+      const v = st.getItem(TENANT_STORAGE_KEY);
+      if (v != null && v.trim().length > 0) {
+        return v.trim();
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function isCompletedJobStatus(status: string): boolean {
+  return status === "COMPLETED" || status === "SUCCEEDED";
+}
+
+function shouldDataBeReadyForPdf(
+  effectiveJobId: string,
+  loading: boolean,
+  loadError: string | null,
+  data: JobAnalysisDetail | null,
+): boolean {
+  if (!effectiveJobId) {
+    return false;
+  }
+  if (loading || loadError || !data) {
+    return false;
+  }
+  if (isCompletedJobStatus(data.jobStatus)) {
+    return Array.isArray(data.results);
+  }
+  return true;
+}
+
+function pickLogoUrl(d: JobAnalysisDetail): string {
+  const a = (d.logoUrl ?? "").trim();
+  if (a.length > 0) {
+    return a;
+  }
+  return (d.project?.logoUrl ?? "").trim();
+}
+
+function pickBrandColor(d: JobAnalysisDetail): string {
+  const a = (d.brandColor ?? "").trim();
+  if (a.length > 0) {
+    return a;
+  }
+  const b = (d.project?.brandColor ?? "").trim();
+  return b.length > 0 ? b : "#4F46E5";
+}
+
+export default function ReportPrintPage(): JSX.Element {
+  const { jobId: jobIdFromRoute } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
+  const [data, setData] = useState<JobAnalysisDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
+  const [analyticsSettled, setAnalyticsSettled] = useState(false);
+  const [fontsReady, setFontsReady] = useState(false);
+  const [logoReady, setLogoReady] = useState(false);
+  const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
+
+  const effectiveJobId = jobIdFromRoute?.trim() ?? "";
+  const expectedToken =
+    import.meta.env.VITE_PDF_INTERNAL_TOKEN ?? TOKEN_FALLBACK;
+  const tokenOk = searchParams.get("internal_token") === expectedToken;
+
+  const resultRows: ResultDetail[] =
+    data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
+
+  const analysisReady = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
+
+  const brandLabel = data?.brandName ?? "自社";
+  const competitorPair = useMemo(
+    () => competitorLabelsFromProject(data?.project ?? null),
+    [data?.project],
+  );
+  const chartTrendData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.trend;
+    }
+    return resolveChartTrendData(resultRows, {}, false);
+  }, [apiCharts, resultRows]);
+  const chartShareData = useMemo(() => {
+    if (apiCharts !== undefined) {
+      return apiCharts.share;
+    }
+    return resolveChartShareData(brandLabel, competitorPair, resultRows, {}, false);
+  }, [apiCharts, brandLabel, competitorPair, resultRows]);
+
+  const fetchProjectAnalytics = useCallback(async (projectId: string, signal: AbortSignal) => {
+    const pid = projectId.trim();
+    if (pid.length === 0) {
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`, { signal });
+      if (!res.ok) {
+        if (!signal.aborted) {
+          setApiCharts(undefined);
+        }
+        return;
+      }
+      const body: unknown = await responseJsonAsCamel(res);
+      if (!signal.aborted) {
+        setApiCharts(normalizeAnalyticsSummary(body) ?? undefined);
+      }
+    } catch {
+      if (!signal.aborted) {
+        setApiCharts(undefined);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!tokenOk) {
+      setPdfPrintTenantIdOverride(null);
+      resetCsrfPrime();
+      return;
+    }
+    resetCsrfPrime();
+    const injectedToken = readInjectedAccessToken();
+    const injectedTenant = readInjectedTenantId();
+    if (injectedToken != null) {
+      setAccessToken(injectedToken);
+    }
+    setPdfPrintTenantIdOverride(injectedTenant);
+    return () => {
+      setPdfPrintTenantIdOverride(null);
+      resetCsrfPrime();
+      try {
+        const w = window as unknown as { __PDF_AUTH_TOKEN__?: unknown; __PDF_TENANT_ID__?: unknown };
+        delete w.__PDF_AUTH_TOKEN__;
+        delete w.__PDF_TENANT_ID__;
+      } catch {
+        // ignore
+      }
+    };
+  }, [tokenOk]);
+
+  useEffect(() => {
+    if (!tokenOk || !effectiveJobId) {
+      setData(null);
+      setLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setLoadError(null);
+    apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `HTTP ${response.status}`);
+        }
+        return responseJsonAsCamel(response);
+      })
+      .then((body: unknown) => {
+        const p = parseJobAnalysisDetail(body);
+        if (p === null) {
+          setLoadError("解析データの形式が不正です");
+          setData(null);
+        } else {
+          setData(mergeJobAnalysisWithPdfContext(p));
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") return;
+        const message = err instanceof Error ? err.message : String(err);
+        setLoadError(message);
+        setData(null);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [effectiveJobId, tokenOk]);
+
+  useEffect(() => {
+    if (!analysisReady || !data?.project?.projectId || !tokenOk) {
+      setAnalyticsSettled(true);
+      setApiCharts(undefined);
+      return;
+    }
+    setAnalyticsSettled(false);
+    const ac = new AbortController();
+    void fetchProjectAnalytics(data.project.projectId, ac.signal).finally(() => {
+      if (!ac.signal.aborted) {
+        setAnalyticsSettled(true);
+      }
+    });
+    return () => ac.abort();
+  }, [analysisReady, data?.project?.projectId, tokenOk, fetchProjectAnalytics]);
+
+  useEffect(() => {
+    setFontsReady(false);
+    if (!analysisReady) {
+      return;
+    }
+    let cancelled = false;
+    void document.fonts.ready.then(() => {
+      if (!cancelled) {
+        setFontsReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisReady]);
+
+  useEffect(() => {
+    if (!analysisReady || !data) {
+      setLogoReady(false);
+      return;
+    }
+    const u = pickLogoUrl(data);
+    if (u.length === 0) {
+      setLogoReady(true);
+    } else {
+      setLogoReady(false);
+    }
+  }, [analysisReady, data]);
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+    const el = document.documentElement;
+    el.style.setProperty("--brand-color", pickBrandColor(data));
+    const logo = pickLogoUrl(data);
+    el.style.setProperty(
+      "--logo-url",
+      logo.length > 0 ? `url("${logo.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}")` : "none",
+    );
+    return () => {
+      el.style.removeProperty("--brand-color");
+      el.style.removeProperty("--logo-url");
+    };
+  }, [data]);
+
+  useEffect(() => {
+    const ok = analysisReady && analyticsSettled && fontsReady && logoReady;
+    setPdfReadyFlag(ok);
+  }, [analysisReady, analyticsSettled, fontsReady, logoReady]);
+
+  const isProcessing = useMemo(() => {
+    if (!data) return false;
+    return (
+      data.jobStatus === "CREATED" ||
+      data.jobStatus === "REALTIME_PROCESSING" ||
+      data.jobStatus === "FILE_UPLOADED" ||
+      data.jobStatus === "SUBMITTED" ||
+      data.jobStatus === "RUNNING"
+    );
+  }, [data]);
+
+  const issuedDateLabel = useMemo(() => {
+    return new Date().toLocaleDateString("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  }, []);
+
+  const logoSrc = data ? pickLogoUrl(data) : "";
+
+  if (!tokenOk) {
+    return <div className="p-8 text-slate-500" />;
+  }
+
+  return (
+    <div
+      className="report-print-root mx-auto text-slate-900"
+      style={{
+        width: "794px",
+        maxWidth: "100%",
+        printColorAdjust: "exact",
+        WebkitPrintColorAdjust: "exact",
+      }}
+    >
+      {loading && effectiveJobId && <p className="text-slate-600">読み込み中です…</p>}
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+          <strong className="font-semibold">取得に失敗しました</strong>
+          <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{loadError}</pre>
+        </div>
+      )}
+      {data && (
+        <section
+          className="flex w-full flex-col items-center justify-center px-8 py-16 text-white"
+          style={{
+            minHeight: "1123px",
+            width: "794px",
+            maxWidth: "100%",
+            backgroundColor: "var(--brand-color)",
+            breakAfter: "page",
+            pageBreakAfter: "always",
+            printColorAdjust: "exact",
+            WebkitPrintColorAdjust: "exact",
+          }}
+        >
+          {logoSrc.length > 0 ? (
+            <img
+              src={logoSrc}
+              alt=""
+              className="mb-10 h-28 w-28 object-contain"
+              onLoad={() => setLogoReady(true)}
+              onError={() => setLogoReady(true)}
+            />
+          ) : (
+            <div
+              className="mb-10 h-28 w-28 rounded-2xl border-2 border-white/40 bg-white/10"
+              aria-hidden
+            />
+          )}
+          <h1 className="text-center text-3xl font-semibold tracking-tight">GEO 解析レポート</h1>
+          <p className="mt-6 text-center text-sm font-light text-white/90">発行日 {issuedDateLabel}</p>
+          <p className="mt-10 text-center text-xl font-medium tracking-wide">{data.brandName}</p>
+        </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && (
+        <section
+          className="pdf-inside-avoid mb-6 bg-white px-8 py-12 text-slate-900"
+          style={{
+            minHeight: "1123px",
+            width: "794px",
+            maxWidth: "100%",
+            breakAfter: "page",
+            pageBreakAfter: "always",
+            breakInside: "avoid",
+            pageBreakInside: "avoid",
+          }}
+        >
+          <h2 className="text-xl font-semibold tracking-tight" style={{ color: "var(--brand-color)" }}>
+            ジョブ全体の戦略診断
+          </h2>
+          {data.jobSummaryDiagnostic != null && data.jobSummaryDiagnostic.trim().length > 0 ? (
+            <p className="mt-6 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
+              {data.jobSummaryDiagnostic}
+            </p>
+          ) : (
+            <p className="mt-6 text-sm text-slate-500">ジョブ全体の診断文は準備中です。</p>
+          )}
+          {(data.jobSummaryRecommendedActions?.length ?? 0) > 0 && (
+            <div className="mt-8">
+              <h3 className="text-sm font-semibold text-slate-800">推奨アクション</h3>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+                {data.jobSummaryRecommendedActions!.map((a, i) => (
+                  <li key={`summary-${i}-${a.slice(0, 24)}`}>{a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-10 grid gap-2 border-t border-slate-200 pt-6 text-xs text-slate-600">
+            {data.jobMedianModifiedZ != null && (
+              <p>
+                <span className="font-medium text-slate-800">ジョブ中央値（改Z&apos;）</span>{" "}
+                {data.jobMedianModifiedZ.toFixed(2)}
+              </p>
+            )}
+            {data.jobMedianVisibilityStage != null && (
+              <p>
+                <span className="font-medium text-slate-800">ジョブ中央 Stage</span>{" "}
+                {data.jobMedianVisibilityStage}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+      {data && isProcessing && (
+        <section
+          className="pdf-inside-avoid mb-6 rounded-xl border border-slate-200 bg-slate-50 p-5"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <p className="text-lg font-medium text-slate-900">解析中です。</p>
+        </section>
+      )}
+      {data && data.jobStatus === "FAILED" && (
+        <section
+          className="pdf-inside-avoid mb-6 rounded-xl border border-red-200 bg-red-50 p-5 text-red-900"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <strong className="font-semibold">ジョブが失敗しました</strong>
+          <pre className="mt-2 whitespace-pre-wrap break-words text-sm">
+            {data.errorMessage ?? "理由は記録されていません"}
+          </pre>
+        </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && (
+        <>
+          <section
+            className="pdf-inside-avoid mb-6"
+            style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+          >
+            <AnalysisCharts
+              isPdfMode={true}
+              trendData={chartTrendData}
+              shareData={chartShareData}
+              brandLabel={brandLabel}
+            />
+          </section>
+          <section
+            className="pdf-inside-avoid mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+          >
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <h2 className="text-sm font-semibold" style={{ color: "var(--brand-color)" }}>
+                解析結果一覧
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80">
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">SoMスコア</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
+                        完了しましたが、保存された解析結果はまだありません。
+                      </td>
+                    </tr>
+                  ) : (
+                    resultRows.map((row) => (
+                      <Fragment key={row.resultId}>
+                        <tr className="border-b border-slate-100 last:border-0">
+                          <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
+                          <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
+                            {row.somScore}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
+                            {row.visibilityStage == null ? "—" : String(row.visibilityStage)}
+                          </td>
+                        </tr>
+                        {row.significantDeviation === true && (
+                          <tr className="border-b border-slate-200 bg-slate-50/90">
+                            <td colSpan={3} className="px-4 py-4 align-top text-sm text-slate-800">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                差分診断（例外的乖離）
+                              </p>
+                              <p className="mt-2 text-xs text-slate-600">
+                                解析日 {formatAuditDate(row.auditDate)} / 言及
+                                {row.brandMentioned ? "あり" : "なし"} / 順位{" "}
+                                {row.mentionRank === null ? "—" : String(row.mentionRank)}
+                              </p>
+                              {row.diagnosticMessage != null && row.diagnosticMessage.trim().length > 0 ? (
+                                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{row.diagnosticMessage}</p>
+                              ) : (
+                                <p className="mt-2 text-slate-500">詳細診断は準備中です。</p>
+                              )}
+                              {(row.recommendedActions?.length ?? 0) > 0 && (
+                                <ul className="mt-3 list-disc space-y-1 pl-5 text-slate-700">
+                                  {row.recommendedActions!.map((a, i) => (
+                                    <li key={`${row.resultId}-gap-${i}`}>{a}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+      {data?.project && (
+        <section
+          className="pdf-inside-avoid mt-4 text-sm text-slate-600"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <p>
+            <span className="font-medium" style={{ color: "var(--brand-color)" }}>
+              プロジェクト
+            </span>{" "}
+            {data.project.projectName}
+          </p>
+          <p className="mt-1 break-all">
+            <span className="font-medium text-slate-800">対象URL</span> {data.project.targetUrl}
+          </p>
+          {data.project.competitorUrls.length > 0 && (
+            <div className="mt-1">
+              <span className="font-medium text-slate-800">競合URL</span>
+              <ul className="ml-4 list-disc">
+                {data.project.competitorUrls.map((url) => (
+                  <li key={url} className="break-all">
+                    {url}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+      {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/types/analysis.ts">
+export function formatAuditDate(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) {
+    return isoDate;
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString("ja-JP", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+type JsonDict = Record<string, unknown>;
+
+function pickNum(r: JsonDict, camel: string, snake: string): number | undefined {
+  const v = r[camel] !== undefined ? r[camel] : r[snake];
+  return typeof v === "number" && !Number.isNaN(v) ? v : undefined;
+}
+
+function pickBool(r: JsonDict, camel: string, snake: string): boolean | undefined {
+  const v = r[camel] !== undefined ? r[camel] : r[snake];
+  return typeof v === "boolean" ? v : undefined;
+}
+
+export interface JobStatusResponse {
+  jobId: string;
+  projectId: string | null;
+  jobStatus: string;
+  brandName: string;
+  errorMessage: string | null;
+  pdfStatus: string | null;
+  pdfFilePath: string | null;
+  createdAt: string;
+  updatedAt: string;
+  diagnosticMessage: string | null;
+  recommendedActions: string[];
+  jobMedianModifiedZ: number | null;
+}
+
+export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | null {
+  if (value === null || typeof value !== "object") {
+    return null;
+  }
+  const r = value as JsonDict;
+  const jobId = typeof r.jobId === "string" ? r.jobId : undefined;
+  if (jobId === undefined) {
+    return null;
+  }
+  const projectIdRaw = r.projectId;
+  if (
+    projectIdRaw !== undefined &&
+    projectIdRaw !== null &&
+    typeof projectIdRaw !== "string"
+  ) {
+    return null;
+  }
+  const jobStatus = typeof r.jobStatus === "string" ? r.jobStatus : undefined;
+  const brandName = typeof r.brandName === "string" ? r.brandName : undefined;
+  if (jobStatus === undefined || brandName === undefined) {
+    return null;
+  }
+  const errRaw = r.errorMessage;
+  if (errRaw !== undefined && errRaw !== null && typeof errRaw !== "string") {
+    return null;
+  }
+  const psRaw = r.pdfStatus;
+  if (psRaw !== undefined && psRaw !== null && typeof psRaw !== "string") {
+    return null;
+  }
+  const pfpRaw = r.pdfFilePath;
+  if (pfpRaw !== undefined && pfpRaw !== null && typeof pfpRaw !== "string") {
+    return null;
+  }
+  const createdAt = typeof r.createdAt === "string" ? r.createdAt : undefined;
+  const updatedAt = typeof r.updatedAt === "string" ? r.updatedAt : undefined;
+  if (createdAt === undefined || updatedAt === undefined) {
+    return null;
+  }
+  const dmRaw = r.diagnosticMessage;
+  const dm =
+    dmRaw === undefined || dmRaw === null
+      ? null
+      : typeof dmRaw === "string"
+        ? dmRaw
+        : null;
+  const raRaw = r.recommendedActions;
+  const recommendedActions =
+    Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string")
+      ? raRaw
+      : [];
+  const jmzRaw = r.jobMedianModifiedZ;
+  const jmz =
+    jmzRaw === undefined || jmzRaw === null
+      ? null
+      : typeof jmzRaw === "number" && !Number.isNaN(jmzRaw)
+        ? jmzRaw
+        : null;
+  return {
+    jobId,
+    projectId:
+      projectIdRaw === undefined || projectIdRaw === null || typeof projectIdRaw !== "string"
+        ? null
+        : projectIdRaw,
+    jobStatus,
+    brandName,
+    errorMessage: errRaw === undefined || errRaw === null ? null : errRaw,
+    pdfStatus: psRaw === undefined || psRaw === null ? null : psRaw,
+    pdfFilePath: pfpRaw === undefined || pfpRaw === null ? null : pfpRaw,
+    createdAt,
+    updatedAt,
+    diagnosticMessage: dm,
+    recommendedActions,
+    jobMedianModifiedZ: jmz,
+  };
+}
+
+export interface TrendData {
+  date: string;
+  somScore: number;
+  overallScore: number;
+}
+export interface CompetitorShare {
+  name: string;
+  value: number;
+}
+export type SubscriptionPlanApi = "STANDARD" | "PRO";
+export interface AnalyticsSummaryNormalized {
+  trend: TrendData[];
+  share: CompetitorShare[];
+  subscriptionPlan: SubscriptionPlanApi;
+}
+export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormalized | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as Record<string, unknown>;
+  const trendRaw = r.trendData;
+  const shareRaw = r.competitorShares;
+  const planRaw = r.subscriptionPlan;
+  if (!Array.isArray(trendRaw) || !Array.isArray(shareRaw) || typeof planRaw !== "string") {
+    return null;
+  }
+  if (planRaw !== "STANDARD" && planRaw !== "PRO") {
+    return null;
+  }
+  const trend: TrendData[] = [];
+  for (const item of trendRaw) {
+    if (item === null || typeof item !== "object") {
+      return null;
+    }
+    const o = item as Record<string, unknown>;
+    const ad = o.auditDate;
+    const som = o.averageSomScore;
+    const ov = o.averageOverallScore;
+    if (typeof ad !== "string" || typeof som !== "number" || Number.isNaN(som)) {
+      return null;
+    }
+    const overall =
+      typeof ov === "number" && !Number.isNaN(ov) ? ov : som;
+    trend.push({ date: ad.slice(0, 10), somScore: som, overallScore: overall });
+  }
+  const share: CompetitorShare[] = [];
+  for (const item of shareRaw) {
+    if (item === null || typeof item !== "object") {
+      return null;
+    }
+    const o = item as Record<string, unknown>;
+    const nm = o.name;
+    const sh = o.share;
+    if (typeof nm !== "string" || typeof sh !== "number" || Number.isNaN(sh)) {
+      return null;
+    }
+    share.push({ name: nm, value: sh });
+  }
+  return { trend, share, subscriptionPlan: planRaw };
+}
+export interface JobProjectInfo {
+  projectId: string;
+  projectName: string;
+  targetUrl: string;
+  competitorUrls: string[];
+  brandColor: string;
+  logoUrl: string | null;
+}
+export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const p = raw as JsonDict;
+  const projectId = typeof p.projectId === "string" ? p.projectId : undefined;
+  const projectName = typeof p.projectName === "string" ? p.projectName : undefined;
+  const targetUrl = typeof p.targetUrl === "string" ? p.targetUrl : undefined;
+  if (projectId === undefined || projectName === undefined || targetUrl === undefined) {
+    return null;
+  }
+  const compRaw = p.competitorUrls;
+  const comp = Array.isArray(compRaw)
+    ? compRaw.filter((x): x is string => typeof x === "string")
+    : [];
+  const bcRaw = p.brandColor;
+  const bc =
+    typeof bcRaw === "string" && bcRaw.length > 0
+      ? bcRaw
+      : "#4F46E5";
+  const luRaw = p.logoUrl;
+  const lu =
+    luRaw === null || luRaw === undefined
+      ? null
+      : typeof luRaw === "string" && luRaw.length > 0
+        ? luRaw
+        : null;
+  return {
+    projectId,
+    projectName,
+    targetUrl,
+    competitorUrls: comp,
+    brandColor: bc,
+    logoUrl: lu,
+  };
+}
+export interface LiveResultMetrics {
+  somScore: number | null;
+  overallScore: number | null;
+  brandMentioned: boolean | null;
+  mentionRank: number | null;
+}
+export function liveMetricsFromParsed(parsed: unknown): LiveResultMetrics {
+  const empty: LiveResultMetrics = {
+    somScore: null,
+    overallScore: null,
+    brandMentioned: null,
+    mentionRank: null,
+  };
+  if (parsed === null || typeof parsed !== "object") {
+    return empty;
+  }
+  const r = parsed as JsonDict;
+  const overallScore =
+    pickNum(r, "overallScore", "overall_score") ?? null;
+  const confidenceScore =
+    pickNum(r, "confidenceScore", "confidence_score") ?? null;
+  const somScore = confidenceScore ?? overallScore;
+  let brandMentioned: boolean | null = null;
+  const bm = pickBool(r, "brandMentioned", "brand_mentioned");
+  if (bm !== undefined) {
+    brandMentioned = bm;
+  }
+  let mentionRank: number | null = null;
+  const mr = pickNum(r, "mentionRank", "mention_rank");
+  if (mr !== undefined && !Number.isNaN(mr)) {
+    mentionRank = mr;
+  }
+  return { somScore, overallScore, brandMentioned, mentionRank };
+}
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+function isoDateFromLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+export const MOCK_TREND_LAST_7_DAYS: TrendData[] = (() => {
+  const out: TrendData[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const phase = (6 - i) / 6;
+    const som = Math.round(38 + phase * 22 + Math.sin(i * 0.7) * 4);
+    const overall = Math.round(41 + phase * 18 + Math.cos(i * 0.5) * 3);
+    out.push({ date: isoDateFromLocal(d), somScore: som, overallScore: overall });
+  }
+  return out;
+})();
+export function aggregateTrendFromResultDetails(rows: ResultDetail[]): TrendData[] {
+  if (rows.length === 0) {
+    return [];
+  }
+  const byDate = new Map<string, { som: number; overall: number; n: number }>();
+  for (const r of rows) {
+    const key = r.auditDate;
+    const ov = r.overallScore ?? r.somScore;
+    const cur = byDate.get(key) ?? { som: 0, overall: 0, n: 0 };
+    cur.som += r.somScore;
+    cur.overall += ov;
+    cur.n += 1;
+    byDate.set(key, cur);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({
+      date,
+      somScore: Math.round((v.som / v.n) * 10) / 10,
+      overallScore: Math.round((v.overall / v.n) * 10) / 10,
+    }));
+}
+export function averageLiveScoresFromParsed(
+  parsedByQueryId: Record<string, unknown>,
+): { somScore: number; overallScore: number } | null {
+  const ids = Object.keys(parsedByQueryId);
+  if (ids.length === 0) {
+    return null;
+  }
+  let somSum = 0;
+  let ovSum = 0;
+  let somN = 0;
+  let ovN = 0;
+  for (const id of ids) {
+    const m = liveMetricsFromParsed(parsedByQueryId[id]);
+    if (m.somScore !== null) {
+      somSum += m.somScore;
+      somN += 1;
+    }
+    if (m.overallScore !== null) {
+      ovSum += m.overallScore;
+      ovN += 1;
+    }
+  }
+  if (somN === 0 && ovN === 0) {
+    return null;
+  }
+  const som = somN > 0 ? somSum / somN : ovN > 0 ? ovSum / ovN : 0;
+  const overall = ovN > 0 ? ovSum / ovN : som;
+  return {
+    somScore: Math.round(som * 10) / 10,
+    overallScore: Math.round(overall * 10) / 10,
+  };
+}
+export function competitorLabelsFromProject(project: JobProjectInfo | null): [string, string] {
+  const urls = project?.competitorUrls ?? [];
+  const a =
+    urls[0] !== undefined
+      ? (() => {
+          try {
+            const h = new URL(urls[0]).hostname.replace(/^www\./, "");
+            return h.length > 0 ? h : "競合A";
+          } catch {
+            return "競合A";
+          }
+        })()
+      : "競合A";
+  const b =
+    urls[1] !== undefined
+      ? (() => {
+          try {
+            const h = new URL(urls[1]).hostname.replace(/^www\./, "");
+            return h.length > 0 ? h : "競合B";
+          } catch {
+            return "競合B";
+          }
+        })()
+      : "競合B";
+  return [a, b];
+}
+export function buildCompetitorShareData(
+  brandName: string,
+  competitorNames: [string, string],
+  anchorSomScore: number | null,
+): CompetitorShare[] {
+  const self = anchorSomScore === null ? 46 : Math.max(18, Math.min(82, Math.round(anchorSomScore)));
+  const rest = 100 - self;
+  const v1 = Math.round(rest * 0.52);
+  const v2 = rest - v1;
+  return [
+    { name: brandName, value: self },
+    { name: competitorNames[0], value: v1 },
+    { name: competitorNames[1], value: v2 },
+  ];
+}
+export function resolveChartTrendData(
+  resultRows: ResultDetail[],
+  parsedByQueryId: Record<string, unknown>,
+  isStreaming: boolean,
+): TrendData[] {
+  const agg = aggregateTrendFromResultDetails(resultRows);
+  if (agg.length >= 2) {
+    return agg;
+  }
+  const live = averageLiveScoresFromParsed(parsedByQueryId);
+  if (live !== null && (isStreaming || agg.length === 1)) {
+    const base = agg.length === 1 ? [...agg] : MOCK_TREND_LAST_7_DAYS.slice(0, -1);
+    const lastDate = isoDateFromLocal(new Date());
+    const lastPoint: TrendData = {
+      date: lastDate,
+      somScore: live.somScore,
+      overallScore: live.overallScore,
+    };
+    if (base.some((p) => p.date === lastDate)) {
+      return base.map((p) =>
+        p.date === lastDate
+          ? { ...p, somScore: lastPoint.somScore, overallScore: lastPoint.overallScore }
+          : p,
+      );
+    }
+    return [...base, lastPoint].slice(-7);
+  }
+  if (agg.length === 1) {
+    return [...MOCK_TREND_LAST_7_DAYS.slice(0, -1), agg[0]!];
+  }
+  return MOCK_TREND_LAST_7_DAYS;
+}
+export function resolveAverageSomScore(
+  resultRows: ResultDetail[],
+  parsedByQueryId: Record<string, unknown>,
+  isStreaming: boolean,
+): number | null {
+  if (resultRows.length > 0) {
+    return resultRows.reduce((s, r) => s + r.somScore, 0) / resultRows.length;
+  }
+  if (isStreaming) {
+    const live = averageLiveScoresFromParsed(parsedByQueryId);
+    return live !== null ? live.somScore : null;
+  }
+  return null;
+}
+
+export function resolveChartShareData(
+  brandName: string,
+  competitorNames: [string, string],
+  resultRows: ResultDetail[],
+  parsedByQueryId: Record<string, unknown>,
+  isStreaming: boolean,
+): CompetitorShare[] {
+  let anchor: number | null = null;
+  if (resultRows.length > 0) {
+    const sum = resultRows.reduce((s, r) => s + r.somScore, 0);
+    anchor = sum / resultRows.length;
+  } else {
+    const live = averageLiveScoresFromParsed(parsedByQueryId);
+    if (live !== null && isStreaming) {
+      anchor = live.somScore;
+    }
+  }
+  return buildCompetitorShareData(brandName, competitorNames, anchor);
+}
+
+export interface VerifyStreamChunkPayload {
+  kind: "delta" | "done" | "error";
+  text: string;
+  queryId?: string;
+}
+
+export interface SseStreamErrorBody {
+  message: string;
+}
+
+export interface ResultDetail {
+  resultId: string;
+  query: string;
+  somScore: number;
+  gbvsNormalizedScore?: number;
+  brandMentioned: boolean;
+  mentionRank: number | null;
+  overallScore: number | null;
+  tokenCount?: number;
+  rankPosition?: number;
+  sentimentIntensity?: number;
+  resolvedEntityLabel?: string | null;
+  visibilityStage?: number | null;
+  visibilityStageBand?: string | null;
+  visibilityStageNarrative?: string | null;
+  calculationVersion?: string | null;
+  negativeAlert?: boolean;
+  modifiedZScore?: number | null;
+  diagnosticMessage?: string | null;
+  recommendedActions?: string[];
+  significantDeviation?: boolean | null;
+  rawResponse: string;
+  auditDate: string;
+  createdAt: string;
+}
+
+export interface JobAnalysisDetail {
+  jobId: string;
+  jobStatus: string;
+  brandName: string;
+  errorMessage: string | null;
+  brandColor: string;
+  logoUrl: string | null;
+  project: JobProjectInfo | null;
+  jobSummaryDiagnostic?: string | null;
+  jobSummaryRecommendedActions?: string[];
+  jobMedianModifiedZ?: number | null;
+  jobMedianVisibilityStage?: number | null;
+  results: ResultDetail[];
+}
+
+function auditDateString(v: unknown): string | null {
+  if (typeof v === "string") {
+    return v.length >= 10 ? v.slice(0, 10) : v;
+  }
+  if (Array.isArray(v) && v.length >= 3) {
+    const y = v[0];
+    const mo = v[1];
+    const d = v[2];
+    if (
+      typeof y === "number" &&
+      typeof mo === "number" &&
+      typeof d === "number" &&
+      Number.isInteger(y) &&
+      Number.isInteger(mo) &&
+      Number.isInteger(d)
+    ) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
+  return null;
+}
+
+function gbvsKeysEqual(a: number, b: number): boolean {
+  if (Object.is(a, b)) {
+    return true;
+  }
+  return Number.isNaN(a) && Number.isNaN(b);
+}
+
+export function withGbvsCompetitionRanks(results: ResultDetail[]): ResultDetail[] {
+  if (results.length === 0) {
+    return results;
+  }
+  type Item = { idx: number; r: ResultDetail; key: number };
+  const items: Item[] = results.map((r, idx) => {
+    const g = r.gbvsNormalizedScore ?? r.somScore;
+    const key = typeof g === "number" && !Number.isNaN(g) ? g : Number.NEGATIVE_INFINITY;
+    return { idx, r, key };
+  });
+  items.sort((a, b) => {
+    if (a.key > b.key) {
+      return -1;
+    }
+    if (a.key < b.key) {
+      return 1;
+    }
+    return a.r.query.localeCompare(b.r.query);
+  });
+  const rankAt: number[] = new Array(results.length);
+  let p = 0;
+  while (p < items.length) {
+    const runStart = p;
+    const k = items[p].key;
+    while (p < items.length && gbvsKeysEqual(items[p].key, k)) {
+      p++;
+    }
+    const rank = runStart + 1;
+    for (let j = runStart; j < p; j++) {
+      rankAt[items[j].idx] = rank;
+    }
+  }
+  return results.map((r, i) => ({ ...r, mentionRank: rankAt[i] }));
+}
+
+export function parseResultDetail(raw: unknown): ResultDetail | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const resultId = typeof r.resultId === "string" ? r.resultId : undefined;
+  const query = typeof r.query === "string" ? r.query : undefined;
+  const somScore = typeof r.somScore === "number" && !Number.isNaN(r.somScore) ? r.somScore : undefined;
+  if (resultId === undefined || query === undefined || somScore === undefined || Number.isNaN(somScore)) {
+    return null;
+  }
+  const rawResponse = typeof r.rawResponse === "string" ? r.rawResponse : undefined;
+  const auditRaw = r.auditDate;
+  const createdAt = typeof r.createdAt === "string" ? r.createdAt : undefined;
+  const auditDate = auditDateString(auditRaw);
+  if (rawResponse === undefined || auditDate === null || createdAt === undefined) {
+    return null;
+  }
+  const mrRaw = r.mentionRank;
+  const mentionRank =
+    mrRaw === null || mrRaw === undefined
+      ? null
+      : typeof mrRaw === "number" && !Number.isNaN(mrRaw)
+        ? mrRaw
+        : null;
+  const osRaw = r.overallScore;
+  const overallScore =
+    osRaw === null || osRaw === undefined
+      ? null
+      : typeof osRaw === "number" && !Number.isNaN(osRaw)
+        ? osRaw
+        : null;
+  const raRaw = r.recommendedActions;
+  const recommendedActions =
+    Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string") ? raRaw : undefined;
+  const sd = r.significantDeviation;
+  const significantDeviation =
+    typeof sd === "boolean" ? sd : sd === null || sd === undefined ? null : undefined;
+  const gbs = typeof r.gbvsNormalizedScore === "number" && !Number.isNaN(r.gbvsNormalizedScore)
+    ? r.gbvsNormalizedScore
+    : undefined;
+  const tc = typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined;
+  const rp = typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined;
+  const si =
+    typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
+      ? r.sentimentIntensity
+      : undefined;
+  const relRaw = r.resolvedEntityLabel;
+  const resolvedEntityLabel =
+    relRaw === null || relRaw === undefined
+      ? null
+      : typeof relRaw === "string"
+        ? relRaw
+        : null;
+  const vs = typeof r.visibilityStage === "number" && !Number.isNaN(r.visibilityStage) ? r.visibilityStage : undefined;
+  const vsbRaw = r.visibilityStageBand;
+  const vsnRaw = r.visibilityStageNarrative;
+  const cvRaw = r.calculationVersion;
+  const mz =
+    typeof r.modifiedZScore === "number" && !Number.isNaN(r.modifiedZScore) ? r.modifiedZScore : undefined;
+  const dmRaw = r.diagnosticMessage;
+  const diagnosticMessage =
+    dmRaw === null || dmRaw === undefined
+      ? null
+      : typeof dmRaw === "string"
+        ? dmRaw
+        : null;
+  const naRaw = r.negativeAlert;
+  return {
+    resultId,
+    query,
+    somScore,
+    gbvsNormalizedScore: gbs !== undefined && !Number.isNaN(gbs) ? gbs : undefined,
+    brandMentioned: r.brandMentioned === true,
+    mentionRank,
+    overallScore,
+    tokenCount: tc !== undefined && !Number.isNaN(tc) ? tc : undefined,
+    rankPosition: rp !== undefined && !Number.isNaN(rp) ? rp : undefined,
+    sentimentIntensity: si !== undefined && !Number.isNaN(si) ? si : undefined,
+    resolvedEntityLabel,
+    visibilityStage: vs !== undefined && !Number.isNaN(vs) ? vs : null,
+    visibilityStageBand: typeof vsbRaw === "string" ? vsbRaw : undefined,
+    visibilityStageNarrative: typeof vsnRaw === "string" ? vsnRaw : undefined,
+    calculationVersion: typeof cvRaw === "string" ? cvRaw : undefined,
+    negativeAlert: naRaw === true,
+    modifiedZScore: mz !== undefined && !Number.isNaN(mz) ? mz : null,
+    diagnosticMessage,
+    recommendedActions,
+    significantDeviation,
+    rawResponse,
+    auditDate,
+    createdAt,
+  };
+}
+
+export function extractApiErrorMessage(parsed: unknown): string | undefined {
+  if (parsed === null || typeof parsed !== "object") {
+    return undefined;
+  }
+  const r = parsed as JsonDict;
+  const v = r.errorMessage;
+  return typeof v === "string" ? v : undefined;
+}
+
+export function mergeJobAnalysisWithPdfContext(data: JobAnalysisDetail): JobAnalysisDetail {
+  if (typeof window === "undefined") {
+    return data;
+  }
+  const w = window as unknown as { __GEO_PDF_CONTEXT__?: unknown };
+  const ctx = w.__GEO_PDF_CONTEXT__;
+  if (ctx === null || ctx === undefined || typeof ctx !== "object") {
+    return data;
+  }
+  const c = ctx as Record<string, unknown>;
+  const next: JobAnalysisDetail = { ...data };
+  if (typeof c.jobSummaryDiagnostic === "string") {
+    next.jobSummaryDiagnostic = c.jobSummaryDiagnostic;
+  }
+  const acts = c.jobSummaryRecommendedActions;
+  if (Array.isArray(acts) && acts.every((x): x is string => typeof x === "string")) {
+    next.jobSummaryRecommendedActions = acts;
+  }
+  if (typeof c.jobMedianModifiedZ === "number" && !Number.isNaN(c.jobMedianModifiedZ)) {
+    next.jobMedianModifiedZ = c.jobMedianModifiedZ;
+  }
+  if (typeof c.jobMedianVisibilityStage === "number" && !Number.isNaN(c.jobMedianVisibilityStage)) {
+    next.jobMedianVisibilityStage = c.jobMedianVisibilityStage;
+  }
+  return next;
+}
+
+export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const jobId = typeof r.jobId === "string" ? r.jobId : undefined;
+  const jobStatus = typeof r.jobStatus === "string" ? r.jobStatus : undefined;
+  const brandName = typeof r.brandName === "string" ? r.brandName : undefined;
+  if (jobId === undefined || jobStatus === undefined || brandName === undefined) {
+    return null;
+  }
+  const err =
+    r.errorMessage === null || r.errorMessage === undefined
+      ? null
+      : typeof r.errorMessage === "string"
+        ? r.errorMessage
+        : null;
+  const bc =
+    typeof r.brandColor === "string" && r.brandColor.length > 0
+      ? r.brandColor
+      : "#4F46E5";
+  const lu =
+    r.logoUrl === null || r.logoUrl === undefined
+      ? null
+      : typeof r.logoUrl === "string" && r.logoUrl.length > 0
+        ? r.logoUrl
+        : null;
+  const resultsRaw = Array.isArray(r.results) ? r.results : [];
+  const results = withGbvsCompetitionRanks(
+    resultsRaw
+      .map((item) => parseResultDetail(item))
+      .filter((x): x is ResultDetail => x !== null),
+  );
+  const jsd =
+    r.jobSummaryDiagnostic === undefined || r.jobSummaryDiagnostic === null
+      ? null
+      : typeof r.jobSummaryDiagnostic === "string"
+        ? r.jobSummaryDiagnostic
+        : null;
+  const jsraRaw = r.jobSummaryRecommendedActions;
+  const jobSummaryRecommendedActions =
+    Array.isArray(jsraRaw) && jsraRaw.every((x): x is string => typeof x === "string") ? jsraRaw : [];
+  const jmz =
+    r.jobMedianModifiedZ === undefined || r.jobMedianModifiedZ === null
+      ? null
+      : typeof r.jobMedianModifiedZ === "number" && !Number.isNaN(r.jobMedianModifiedZ)
+        ? r.jobMedianModifiedZ
+        : null;
+  const jmvs =
+    r.jobMedianVisibilityStage === undefined || r.jobMedianVisibilityStage === null
+      ? null
+      : typeof r.jobMedianVisibilityStage === "number" && !Number.isNaN(r.jobMedianVisibilityStage)
+        ? r.jobMedianVisibilityStage
+        : null;
+  return {
+    jobId,
+    jobStatus,
+    brandName,
+    errorMessage: err,
+    brandColor: bc,
+    logoUrl: lu,
+    project: parseJobProjectInfo(r.project),
+    jobSummaryDiagnostic: jsd,
+    jobSummaryRecommendedActions,
+    jobMedianModifiedZ: jmz,
+    jobMedianVisibilityStage: jmvs,
+    results,
+  };
+}
+</file>
+
+<file path="frontend/src/types/keyword.ts">
+export type KeywordSuggestionRequest = {
+  url: string;
+  target_description: string;
+  registered_keywords?: string[];
+};
+export type KeywordCategory = { categoryName: string; keywords: string[] };
+export type KeywordSuggestionResponse = { categories: KeywordCategory[] };
+export type SelectedKeywordPayload = { text: string; category_name: string };
+export type KeywordRegistrationRequestPayload = { project_id: string; keywords: SelectedKeywordPayload[] };
+export type KeywordRegistrationResult = { registeredCount: number; skippedCount: number };
+</file>
+
+<file path="frontend/src/utils/somTierUtils.ts">
+export type SomTierKey="invisible"|"challenger"|"competitive"|"marketLeader";
+
+export interface SomTierInfo{
+  tierKey:SomTierKey;
+  title:string;
+  subtitle:string;
+  accentClass:string;
+  ringClass:string;
+  advice:string;
+  minInclusive:number;
+  maxInclusive:number;
+}
+
+const MARKET_LEADER:SomTierInfo={
+  tierKey:"marketLeader",
+  title:"Market Leader",
+  subtitle:"市場リーダー",
+  accentClass:"bg-amber-100 text-amber-900 border-amber-300",
+  ringClass:"text-amber-500",
+  advice:"カテゴリを代表する存在としてAIの応答に深く浸透しています。競合による文脈の奪取を防ぐため、PRTIMESでの定期的発信や専門メディアでの独占インタビューを通じ、AIが『この分野の結論』として貴社を参照し続ける状態を維持(防衛的GEO)してください。",
+  minInclusive:31,
+  maxInclusive:100,
+};
+
+const COMPETITIVE:SomTierInfo={
+  tierKey:"competitive",
+  title:"Competitive",
+  subtitle:"競争力あり",
+  accentClass:"bg-indigo-100 text-indigo-800 border-indigo-300",
+  ringClass:"text-indigo-500",
+  advice:"主要な選択肢として認知されています。さらなる露出拡大には、独自の調査レポートや専門的な解説記事の公開が有効です。国内のビジネスメディアや業界特化型ニュースサイトにおいて、AIが引用しやすい『権威ある一次情報』としてのノードを増やしましょう。",
+  minInclusive:16,
+  maxInclusive:30,
+};
+
+const CHALLENGER:SomTierInfo={
+  tierKey:"challenger",
+  title:"Challenger",
+  subtitle:"チャレンジャー",
+  accentClass:"bg-blue-100 text-blue-800 border-blue-300",
+  ringClass:"text-blue-500",
+  advice:"競合との間に信頼の差(TrustGap)が存在します。価格.comやITreview等の主要比較・レビューサイト、SNS、Googleビジネスプロフィールでの肯定的な言及を増やしてください。AIは『ユーザーの評判』を重要な信頼シグナルとして学習しています。",
+  minInclusive:6,
+  maxInclusive:15,
+};
+
+const INVISIBLE:SomTierInfo={
+  tierKey:"invisible",
+  title:"Invisible",
+  subtitle:"存在なし",
+  accentClass:"bg-slate-100 text-slate-800 border-slate-300",
+  ringClass:"text-slate-500",
+  advice:"AIの学習データにおいてブランドの存在が希薄です。まずはPRTIMESでのプレスリリース配信や、Schema.orgを用いた技術的最適化を急いでください。AIクローラーが貴社の情報を『事実(Fact)』として認識するための物理的な接点作りが最優先事項です。",
+  minInclusive:0,
+  maxInclusive:5,
+};
+
+export function getSomTierInfo(score:number):SomTierInfo{
+  const s=Math.max(0,Math.min(100,Number.isFinite(score)?score:0));
+  if(s>=MARKET_LEADER.minInclusive){
+    return MARKET_LEADER;
+  }
+  if(s>=COMPETITIVE.minInclusive){
+    return COMPETITIVE;
+  }
+  if(s>=CHALLENGER.minInclusive){
+    return CHALLENGER;
+  }
+  return INVISIBLE;
+}
+
+export function somScoreProgressRatio(score:number):number{
+  const s=Math.max(0,Math.min(100,Number.isFinite(score)?score:0));
+  return s/100;
+}
+</file>
+
+<file path="frontend/src/vite-env.d.ts">
+/// <reference types="vite/client" />
+</file>
+
+<file path="frontend/tailwind.config.js">
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {
+      keyframes: {
+        shimmer: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
+      },
+      animation: {
+        shimmer: "shimmer 2s ease-in-out infinite",
+      },
+    },
+  },
+  plugins: [],
+};
+</file>
+
+<file path="frontend/tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "vite.config.ts"]
+}
+</file>
+
+<file path="frontend/tsconfig.node.json">
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true
+  },
+  "include": ["vite.config.ts"]
+}
+</file>
+
+<file path="frontend/vite.config.ts">
+import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, ".", "");
+  const apiTarget = env.VITE_API_PROXY_TARGET || "http://localhost:8080";
+  return {
+    define: {
+      global: "window",
+      "process.env": {},
+    },
+    plugins: [react()],
+    server: {
+      port: 5173,
+      proxy: {
+        "/api": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+        "/ws": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+        },
+      },
+    },
+  };
+});
+</file>
+
+<file path="package.json">
+{
+  "name": "geo-analytics-project",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npm run dev:safe",
+    "predev:safe": "npx kill-port 8080",
+    "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd test && .\\mvnw.cmd spring-boot:run\"",
+    "predev:fast": "npx kill-port 8080",
+    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd spring-boot:run\""
+  },
+  "devDependencies": {
+    "concurrently": "^x.x.x"
+  }
+}
+</file>
+
+</files>

@@ -19,7 +19,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -51,15 +51,16 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers("/webauthn/**", "/login/webauthn", "/login", "/error", "/ws/**").permitAll()
+                        .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(tokenRepository)
                         .csrfTokenRequestHandler(requestHandler)
                         .ignoringRequestMatchers(
-                                AntPathRequestMatcher.antMatcher("/ws/**"),
-                                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh")))
+                                PathPatternRequestMatcher.withDefaults().matcher("/ws/**"),
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh")))
                 .httpBasic(basic -> basic.authenticationEntryPoint(unauthorizedEntryPoint))
                 .formLogin(Customizer.withDefaults())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

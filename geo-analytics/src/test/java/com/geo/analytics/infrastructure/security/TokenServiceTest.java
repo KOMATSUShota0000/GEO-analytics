@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
 import com.geo.analytics.infrastructure.config.AppProperties;
-import com.geo.analytics.infrastructure.security.ExpiredJwtTokenException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
