@@ -1,5 +1,10 @@
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.tenant.ContextPropagator;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
@@ -10,10 +15,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 @Configuration
 @EnableAsync
@@ -31,7 +32,8 @@ public class AsyncConfig implements AsyncConfigurer {
 
     @Override
     public Executor getAsyncExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
+        Executor delegate = Executors.newVirtualThreadPerTaskExecutor();
+        return command -> delegate.execute(ContextPropagator.wrapRunnable(command));
     }
 
     @Override

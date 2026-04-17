@@ -26,6 +26,8 @@ spring:
     allow-bean-definition-overriding: true
 
 app:
+  distributed-lock:
+    impl: local
   security:
     rls:
       enabled: false

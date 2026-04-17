@@ -1,13 +1,14 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
+import java.util.Objects;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-import java.util.Objects;
-import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class WorkspacePlanResolver {
@@ -25,10 +26,14 @@ public class WorkspacePlanResolver {
         this.batchJdbcTemplate = Objects.requireNonNull(batchJdbcTemplate);
     }
 
+    @Transactional(readOnly = true)
+    @GlobalAccess
     public SubscriptionPlan resolvePlan(UUID workspaceId) {
         return resolveWorkspaceInfo(workspaceId).plan();
     }
 
+    @Transactional(readOnly = true)
+    @GlobalAccess
     public WorkspaceInfo resolveWorkspaceInfo(UUID workspaceId) {
         try {
             return batchJdbcTemplate.queryForObject(SQL, (rs, rowNum) -> {

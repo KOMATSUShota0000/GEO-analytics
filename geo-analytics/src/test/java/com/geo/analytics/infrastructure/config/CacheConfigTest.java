@@ -31,7 +31,7 @@ class CacheConfigTest {
     private ApplicationContext applicationContext;
 
     @Autowired
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
 
     @Autowired
     private Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache;
@@ -47,12 +47,11 @@ class CacheConfigTest {
     }
 
     @Test
-    void userSessionsCacheStoresAndRetrievesUuidValues() {
-        UUID userId = UUID.fromString("aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee");
+    void userSessionsCacheStoresAndRetrievesSessionValidity() {
         UUID sessionId = UUID.fromString("11111111-2222-4333-8444-555555555555");
 
-        userSessionsCache.put(userId, sessionId);
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(sessionId);
+        userSessionsCache.put(sessionId, Boolean.TRUE);
+        assertThat(userSessionsCache.getIfPresent(sessionId)).isTrue();
         assertThat(userSessionsCache.getIfPresent(UUID.fromString("99999999-9999-4999-8999-999999999999")))
                 .isNull();
     }

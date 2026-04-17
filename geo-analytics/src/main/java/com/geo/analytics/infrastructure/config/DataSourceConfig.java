@@ -1,27 +1,35 @@
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.datasource.TenantAwareDataSourceProxy;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
+import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import javax.sql.DataSource;
-
 @Configuration
 public class DataSourceConfig {
 
     @Bean
-    @Primary
+    @ConditionalOnMissingBean(MeterRegistry.class)
+    MeterRegistry geoAnalyticsMeterRegistry() {
+        return new SimpleMeterRegistry();
+    }
+
+    @Bean("apiHikariDataSource")
     @ConfigurationProperties("spring.datasource.api.hikari")
-    public HikariDataSource apiDataSource(
+    public HikariDataSource apiHikariDataSource(
             @Value("${spring.datasource.api.jdbc-url}") String jdbcUrl,
             @Value("${spring.datasource.api.username}") String username,
             @Value("${spring.datasource.api.password:}") String password) {
@@ -32,9 +40,16 @@ public class DataSourceConfig {
         return ds;
     }
 
-    @Bean("batchDataSource")
+    @Bean
+    @Primary
+    public DataSource apiDataSource(
+            @Qualifier("apiHikariDataSource") HikariDataSource delegate, MeterRegistry meterRegistry) {
+        return new TenantAwareDataSourceProxy(delegate, meterRegistry);
+    }
+
+    @Bean("batchHikariDataSource")
     @ConfigurationProperties("spring.datasource.batch.hikari")
-    public HikariDataSource batchDataSource(
+    public HikariDataSource batchHikariDataSource(
             @Value("${spring.datasource.batch.jdbc-url}") String jdbcUrl,
             @Value("${spring.datasource.batch.username}") String username,
             @Value("${spring.datasource.batch.password:}") String password) {
@@ -43,6 +58,12 @@ public class DataSourceConfig {
         ds.setUsername(username);
         ds.setPassword(password);
         return ds;
+    }
+
+    @Bean("batchDataSource")
+    public DataSource batchDataSource(
+            @Qualifier("batchHikariDataSource") HikariDataSource delegate, MeterRegistry meterRegistry) {
+        return new TenantAwareDataSourceProxy(delegate, meterRegistry);
     }
 
     @Bean

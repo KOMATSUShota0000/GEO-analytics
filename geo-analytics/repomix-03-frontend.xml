@@ -202,24 +202,30 @@ function readXsrfToken(): string {
   return m ? decodeURIComponent(m[1].trim()) : "";
 }
 
-let csrfPrime: Promise<void> | null = null;
+let csrfPrimePromise: Promise<void> | null = null;
 
 /** Call on logout so the next mutating request re-fetches CSRF for the new session. */
 export function resetCsrfPrime(): void {
-  csrfPrime = null;
+  csrfPrimePromise = null;
 }
 
 function primeCsrfCookie(): Promise<void> {
-  if (!csrfPrime) {
-    csrfPrime = fetch("/api/csrf", {
-      credentials: "include",
-      method: "GET",
-      headers: {
-        "X-Tenant-ID": resolveTenantHeader(),
-      },
-    }).then(() => undefined);
+  if (csrfPrimePromise !== null) {
+    return csrfPrimePromise;
   }
-  return csrfPrime;
+  const p = fetch("/api/csrf", {
+    credentials: "include",
+    method: "GET",
+    headers: {
+      "X-Tenant-ID": resolveTenantHeader(),
+    },
+  })
+    .then(() => undefined)
+    .finally(() => {
+      csrfPrimePromise = null;
+    });
+  csrfPrimePromise = p;
+  return p;
 }
 
 function snakeToCamelKey(key: string): string {
@@ -327,14 +333,21 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
             if (typeof window !== "undefined") {
               window.location.href = `/login?reason=${encodeURIComponent("unknown")}`;
             }
+            return new Promise<Response>(() => {});
           }
         } else {
+          if (result.reason === "network_error") {
+            notifyRefreshFailedAndClearWaiters("network_error");
+            isRefreshing = false;
+            throw new Error("Network connection lost.");
+          }
           notifyRefreshFailedAndClearWaiters(result.reason);
           clearClientState();
           clearAccessToken();
           if (typeof window !== "undefined") {
             window.location.href = `/login?reason=${encodeURIComponent(result.reason)}`;
           }
+          return new Promise<Response>(() => {});
         }
       } finally {
         isRefreshing = false;
@@ -342,7 +355,9 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
     } else {
       return new Promise<Response>((resolve, reject) => {
         refreshFailureHandlers.push((reason) => {
-          reject(new Error(`セッション更新失敗: ${reason}`));
+          if (reason === "network_error") {
+            reject(new Error(`セッション更新失敗: ${reason}`));
+          }
         });
         addRefreshSubscriber((_newToken) => {
           void (async () => {

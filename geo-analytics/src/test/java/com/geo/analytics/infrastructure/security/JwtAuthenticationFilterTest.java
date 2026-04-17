@@ -9,8 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.domain.entity.UserSession;
-import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -43,10 +43,13 @@ class JwtAuthenticationFilterTest {
     private TokenService tokenService;
 
     @Mock
-    private UserSessionRepository userSessionRepository;
+    private SessionManagementService sessionManagementService;
 
     @Mock
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
+
+    @Mock
+    private SecurityExceptionResponseHandler securityExceptionResponseHandler;
 
     @Mock
     private FilterChain filterChain;
@@ -55,7 +58,8 @@ class JwtAuthenticationFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new JwtAuthenticationFilter(tokenService, userSessionRepository, userSessionsCache);
+        filter = new JwtAuthenticationFilter(
+                tokenService, sessionManagementService, userSessionsCache, securityExceptionResponseHandler);
     }
 
     @AfterEach
@@ -75,42 +79,42 @@ class JwtAuthenticationFilterTest {
     @Test
     void cacheHitDoesNotQueryDatabase() throws ServletException, IOException {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
 
         MockHttpServletRequest request = bearerRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, filterChain);
 
-        verify(userSessionRepository, never()).findBySessionId(any());
+        verify(sessionManagementService, never()).findActiveSessionBySessionId(any());
         verify(filterChain).doFilter(request, response);
     }
 
     @Test
     void cacheMissLoadsFromDatabaseAndPopulatesCache() throws ServletException, IOException {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(null);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(null);
 
         UserSession session = new UserSession();
         session.setUserId(USER_ID);
         session.setSessionId(SESSION_ID);
         session.setDeletedAt(null);
-        when(userSessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(session));
+        when(sessionManagementService.findActiveSessionBySessionId(SESSION_ID)).thenReturn(Optional.of(session));
 
         MockHttpServletRequest request = bearerRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, filterChain);
 
-        verify(userSessionRepository).findBySessionId(SESSION_ID);
-        verify(userSessionsCache).put(eq(USER_ID), eq(SESSION_ID));
+        verify(sessionManagementService).findActiveSessionBySessionId(SESSION_ID);
+        verify(userSessionsCache).put(eq(SESSION_ID), eq(Boolean.TRUE));
         verify(filterChain).doFilter(request, response);
     }
 
     @Test
     void tenantContextClearedAfterFilterChainThrowsServletException() throws Exception {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
         doThrow(new ServletException("boom")).when(filterChain).doFilter(any(), any());
 
         MockHttpServletRequest request = bearerRequest();
@@ -126,7 +130,7 @@ class JwtAuthenticationFilterTest {
     @Test
     void tenantContextClearedAfterFilterChainThrowsRuntimeException() throws Exception {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
         doThrow(new IllegalStateException("boom")).when(filterChain).doFilter(any(), any());
 
         MockHttpServletRequest request = bearerRequest();

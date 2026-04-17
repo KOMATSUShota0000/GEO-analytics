@@ -8,8 +8,8 @@ public class UserRevisionListener implements RevisionListener {
     @Override
     public void newRevision(Object revisionEntity) {
         AuditRevisionEntity rev = (AuditRevisionEntity) revisionEntity;
-        String tid = TenantPlanScope.getTenantId();
-        rev.setTenantId(tid != null && !tid.isBlank() ? tid : "");
+        String tid = TenantPlanScope.currentTenantIdString().filter(t -> !t.isBlank()).orElse("");
+        rev.setTenantId(tid);
         Authentication a = SecurityContextHolder.getContext().getAuthentication();
         String uid = "";
         if (a != null && a.isAuthenticated() && a.getName() != null) {

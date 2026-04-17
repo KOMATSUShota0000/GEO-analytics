@@ -9,6 +9,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * ジョブ／監査などバッチ系テーブルへの JDBC アクセス。{@code batchTransactionManager} 上のトランザクションで実行される。
+ *
+ * <p>{@link GlobalAccess} を型に付与し、{@code @Scheduled} や非同期コールバックなどテナント未束縛の経路からの DB アクセスを
+ * {@link com.geo.analytics.infrastructure.persistence.RlsConnectionInterceptor} が拒否しないようにする。
+ * HTTP 等で {@link com.geo.analytics.infrastructure.tenant.TenantContextHolder} が束縛されている場合は、従来どおり RLS 用セッション変数が設定される。
+ */
+@GlobalAccess
 @Service
 @Transactional("batchTransactionManager")
 public class BatchPersistenceService {

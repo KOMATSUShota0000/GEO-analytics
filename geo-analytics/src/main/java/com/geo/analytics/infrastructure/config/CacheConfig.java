@@ -16,8 +16,9 @@ public class CacheConfig {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
 
+    /** キーは {@code sessionId}。値は有効セッションの印（常に {@code true}）のみを格納する。 */
     @Bean
-    public Cache<UUID, UUID> userSessionsCache() {
+    public Cache<UUID, Boolean> userSessionsCache() {
         return Caffeine.newBuilder().expireAfterWrite(CACHE_TTL).build();
     }
 

@@ -1,4 +1,5 @@
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
+import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -36,25 +37,6 @@ type PdfRequestResponse = {
   accepted: boolean;
   message: string | null;
 };
-
-function parseDownloadFilename(contentDisposition: string | null): string {
-  if (contentDisposition == null || contentDisposition.length === 0) {
-    return "report.pdf";
-  }
-  const utf8 = /filename\*=(?:UTF-8'')?([^;\s]+)/i.exec(contentDisposition);
-  if (utf8) {
-    return decodeURIComponent(utf8[1].trim().replace(/^"+|"+$/g, ""));
-  }
-  const quoted = /filename="([^"]+)"/i.exec(contentDisposition);
-  if (quoted) {
-    return quoted[1];
-  }
-  const plain = /filename=([^;\s]+)/i.exec(contentDisposition);
-  if (plain) {
-    return plain[1].trim().replace(/^"+|"+$/g, "");
-  }
-  return "report.pdf";
-}
 
 function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
@@ -391,23 +373,7 @@ export function JobAnalysisPage(): JSX.Element {
     }
     setPdfDownloadInFlight(true);
     try {
-      const res = await apiFetch(`/api/v1/jobs/${id}/pdf/download`);
-      if (!res.ok) {
-        const t = await res.text();
-        console.error("pdf download failed", res.status, t);
-        return;
-      }
-      const blob = await res.blob();
-      const name = parseDownloadFilename(res.headers.get("Content-Disposition"));
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = name;
-      anchor.style.display = "none";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
+      await downloadJobPdfWithAuth(id);
     } catch (e: unknown) {
       console.error("pdf download error", e);
     } finally {

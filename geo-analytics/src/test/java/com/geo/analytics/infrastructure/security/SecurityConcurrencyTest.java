@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -89,7 +90,7 @@ class SecurityConcurrencyTest {
 
     @Autowired
     @Qualifier("userSessionsCache")
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
 
     @Autowired
     @Qualifier("orgTenantAffiliationCache")
@@ -157,7 +158,7 @@ class SecurityConcurrencyTest {
             throws Exception {
         String initialJwt = tokenService.generateAccessToken(organizationUser, SESSION_INITIAL);
         assertThat(runFilterWithBearer(initialJwt)).isEqualTo(200);
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(SESSION_INITIAL);
+        assertThat(userSessionsCache.getIfPresent(SESSION_INITIAL)).isTrue();
 
         UUID newSessionId =
                 transactionTemplate.execute(status -> sessionManagementService.createNewSession(userId));
@@ -165,10 +166,7 @@ class SecurityConcurrencyTest {
 
         await().atMost(15, SECONDS)
                 .pollInterval(Duration.ofMillis(50))
-                .until(() -> {
-                    UUID cached = userSessionsCache.getIfPresent(userId);
-                    return cached == null || cached.equals(newSessionId);
-                });
+                .until(() -> userSessionsCache.getIfPresent(SESSION_INITIAL) == null);
 
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<Integer>> futures = new ArrayList<>();
@@ -180,8 +178,7 @@ class SecurityConcurrencyTest {
             }
         }
 
-        assertThat(userSessionsCache.getIfPresent(userId))
-                .isNotEqualTo(SESSION_INITIAL);
+        assertThat(userSessionsCache.getIfPresent(SESSION_INITIAL)).isNull();
 
         String newJwt = tokenService.generateAccessToken(organizationUser, newSessionId);
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -194,7 +191,7 @@ class SecurityConcurrencyTest {
             }
         }
 
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(newSessionId);
+        assertThat(userSessionsCache.getIfPresent(newSessionId)).isTrue();
     }
 
     @Test
@@ -227,7 +224,9 @@ class SecurityConcurrencyTest {
 
         try {
             transactionTemplate.executeWithoutResult(
-                    status -> applicationEventPublisher.publishEvent(new UserSessionEvictedEvent(userId, ORG_ID)));
+                    status ->
+                            applicationEventPublisher.publishEvent(
+                                    new UserSessionEvictedEvent(userId, ORG_ID, Collections.emptyList())));
 
             await().atMost(15, SECONDS)
                     .pollInterval(Duration.ofMillis(25))

@@ -15,12 +15,13 @@ public class RateLimiterService {
         this.proxyManager = Objects.requireNonNull(rateLimitProxyManager);
     }
     public boolean tryAcquire(PricingPlan plan) {
-        String tenantId = TenantPlanScope.getTenantId();
-        if (tenantId == null || tenantId.isBlank()) {
-            return false;
-        }
-        BucketConfiguration configuration = bucketConfiguration(plan);
-        return proxyManager.builder().build(tenantId, () -> configuration).tryConsume(1L);
+        return TenantPlanScope.currentTenantIdString()
+                .filter(t -> !t.isBlank())
+                .map(tenantId -> {
+                    BucketConfiguration configuration = bucketConfiguration(plan);
+                    return proxyManager.builder().build(tenantId, () -> configuration).tryConsume(1L);
+                })
+                .orElse(false);
     }
     private static BucketConfiguration bucketConfiguration(PricingPlan plan) {
         Bandwidth burst = Bandwidth.builder()

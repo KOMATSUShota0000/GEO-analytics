@@ -13,11 +13,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @Component
 public class UserSessionCacheEvictionListener {
 
-    private final Cache<UUID, UUID> userSessionsCache;
+    private final Cache<UUID, Boolean> userSessionsCache;
     private final Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache;
 
     public UserSessionCacheEvictionListener(
-            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache,
+            @Qualifier("userSessionsCache") Cache<UUID, Boolean> userSessionsCache,
             @Qualifier("orgTenantAffiliationCache") Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache) {
         this.userSessionsCache = userSessionsCache;
         this.orgTenantAffiliationCache = orgTenantAffiliationCache;
@@ -26,7 +26,7 @@ public class UserSessionCacheEvictionListener {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onUserSessionEvicted(UserSessionEvictedEvent event) {
-        userSessionsCache.invalidate(event.userId());
+        event.revokedSessionIds().forEach(userSessionsCache::invalidate);
         UUID targetOrgId = event.organizationId();
         orgTenantAffiliationCache
                 .asMap()

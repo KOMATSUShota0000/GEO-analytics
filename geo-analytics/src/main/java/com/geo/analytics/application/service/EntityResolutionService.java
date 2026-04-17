@@ -91,9 +91,11 @@ public final class EntityResolutionService {
     private ResolutionResult persistPending(String left, String right, String ha, String hb) {
         try {
             var row = new UnresolvedEntityQueueEntity();
-            var tid = TenantPlanScope.getTenantId();
-            row.setWorkspaceId(
-                    tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
+            UUID workspaceId = TenantPlanScope.currentTenantIdString()
+                    .filter(t -> !t.isBlank())
+                    .map(UUID::fromString)
+                    .orElse(DefaultTenantIds.WORKSPACE_ID);
+            row.setWorkspaceId(workspaceId);
             row.setLeftLabel(left);
             row.setRightLabel(right);
             row.setLeftBlockingHash(ha);

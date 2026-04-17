@@ -2,6 +2,8 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+    ignore-migration-patterns: "*:missing"
+    validate-on-migrate: false
     url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
     user: "postgres"
     password: "Koma7851"

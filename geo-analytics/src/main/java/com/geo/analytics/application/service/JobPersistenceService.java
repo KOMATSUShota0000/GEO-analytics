@@ -268,11 +268,20 @@ public class JobPersistenceService {
             auditHistoryRepository.save(entity);
         }));
     }
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    /**
+     * ジョブ作成は書き込みを伴うため {@code readOnly = false} を明示する。
+     * {@link Propagation#NOT_SUPPORTED} はトランザクションを停止させるため、RLS 防衛線（トランザクション必須）と両立しない。
+     */
+    @Transactional(readOnly = false)
     public JobEntity createJob(String brandName) {
         return createJobWithIdempotency(brandName, null).jobEntity();
     }
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+
+    /**
+     * プロジェクト解決・冪等検索・{@link #saveJobInNewTransaction} までを同一トランザクション境界で包む。
+     * 内側の {@code REQUIRES_NEW} はコミット境界として維持し、外側で冪等再試行の読み取りを行う。
+     */
+    @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);

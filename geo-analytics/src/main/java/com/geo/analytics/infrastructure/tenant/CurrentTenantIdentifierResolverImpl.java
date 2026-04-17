@@ -8,11 +8,9 @@ import java.util.Map;
 public class CurrentTenantIdentifierResolverImpl implements CurrentTenantIdentifierResolver<String>, HibernatePropertiesCustomizer {
     @Override
     public String resolveCurrentTenantIdentifier() {
-        String t = TenantPlanScope.getTenantId();
-        if (t == null || t.isBlank()) {
-            return DefaultTenantIds.WORKSPACE_ID.toString();
-        }
-        return t;
+        return TenantPlanScope.currentTenantIdString()
+                .filter(t -> !t.isBlank())
+                .orElseGet(() -> DefaultTenantIds.WORKSPACE_ID.toString());
     }
     @Override
     public boolean validateExistingCurrentSessions() {

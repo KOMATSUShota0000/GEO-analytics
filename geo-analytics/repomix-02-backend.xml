@@ -148,6 +148,7 @@ src/main/java/com/geo/analytics/domain/exception/AiAnalysisTimeoutException.java
 src/main/java/com/geo/analytics/domain/exception/InsufficientQuotaException.java
 src/main/java/com/geo/analytics/domain/exception/RateLimitExceededException.java
 src/main/java/com/geo/analytics/domain/exception/ThresholdExceededException.java
+src/main/java/com/geo/analytics/domain/lock/DistributedLockManager.java
 src/main/java/com/geo/analytics/domain/matching/DoubleMetaphoneCharEngine.java
 src/main/java/com/geo/analytics/domain/matching/EntityResolutionService.java
 src/main/java/com/geo/analytics/domain/matching/HybridEntityResolutionEngine.java
@@ -223,7 +224,12 @@ src/main/java/com/geo/analytics/infrastructure/crawler/PageContentNormalizer.jav
 src/main/java/com/geo/analytics/infrastructure/crawler/PlaywrightPdfAdapter.java
 src/main/java/com/geo/analytics/infrastructure/crawler/PlaywrightWebCrawlerAdapter.java
 src/main/java/com/geo/analytics/infrastructure/crawler/TieredCrawlCache.java
+src/main/java/com/geo/analytics/infrastructure/datasource/TenantAwareDataSourceProxy.java
+src/main/java/com/geo/analytics/infrastructure/lock/AdvisoryLockKeyHasher.java
+src/main/java/com/geo/analytics/infrastructure/lock/LocalDistributedLockManager.java
+src/main/java/com/geo/analytics/infrastructure/lock/PostgresDistributedLockManager.java
 src/main/java/com/geo/analytics/infrastructure/messaging/JobStatusStompPublisher.java
+src/main/java/com/geo/analytics/infrastructure/persistence/GlobalAccess.java
 src/main/java/com/geo/analytics/infrastructure/persistence/JacksonJsonbOperations.java
 src/main/java/com/geo/analytics/infrastructure/persistence/JsonbOperations.java
 src/main/java/com/geo/analytics/infrastructure/persistence/JsonbSerializationException.java
@@ -252,12 +258,14 @@ src/main/java/com/geo/analytics/infrastructure/security/JwtTokenException.java
 src/main/java/com/geo/analytics/infrastructure/security/RefreshTokenCookieFactory.java
 src/main/java/com/geo/analytics/infrastructure/security/TenantAccessEvaluator.java
 src/main/java/com/geo/analytics/infrastructure/security/TokenService.java
+src/main/java/com/geo/analytics/infrastructure/tenant/ContextPropagator.java
 src/main/java/com/geo/analytics/infrastructure/tenant/CurrentTenantIdentifierResolverImpl.java
 src/main/java/com/geo/analytics/infrastructure/tenant/DefaultTenantIds.java
 src/main/java/com/geo/analytics/infrastructure/tenant/OrgTenantKey.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantContext.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextFilter.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextHolder.java
+src/main/java/com/geo/analytics/infrastructure/tenant/TenantPlanScope.java
 src/main/java/com/geo/analytics/web/controller/AuthController.java
 src/main/java/com/geo/analytics/web/controller/BatchTestController.java
 src/main/java/com/geo/analytics/web/controller/CsrfController.java
@@ -382,6 +390,10 @@ if not "%JAVA_HOME%"=="" set JAVA_CMD=%JAVA_HOME%\bin\java
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -1421,7 +1433,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.AnalyticsSummaryResponse;
 import com.geo.analytics.web.dto.CompetitorSharePoint;
 import com.geo.analytics.web.dto.TrendDataPoint;
@@ -1464,7 +1476,7 @@ public class AnalyticsAggregationService {
             return Optional.empty();
         }
         UUID workspaceId = UUID.fromString(rows.get(0));
-        return Optional.of(TenantContext.executeWithTenant(workspaceId, () -> buildSummary(projectId)));
+        return Optional.of(TenantPlanScope.executeWithTenant(workspaceId, () -> buildSummary(projectId)));
     }
     private AnalyticsSummaryResponse buildSummary(UUID projectId) {
         List<AuditHistoryEntity> histories = auditHistoryRepository.findByProject_IdOrderByAuditDateAsc(projectId);
@@ -1775,6 +1787,7 @@ import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
@@ -1786,6 +1799,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.ScopedValue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -1965,23 +1979,26 @@ public class AsyncPdfReportService {
     private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
         try {
             UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
-            TenantContextHolder.set(orgId, workspaceId);
-            try {
-                var userInfo = batchPersistence.findFirstActiveOrgUser(orgId)
-                        .orElseThrow(
-                                () -> new IllegalStateException(
-                                        "PDF生成用の有効なユーザーが組織内に見つかりません: orgId=" + orgId));
-                OrganizationUser user = new OrganizationUser();
-                user.setId(userInfo.id());
-                user.setEmail(userInfo.email());
-                user.setPasswordHash(userInfo.passwordHash());
-                user.setOrganizationId(orgId);
-                UUID sessionId = sessionManagementService.appendRenderingSession(user.getId());
-                String jwt = tokenService.generateAccessToken(user, sessionId);
-                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
-            } finally {
-                TenantContextHolder.clear();
-            }
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+                    .call(
+                            () -> {
+                                var userInfo =
+                                        batchPersistence
+                                                .findFirstActiveOrgUser(orgId)
+                                                .orElseThrow(
+                                                        () -> new IllegalStateException(
+                                                                "PDF生成用の有効なユーザーが組織内に見つかりません: orgId="
+                                                                        + orgId));
+                                OrganizationUser user = new OrganizationUser();
+                                user.setId(userInfo.id());
+                                user.setEmail(userInfo.email());
+                                user.setPasswordHash(userInfo.passwordHash());
+                                user.setOrganizationId(orgId);
+                                UUID sessionId =
+                                        sessionManagementService.appendRenderingSession(user.getId());
+                                String jwt = tokenService.generateAccessToken(user, sessionId);
+                                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
+                            });
         } catch (IllegalStateException illegalStateException) {
             throw illegalStateException;
         } catch (Exception exception) {
@@ -2156,7 +2173,9 @@ import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import java.lang.ScopedValue;
 import java.util.UUID;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -2188,9 +2207,13 @@ public class AuthService {
         OrganizationUser user = organizationUserRepository
                 .findByEmailAndDeletedAtIsNull(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
-        TenantContextHolder.set(user.getOrganizationId(), null);
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+        TenantContext loginScope = new TenantContext(user.getOrganizationId(), null, null);
+        ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
+                .run(
+                        () ->
+                                authenticationManager.authenticate(
+                                        new UsernamePasswordAuthenticationToken(
+                                                request.getEmail(), request.getPassword())));
         UUID sessionId = sessionManagementService.createNewSession(user.getId());
         String accessToken = tokenService.generateAccessToken(user, sessionId);
         String refreshToken = tokenService.generateRefreshToken(user, sessionId);
@@ -2838,7 +2861,7 @@ import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -2919,9 +2942,11 @@ public final class EntityResolutionService {
     private ResolutionResult persistPending(String left, String right, String ha, String hb) {
         try {
             var row = new UnresolvedEntityQueueEntity();
-            var tid = TenantContext.getTenantId();
-            row.setWorkspaceId(
-                    tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
+            UUID workspaceId = TenantPlanScope.currentTenantIdString()
+                    .filter(t -> !t.isBlank())
+                    .map(UUID::fromString)
+                    .orElse(DefaultTenantIds.WORKSPACE_ID);
+            row.setWorkspaceId(workspaceId);
             row.setLeftLabel(left);
             row.setRightLabel(right);
             row.setLeftBlockingHash(ha);
@@ -3762,6 +3787,7 @@ import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
@@ -3772,6 +3798,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.lang.ScopedValue;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -3846,40 +3873,40 @@ public class JobPersistenceService {
     }
     public JobEntity findJobById(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
+        return TenantPlanScope.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId)));
     }
     public Optional<JobEntity> findJobByIdOptional(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> jobRepository.findById(jobId));
     }
     public List<JobEntity> findJobsByStatus(JobStatus jobStatus) {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> jobRepository.findByJobStatus(jobStatus));
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> jobRepository.findByJobStatus(jobStatus));
     }
     public List<QueryEntity> findUnprocessedQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobIdAndProcessedFalse(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findByJobIdAndProcessedFalse(jobId));
     }
     public List<QueryEntity> findQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
     }
 
     public long countQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.countByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.countByJobId(jobId));
     }
     public Optional<QueryEntity> findQueryById(UUID queryId) {
         UUID tenantId = readWorkspaceIdForQuery(queryId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
     }
     public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
     }
     public JobAnalysisAggregate findJobAnalysisAggregate(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             ProjectEntity projectEntity = null;
@@ -3910,7 +3937,7 @@ public class JobPersistenceService {
             List<CompetitorScoreRow> competitorScoreRows,
             String modelInsightsJson) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             UUID workspaceId = jobEntity.getWorkspaceId() != null ? jobEntity.getWorkspaceId() : DefaultTenantIds.WORKSPACE_ID;
@@ -4000,7 +4027,7 @@ public class JobPersistenceService {
             List<String> recommendedActions,
             String calculationVersion) {
         UUID tenantId = readWorkspaceIdForAudit(auditHistoryId);
-        TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findById(auditHistoryId).ifPresent(entity -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> auditHistoryRepository.findById(auditHistoryId).ifPresent(entity -> {
             entity.setDiagnosticMessage(diagnosticMessage);
             entity.setRecommendedActions(new ArrayList<>(recommendedActions));
             entity.setCalculationVersion(calculationVersion);
@@ -4017,29 +4044,37 @@ public class JobPersistenceService {
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
                 if (existing.isPresent()) {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
-            TenantContextHolder.set(orgId, workspaceId);
-            try {
-                var created = self.saveJobInNewTransaction(
-                        normalizedBrandName, workspaceId, projectEntity.getId(),
-                        idempotencyKey, projectEntity.getBrandColor(), projectEntity.getLogoUrl());
-                return new JobCreateOutcome(created, true);
-            } catch (DataIntegrityViolationException exception) {
-                if (idempotencyKey == null) {
-                    throw exception;
-                }
-                return jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey)
-                    .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
-                    .orElseThrow(() -> exception);
-            } finally {
-                TenantContextHolder.clear();
-            }
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+                    .call(
+                            () -> {
+                                try {
+                                    var created =
+                                            self.saveJobInNewTransaction(
+                                                    normalizedBrandName,
+                                                    workspaceId,
+                                                    projectEntity.getId(),
+                                                    idempotencyKey,
+                                                    projectEntity.getBrandColor(),
+                                                    projectEntity.getLogoUrl());
+                                    return new JobCreateOutcome(created, true);
+                                } catch (DataIntegrityViolationException exception) {
+                                    if (idempotencyKey == null) {
+                                        throw exception;
+                                    }
+                                    return jobRepository
+                                            .findByTenantIdAndCreateIdempotencyKey(
+                                                    workspaceId.toString(), idempotencyKey)
+                                            .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
+                                            .orElseThrow(() -> exception);
+                                }
+                            });
         });
     }
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -4074,7 +4109,7 @@ public class JobPersistenceService {
                         ? null
                         : queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (jobEntity.getJobStatus() != JobStatus.CREATED) {
@@ -4099,7 +4134,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatus(UUID jobId, JobStatus newJobStatus, String errorMessage) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(newJobStatus);
@@ -4110,7 +4145,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(JobStatus.RUNNING);
@@ -4121,7 +4156,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(JobStatus.SUBMITTED);
@@ -4132,7 +4167,7 @@ public class JobPersistenceService {
     @Transactional
     public PdfGenerationStartResult tryMarkPdfGeneratingAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (auditHistoryRepository.findByJobId(jobId).isEmpty()) {
@@ -4150,7 +4185,7 @@ public class JobPersistenceService {
     @Transactional
     public JobEntity markPdfCompletedAndPublish(UUID jobId, String absolutePath) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
@@ -4174,7 +4209,7 @@ public class JobPersistenceService {
     @Transactional
     public JobEntity markPdfFailedAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
@@ -4199,7 +4234,7 @@ public class JobPersistenceService {
     public void markPdfFailedBestEffort(UUID jobId) {
         try {
             UUID tenantId = readWorkspaceIdForJob(jobId);
-            TenantContext.executeWithTenant(tenantId, () -> {
+            TenantPlanScope.executeWithTenant(tenantId, () -> {
                 jobRepository.findById(jobId).ifPresent(jobEntity -> {
                     jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
                     jobEntity.setPdfFilePath(null);
@@ -4213,7 +4248,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobDiagnosticMessage(diagnosticMessage);
@@ -4225,7 +4260,7 @@ public class JobPersistenceService {
     @Transactional
     public Optional<UUID> claimGapBatchIdempotencyKeyForUpdate(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             SubscriptionPlan applied = jobEntity.getAppliedPlan();
@@ -4246,7 +4281,7 @@ public class JobPersistenceService {
     @Transactional
     public void saveGapAnalysisGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setGapAnalysisGeminiJobName(geminiJobName);
@@ -4256,7 +4291,7 @@ public class JobPersistenceService {
     @Transactional
     public void markGapAnalysisCompleted(UUID jobId, boolean completed) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setGapAnalysisCompleted(completed);
@@ -4264,11 +4299,11 @@ public class JobPersistenceService {
         });
     }
     public List<JobEntity> findJobsPendingGapAnalysisOutput() {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findByGapAnalysisGeminiJobNameIsNotNullAndGapAnalysisCompletedIsFalse());
     }
     public List<JobEntity> findProJobsAwaitingGapBatchCreation() {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findProJobsAwaitingGapBatchCreation(
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
     }
@@ -4318,13 +4353,12 @@ import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
+import com.geo.analytics.infrastructure.tenant.ContextPropagator;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Objects;
@@ -4453,31 +4487,22 @@ public class JobQuerySubmissionService {
             var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
             throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
         }
-        SecurityContext parentSecurityContext = SecurityContextHolder.getContext();
         @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = queryEntities.stream()
                 .map(qe -> CompletableFuture.runAsync(
-                        () -> {
-                            SecurityContextHolder.setContext(parentSecurityContext);
-                            try {
-                                TenantContext.executeWithTenant(
-                                        tenantId,
-                                        () -> {
-                                            try {
-                                                processOneQueryRealtimeCore(
-                                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
-                                            } catch (Throwable x) {
-                                                quotaManager.addTokens(
-                                                        tenantId,
-                                                        QuotaCreditCalculator.refundAfterDeposit(
-                                                                QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
-                                                throw x;
-                                            }
-                                        });
-                            } finally {
-                                SecurityContextHolder.clearContext();
-                            }
-                        },
+                        ContextPropagator.wrapRunnable(
+                                () -> {
+                                    try {
+                                        processOneQueryRealtimeCore(
+                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                    } catch (Throwable x) {
+                                        quotaManager.addTokens(
+                                                tenantId,
+                                                QuotaCreditCalculator.refundAfterDeposit(
+                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                        throw x;
+                                    }
+                                }),
                         streamDeliveryVirtualExecutor))
                 .toArray(CompletableFuture[]::new);
         try {
@@ -4515,7 +4540,7 @@ public class JobQuerySubmissionService {
             return List.of();
         }
         var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
+        return TenantPlanScope.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
                 .map(ProjectEntity::getCompetitorUrls)
                 .orElse(List.of())
                 .stream()
@@ -4805,7 +4830,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -4888,7 +4913,7 @@ public class JobSyncTestService {
             return List.of();
         }
         UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
+        return TenantPlanScope.executeWithTenant(wid, () -> projectRepository.findById(projectId)
             .map(ProjectEntity::getCompetitorUrls)
             .orElse(List.of())
             .stream()
@@ -4912,7 +4937,7 @@ import com.geo.analytics.domain.enums.PreferredEngine;
 import com.geo.analytics.infrastructure.repository.ProjectKeywordRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -4940,11 +4965,11 @@ public class KeywordRoutingService {
             throw new IllegalArgumentException("projectId mismatch");
         }
         UUID projectId = keywordRegistrationRequest.projectId();
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> {
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId)
                 .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
             UUID workspaceId = projectEntity.getWorkspaceId();
-            return TenantContext.executeWithTenant(workspaceId, () -> persistKeywords(projectEntity, keywordRegistrationRequest.keywords()));
+            return TenantPlanScope.executeWithTenant(workspaceId, () -> persistKeywords(projectEntity, keywordRegistrationRequest.keywords()));
         });
     }
 
@@ -5170,7 +5195,7 @@ import com.geo.analytics.domain.event.ProjectAuditCompletedEvent;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -5222,7 +5247,7 @@ public class NotificationService {
 
     public void deliver(ProjectAuditCompletedEvent projectAuditCompletedEvent) {
         UUID workspaceId = projectAuditCompletedEvent.workspaceId();
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectAuditCompletedEvent.projectId()).orElse(null);
             if (projectEntity == null) {
                 return;
@@ -5383,7 +5408,7 @@ import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
@@ -5430,14 +5455,14 @@ public class PlanBasedQuotaManager {
     }
 
     public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
                 .map(WorkspaceEntity::getSubscriptionPlan)
                 .filter(Objects::nonNull)
                 .orElse(SubscriptionPlan.STANDARD));
     }
 
     private BucketConfiguration configurationForWorkspace(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             var plan = workspaceRepository.findById(workspaceId)
                     .map(WorkspaceEntity::getSubscriptionPlan)
                     .filter(Objects::nonNull)
@@ -5516,7 +5541,7 @@ public class ProjectAuditLifecyclePublisher {
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -5531,7 +5556,7 @@ public class ProjectLastAuditService {
     }
 
     public void markLastAudit(UUID projectId, UUID workspaceId) {
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             projectRepository.updateLastAuditAt(
                 projectId,
                 LocalDateTime.now(ZoneId.of("Asia/Tokyo"))
@@ -5549,7 +5574,7 @@ import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
@@ -5599,7 +5624,7 @@ public class ProjectManagementService {
     public ProjectEntity getOrCreateDefaultProject(String brandName) {
         Objects.requireNonNull(brandName, "brandName");
         UUID workspaceId = DefaultTenantIds.WORKSPACE_ID;
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             workspaceRepository.findById(workspaceId).orElseGet(() -> {
                 WorkspaceEntity workspaceEntity = new WorkspaceEntity();
                 workspaceEntity.setId(workspaceId);
@@ -5628,7 +5653,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.ProjectSettingsPatchRequest;
 import com.geo.analytics.web.dto.ProjectSettingsResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -5653,7 +5678,7 @@ public class ProjectSettingsService {
 
     public Optional<ProjectSettingsResponse> getSettings(UUID projectId) {
         return readWorkspaceId(projectId)
-            .flatMap(workspaceId -> TenantContext.executeWithTenant(
+            .flatMap(workspaceId -> TenantPlanScope.executeWithTenant(
                 workspaceId,
                 () -> projectRepository.findById(projectId).map(this::toResponse)));
     }
@@ -5662,7 +5687,7 @@ public class ProjectSettingsService {
     public ProjectSettingsResponse patch(UUID projectId, ProjectSettingsPatchRequest projectSettingsPatchRequest) {
         UUID workspaceId = readWorkspaceId(projectId)
             .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId)
                 .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
             if (projectSettingsPatchRequest.autoAuditEnabled() != null) {
@@ -5763,7 +5788,7 @@ public class RagDomainRuleSeeder implements ApplicationRunner {
 <file path="src/main/java/com/geo/analytics/application/service/RateLimiterService.java">
 package com.geo.analytics.application.service;
 import com.geo.analytics.domain.enums.PricingPlan;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
@@ -5778,12 +5803,13 @@ public class RateLimiterService {
         this.proxyManager = Objects.requireNonNull(rateLimitProxyManager);
     }
     public boolean tryAcquire(PricingPlan plan) {
-        String tenantId = TenantContext.getTenantId();
-        if (tenantId == null || tenantId.isBlank()) {
-            return false;
-        }
-        BucketConfiguration configuration = bucketConfiguration(plan);
-        return proxyManager.builder().build(tenantId, () -> configuration).tryConsume(1L);
+        return TenantPlanScope.currentTenantIdString()
+                .filter(t -> !t.isBlank())
+                .map(tenantId -> {
+                    BucketConfiguration configuration = bucketConfiguration(plan);
+                    return proxyManager.builder().build(tenantId, () -> configuration).tryConsume(1L);
+                })
+                .orElse(false);
     }
     private static BucketConfiguration bucketConfiguration(PricingPlan plan) {
         Bandwidth burst = Bandwidth.builder()
@@ -5810,7 +5836,7 @@ import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectKeywordRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -5845,7 +5871,7 @@ public class ScheduledProjectAuditService {
 
     public void executeMonthlyAuditForProject(UUID projectId) {
         UUID workspaceId = readWorkspaceId(projectId);
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId).orElse(null);
             if (projectEntity == null || !projectEntity.isAutoAuditEnabled()) {
                 return;
@@ -6196,7 +6222,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -6222,7 +6248,7 @@ public class SubscriptionManagementService {
     public void changePlan(UUID tenantId, SubscriptionPlan newPlan) {
         Objects.requireNonNull(tenantId);
         Objects.requireNonNull(newPlan);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             var workspace = workspaceRepository.findById(tenantId)
                     .orElseThrow(() -> new EntityNotFoundException("workspace not found"));
             workspace.setSubscriptionPlan(newPlan);
@@ -6408,13 +6434,14 @@ public class SyncVerificationService {
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
+import java.util.Objects;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-import java.util.Objects;
-import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class WorkspacePlanResolver {
@@ -6432,10 +6459,14 @@ public class WorkspacePlanResolver {
         this.batchJdbcTemplate = Objects.requireNonNull(batchJdbcTemplate);
     }
 
+    @Transactional(readOnly = true)
+    @GlobalAccess
     public SubscriptionPlan resolvePlan(UUID workspaceId) {
         return resolveWorkspaceInfo(workspaceId).plan();
     }
 
+    @Transactional(readOnly = true)
+    @GlobalAccess
     public WorkspaceInfo resolveWorkspaceInfo(UUID workspaceId) {
         try {
             return batchJdbcTemplate.queryForObject(SQL, (rs, rowNum) -> {
@@ -6474,7 +6505,7 @@ public record ImmutableAuditRevisionPayload(
 <file path="src/main/java/com/geo/analytics/domain/audit/UserRevisionListener.java">
 package com.geo.analytics.domain.audit;
 import com.geo.analytics.domain.entity.AuditRevisionEntity;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.hibernate.envers.RevisionListener;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -6482,8 +6513,8 @@ public class UserRevisionListener implements RevisionListener {
     @Override
     public void newRevision(Object revisionEntity) {
         AuditRevisionEntity rev = (AuditRevisionEntity) revisionEntity;
-        String tid = TenantContext.getTenantId();
-        rev.setTenantId(tid != null && !tid.isBlank() ? tid : "");
+        String tid = TenantPlanScope.currentTenantIdString().filter(t -> !t.isBlank()).orElse("");
+        rev.setTenantId(tid);
         Authentication a = SecurityContextHolder.getContext().getAuthentication();
         String uid = "";
         if (a != null && a.isAuthenticated() && a.getName() != null) {
@@ -8264,6 +8295,36 @@ public class ThresholdExceededException extends RuntimeException {
     public int getThreshold() {
         return threshold;
     }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/lock/DistributedLockManager.java">
+package com.geo.analytics.domain.lock;
+
+import java.util.function.Supplier;
+
+/**
+ * DB ベンダー非依存の分散ロック抽象。ロックの取得・解放はメソッド呼び出しのスコープ内に閉じ、
+ * 呼び出し側が {@code lock()} / {@code unlock()} を直接扱わない（ScopedValue と同様の「構造化」）ことで解放漏れを防ぐ。
+ *
+ * <p>マルチテナントでは、キーにテナント境界を含めることを推奨する（例:
+ * {@code tenantUuid + ":" + resourceKind + ":" + resourceId}）。{@link com.geo.analytics.infrastructure.tenant.TenantContextHolder}
+ * からテナント ID を取得してキーを組み立てるのは呼び出し側（アプリケーションサービス）の責務とする。
+ */
+public interface DistributedLockManager {
+
+    /**
+     * {@code lockKey} 用の排他を取得し、{@code action} の実行中だけ保持する。{@code action} 完了後（正常・例外のいずれでも）に解放する。
+     *
+     * @param lockKey 論理キー（テナント境界を含めることを推奨）
+     * @param action ロック保持中に実行する処理（検査例外はそのまま伝播してよい）
+     */
+    <T, X extends Throwable> T executeWithLock(String lockKey, Supplier<T> action) throws X;
+
+    /**
+     * 戻り値のない版。{@link #executeWithLock(String, Supplier)} と同様にスコープ終了時に必ず解放する。
+     */
+    void executeWithLock(String lockKey, Runnable action);
 }
 </file>
 
@@ -14207,6 +14268,8 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import java.lang.ScopedValue;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14245,12 +14308,8 @@ public class DataSeeder implements CommandLineRunner {
     public void run(String... args) {
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
-        TenantContextHolder.set(orgId, wid);
-        try {
-            TenantContext.executeWithTenant(wid, () -> self.seedData(orgId, wid));
-        } finally {
-            TenantContextHolder.clear();
-        }
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, wid, null))
+                .run(() -> TenantPlanScope.executeWithTenant(wid, () -> self.seedData(orgId, wid)));
     }
 
     @Transactional
@@ -14849,6 +14908,11 @@ public class AppProperties {
 <file path="src/main/java/com/geo/analytics/infrastructure/config/AsyncConfig.java">
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.tenant.ContextPropagator;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
@@ -14859,10 +14923,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import java.lang.reflect.Method;
-import java.util.Arrays;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 @Configuration
 @EnableAsync
@@ -14880,7 +14940,8 @@ public class AsyncConfig implements AsyncConfigurer {
 
     @Override
     public Executor getAsyncExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
+        Executor delegate = Executors.newVirtualThreadPerTaskExecutor();
+        return command -> delegate.execute(ContextPropagator.wrapRunnable(command));
     }
 
     @Override
@@ -15086,28 +15147,36 @@ public class CrawlerConfiguration {
 <file path="src/main/java/com/geo/analytics/infrastructure/config/DataSourceConfig.java">
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.datasource.TenantAwareDataSourceProxy;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
+import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import javax.sql.DataSource;
-
 @Configuration
 public class DataSourceConfig {
 
     @Bean
-    @Primary
+    @ConditionalOnMissingBean(MeterRegistry.class)
+    MeterRegistry geoAnalyticsMeterRegistry() {
+        return new SimpleMeterRegistry();
+    }
+
+    @Bean("apiHikariDataSource")
     @ConfigurationProperties("spring.datasource.api.hikari")
-    public HikariDataSource apiDataSource(
+    public HikariDataSource apiHikariDataSource(
             @Value("${spring.datasource.api.jdbc-url}") String jdbcUrl,
             @Value("${spring.datasource.api.username}") String username,
             @Value("${spring.datasource.api.password:}") String password) {
@@ -15118,9 +15187,16 @@ public class DataSourceConfig {
         return ds;
     }
 
-    @Bean("batchDataSource")
+    @Bean
+    @Primary
+    public DataSource apiDataSource(
+            @Qualifier("apiHikariDataSource") HikariDataSource delegate, MeterRegistry meterRegistry) {
+        return new TenantAwareDataSourceProxy(delegate, meterRegistry);
+    }
+
+    @Bean("batchHikariDataSource")
     @ConfigurationProperties("spring.datasource.batch.hikari")
-    public HikariDataSource batchDataSource(
+    public HikariDataSource batchHikariDataSource(
             @Value("${spring.datasource.batch.jdbc-url}") String jdbcUrl,
             @Value("${spring.datasource.batch.username}") String username,
             @Value("${spring.datasource.batch.password:}") String password) {
@@ -15129,6 +15205,12 @@ public class DataSourceConfig {
         ds.setUsername(username);
         ds.setPassword(password);
         return ds;
+    }
+
+    @Bean("batchDataSource")
+    public DataSource batchDataSource(
+            @Qualifier("batchHikariDataSource") HikariDataSource delegate, MeterRegistry meterRegistry) {
+        return new TenantAwareDataSourceProxy(delegate, meterRegistry);
     }
 
     @Bean
@@ -16223,6 +16305,507 @@ public final class TieredCrawlCache {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/datasource/TenantAwareDataSourceProxy.java">
+package com.geo.analytics.infrastructure.datasource;
+
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
+
+/**
+ * {@link HikariDataSource} を {@link DelegatingDataSource} で包み、取得した {@link Connection} をプロキシで包む。
+ *
+ * <p>プール返却（{@link Connection#close()}）時に、PostgreSQL かつ未完了トランザクション（{@code autoCommit == false}）を検知した場合は
+ * {@link HikariDataSource#evictConnection(java.sql.Connection)} でプールから追放し、直後に必ず {@code delegate.close()} を呼び出して
+ * HikariCP のライフサイクルを完了させる（接続リーク防止）。
+ *
+ * <p>{@link Connection#unwrap(Class)} / {@link Connection#isWrapperFor(Class)} はドライバ固有型へのバイパスを拒否する。
+ */
+public class TenantAwareDataSourceProxy extends DelegatingDataSource {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantAwareDataSourceProxy.class);
+
+    private static final String EVICT_COUNTER = "tenant_connection_evict_total";
+    private static final String REASON_TAG = "reason";
+    private static final String REASON_OPEN_TRANSACTION = "open_transaction";
+
+    private final HikariDataSource hikariPool;
+    private final MeterRegistry meterRegistry;
+
+    public TenantAwareDataSourceProxy(HikariDataSource hikariPool, MeterRegistry meterRegistry) {
+        this.hikariPool = Objects.requireNonNull(hikariPool, "hikariPool");
+        this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry");
+        setTargetDataSource(hikariPool);
+    }
+
+    @Override
+    public Connection getConnection() throws SQLException {
+        return wrapConnection(super.getConnection());
+    }
+
+    @Override
+    public Connection getConnection(String username, String password) throws SQLException {
+        return wrapConnection(super.getConnection(username, password));
+    }
+
+    /**
+     * テナントガード付き {@link Connection} プロキシの識別子。{@link Connection#unwrap(Class)} でこの型のみ追加で公開する。
+     */
+    public interface TenantAwareProxiedConnection extends Connection {}
+
+    private Connection wrapConnection(Connection delegate) {
+        ClassLoader cl = delegate.getClass().getClassLoader();
+        if (cl == null) {
+            cl = Connection.class.getClassLoader();
+        }
+        AtomicBoolean closed = new AtomicBoolean(false);
+        return (Connection)
+                Proxy.newProxyInstance(
+                        cl,
+                        new Class<?>[] {Connection.class, TenantAwareProxiedConnection.class},
+                        new GuardedConnectionHandler(this, delegate, closed));
+    }
+
+    /**
+     * PostgreSQL かつ未コミット TX の接続をプールから追放する。{@code evictConnection(delegate)} の直後に必ず {@code delegate.close()} を
+     * 呼ぶこと（本ハンドラの {@code close} 経路で実施）。
+     */
+    void evictIfOpenTransactionBeforeClose(Connection delegate) {
+        try {
+            if (delegate.isClosed()) {
+                return;
+            }
+            if (!isPostgreSql(delegate)) {
+                return;
+            }
+            if (!delegate.getAutoCommit()) {
+                log.warn(
+                        "Evicting Hikari connection: open transaction at pool return (autoCommit=false). "
+                                + "isolationContext={}",
+                        describeIsolationContext());
+                meterRegistry.counter(EVICT_COUNTER, REASON_TAG, REASON_OPEN_TRANSACTION).increment();
+                hikariPool.evictConnection(delegate);
+            }
+        } catch (SQLException e) {
+            log.warn(
+                    "Pre-close connection state check failed; proceeding with delegate.close() isolationContext={}",
+                    describeIsolationContext(),
+                    e);
+        }
+    }
+
+    private static String describeIsolationContext() {
+        StringBuilder sb = new StringBuilder(256);
+        TenantContextHolder.current()
+                .ifPresentOrElse(
+                        ctx -> sb.append("TenantContextHolder{orgId=")
+                                .append(ctx.organizationId())
+                                .append(",workspaceId=")
+                                .append(ctx.tenantId())
+                                .append(",userId=")
+                                .append(ctx.userId())
+                                .append('}'),
+                        () -> sb.append("TenantContextHolder=unbound"));
+        sb.append("; TenantPlanScope.tenantId=");
+        TenantPlanScope.currentTenantIdString().ifPresentOrElse(sb::append, () -> sb.append("unbound"));
+        sb.append("; TenantPlanScope.subscriptionPlan=");
+        TenantPlanScope.currentSubscriptionPlan()
+                .map(Enum::name)
+                .ifPresentOrElse(sb::append, () -> sb.append("unbound"));
+        return sb.toString();
+    }
+
+    private static boolean isPostgreSql(Connection connection) {
+        try {
+            String product = connection.getMetaData().getDatabaseProductName();
+            return product != null && product.toLowerCase(Locale.ROOT).contains("postgresql");
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    private static final class GuardedConnectionHandler implements InvocationHandler {
+
+        private final TenantAwareDataSourceProxy owner;
+        private final Connection delegate;
+        private final AtomicBoolean closed;
+
+        private GuardedConnectionHandler(TenantAwareDataSourceProxy owner, Connection delegate, AtomicBoolean closed) {
+            this.owner = owner;
+            this.delegate = delegate;
+            this.closed = closed;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            String name = method.getName();
+            int argc = args == null ? 0 : args.length;
+
+            if ("unwrap".equals(name) && argc == 1 && args[0] instanceof Class<?> iface) {
+                return unwrapStrict(proxy, iface);
+            }
+            if ("isWrapperFor".equals(name) && argc == 1 && args[0] instanceof Class<?> iface) {
+                return isWrapperForStrict(proxy, iface);
+            }
+
+            if ("close".equals(name) && argc == 0) {
+                return invokeClose(method, args);
+            }
+
+            return invokeDelegate(method, args);
+        }
+
+        private Object invokeClose(Method method, Object[] args) throws Throwable {
+            if (!closed.compareAndSet(false, true)) {
+                return invokeDelegate(method, args);
+            }
+            owner.evictIfOpenTransactionBeforeClose(delegate);
+            try {
+                return method.invoke(delegate, args);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                throw cause;
+            }
+        }
+
+        private Object invokeDelegate(Method method, Object[] args) throws Throwable {
+            try {
+                return method.invoke(delegate, args);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause != null) {
+                    throw cause;
+                }
+                throw e;
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T unwrapStrict(Object proxy, Class<T> iface) throws SQLException {
+        Objects.requireNonNull(iface, "iface");
+        if (iface.isInstance(proxy)) {
+            return iface.cast(proxy);
+        }
+        throw new SQLException(
+                "Unwrap to "
+                        + iface.getName()
+                        + " is denied by tenant connection guard (driver-specific bypass blocked). "
+                        + "Allowed targets are types implemented by this proxy (java.sql.Connection and "
+                        + TenantAwareProxiedConnection.class.getName()
+                        + ").");
+    }
+
+    private static boolean isWrapperForStrict(Object proxy, Class<?> iface) {
+        return iface != null && iface.isInstance(proxy);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/lock/AdvisoryLockKeyHasher.java">
+package com.geo.analytics.infrastructure.lock;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
+/**
+ * 論理ロックキーを PostgreSQL {@code pg_advisory_lock(bigint)} 用の 64bit に写像する。
+ * SHA-256 の先頭 8 バイトを big-endian {@code long} として解釈する（衝突確率は実用上無視可能）。
+ */
+final class AdvisoryLockKeyHasher {
+
+    private AdvisoryLockKeyHasher() {}
+
+    static long toAdvisoryLong(String lockKey) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(lockKey.getBytes(StandardCharsets.UTF_8));
+            return ByteBuffer.wrap(digest).getLong();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/lock/LocalDistributedLockManager.java">
+package com.geo.analytics.infrastructure.lock;
+
+import com.geo.analytics.domain.lock.DistributedLockManager;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+/**
+ * 同一 JVM 内のみ有効な {@link DistributedLockManager}（ユニットテスト・ローカル用途）。
+ * PostgreSQL のアドバイザリロック API に依存しない。
+ */
+@Component
+@ConditionalOnProperty(name = "app.distributed-lock.impl", havingValue = "local")
+public class LocalDistributedLockManager implements DistributedLockManager {
+
+    private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
+
+    @Override
+    public <T, X extends Throwable> T executeWithLock(String lockKey, Supplier<T> action) throws X {
+        Objects.requireNonNull(lockKey, "lockKey");
+        Objects.requireNonNull(action, "action");
+        ReentrantLock lock = locks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+        lock.lock();
+        try {
+            return action.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public void executeWithLock(String lockKey, Runnable action) {
+        Objects.requireNonNull(lockKey, "lockKey");
+        Objects.requireNonNull(action, "action");
+        ReentrantLock lock = locks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+        lock.lock();
+        try {
+            action.run();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/lock/PostgresDistributedLockManager.java">
+package com.geo.analytics.infrastructure.lock;
+
+import com.geo.analytics.domain.lock.DistributedLockManager;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import javax.sql.DataSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+/**
+ * PostgreSQL アドバイザリロックを用いた {@link DistributedLockManager}。
+ *
+ * <p><b>CRITICAL（プール枯渇）:</b> ロック保持中に外部 API（AI エンジン、HTTP クライアント等）を呼び出さないこと。
+ * ロックは JDBC 接続を占有するため、遅延の大きい I/O を挟むと同一プールを消費する他スレッドが飢餓し、サービス全体が停止する。
+ *
+ * <p>トランザクション内では {@code pg_try_advisory_xact_lock} を用い、コミット／ロールバックで PostgreSQL が自動解放する。
+ * トランザクション外では {@code pg_try_advisory_lock} を指数バックオフで再試行し、{@code finally} でのみ手動解放する。
+ */
+@Component
+@ConditionalOnProperty(name = "app.distributed-lock.impl", havingValue = "postgres", matchIfMissing = true)
+public class PostgresDistributedLockManager implements DistributedLockManager {
+
+    private static final Logger log = LoggerFactory.getLogger(PostgresDistributedLockManager.class);
+
+    private static final String TRY_SESSION_LOCK_SQL = "SELECT pg_try_advisory_lock(?)";
+    private static final String TRY_XACT_LOCK_SQL = "SELECT pg_try_advisory_xact_lock(?)";
+    private static final String UNLOCK_SQL = "SELECT pg_advisory_unlock(?)";
+
+    private static final long MAX_LOCK_WAIT_NANOS = TimeUnit.SECONDS.toNanos(10L);
+    private static final long INITIAL_BACKOFF_MS = 10L;
+    private static final long MAX_BACKOFF_MS = 1_000L;
+
+    private static final String TIMER_NAME = "distributed_lock.acquire";
+    private static final String TAG_LOCK_KEY = "lockKey";
+
+    private final DataSource dataSource;
+    private final MeterRegistry meterRegistry;
+
+    public PostgresDistributedLockManager(DataSource dataSource, MeterRegistry meterRegistry) {
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry");
+    }
+
+    @Override
+    public <T, X extends Throwable> T executeWithLock(String lockKey, Supplier<T> action) throws X {
+        Objects.requireNonNull(lockKey, "lockKey");
+        Objects.requireNonNull(action, "action");
+        long id = AdvisoryLockKeyHasher.toAdvisoryLong(lockKey);
+        Connection conn = DataSourceUtils.getConnection(dataSource);
+        boolean sessionLockHeld = false;
+        try {
+            boolean transactional = TransactionSynchronizationManager.isActualTransactionActive();
+            Timer.Sample sample = Timer.start(meterRegistry);
+            try {
+                if (transactional) {
+                    boolean acquired;
+                    try {
+                        acquired = tryAdvisoryXactLock(conn, id);
+                    } catch (SQLException e) {
+                        throw new LockAcquisitionException("pg_try_advisory_xact_lock failed for key=" + lockKey, e);
+                    }
+                    if (!acquired) {
+                        throw new LockAcquisitionException(
+                                "pg_try_advisory_xact_lock returned false for key=" + lockKey
+                                        + " (contention in same transaction scope)");
+                    }
+                } else {
+                    acquireSessionLockWithBackoff(conn, id, lockKey);
+                    sessionLockHeld = true;
+                }
+            } finally {
+                sample.stop(buildAcquireTimer(lockKey));
+            }
+            return action.get();
+        } finally {
+            if (sessionLockHeld) {
+                releaseQuietly(conn, id);
+            }
+            DataSourceUtils.releaseConnection(conn, dataSource);
+        }
+    }
+
+    @Override
+    public void executeWithLock(String lockKey, Runnable action) {
+        Objects.requireNonNull(lockKey, "lockKey");
+        Objects.requireNonNull(action, "action");
+        long id = AdvisoryLockKeyHasher.toAdvisoryLong(lockKey);
+        Connection conn = DataSourceUtils.getConnection(dataSource);
+        boolean sessionLockHeld = false;
+        try {
+            boolean transactional = TransactionSynchronizationManager.isActualTransactionActive();
+            Timer.Sample sample = Timer.start(meterRegistry);
+            try {
+                if (transactional) {
+                    boolean acquired;
+                    try {
+                        acquired = tryAdvisoryXactLock(conn, id);
+                    } catch (SQLException e) {
+                        throw new LockAcquisitionException("pg_try_advisory_xact_lock failed for key=" + lockKey, e);
+                    }
+                    if (!acquired) {
+                        throw new LockAcquisitionException(
+                                "pg_try_advisory_xact_lock returned false for key=" + lockKey
+                                        + " (contention in same transaction scope)");
+                    }
+                } else {
+                    acquireSessionLockWithBackoff(conn, id, lockKey);
+                    sessionLockHeld = true;
+                }
+            } finally {
+                sample.stop(buildAcquireTimer(lockKey));
+            }
+            action.run();
+        } finally {
+            if (sessionLockHeld) {
+                releaseQuietly(conn, id);
+            }
+            DataSourceUtils.releaseConnection(conn, dataSource);
+        }
+    }
+
+    private Timer buildAcquireTimer(String lockKey) {
+        return Timer.builder(TIMER_NAME).tag(TAG_LOCK_KEY, lockKey).register(meterRegistry);
+    }
+
+    private static boolean tryAdvisoryXactLock(Connection conn, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(TRY_XACT_LOCK_SQL)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
+        }
+    }
+
+    private static boolean trySessionLock(Connection conn, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(TRY_SESSION_LOCK_SQL)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
+        }
+    }
+
+    private static void acquireSessionLockWithBackoff(Connection conn, long id, String lockKey) {
+        long deadlineNanos = System.nanoTime() + MAX_LOCK_WAIT_NANOS;
+        long backoffMs = INITIAL_BACKOFF_MS;
+        while (true) {
+            try {
+                if (trySessionLock(conn, id)) {
+                    return;
+                }
+            } catch (SQLException e) {
+                throw new LockAcquisitionException("pg_try_advisory_lock failed for key=" + lockKey, e);
+            }
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0) {
+                throw new LockAcquisitionException(
+                        "Advisory session lock not acquired within "
+                                + TimeUnit.NANOSECONDS.toSeconds(MAX_LOCK_WAIT_NANOS)
+                                + "s for key="
+                                + lockKey);
+            }
+            long sleepMs = Math.min(backoffMs, TimeUnit.NANOSECONDS.toMillis(remainingNanos));
+            sleepMs = Math.max(sleepMs, 1L);
+            try {
+                Thread.sleep(sleepMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new LockAcquisitionException("Interrupted waiting for advisory lock: " + lockKey, e);
+            }
+            backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        }
+    }
+
+    private static void releaseQuietly(Connection conn, long id) {
+        try (PreparedStatement ps = conn.prepareStatement(UNLOCK_SQL)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next() && !rs.getBoolean(1)) {
+                    log.warn("pg_advisory_unlock returned false (not held by this session?) id={}", id);
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("pg_advisory_unlock failed id={}", id, e);
+        }
+    }
+
+    /**
+     * アドバイザリロックが規定時間内に取得できなかった場合にスローする。
+     */
+    public static final class LockAcquisitionException extends RuntimeException {
+        public LockAcquisitionException(String message) {
+            super(message);
+        }
+
+        public LockAcquisitionException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/messaging/JobStatusStompPublisher.java">
 package com.geo.analytics.infrastructure.messaging;
 
@@ -16260,6 +16843,25 @@ public class JobStatusStompPublisher implements JobStatusBroadcastPublisher {
         simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobEntity.getId(), payload);
     }
 }
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/persistence/GlobalAccess.java">
+package com.geo.analytics.infrastructure.persistence;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * Marks transactional data access that is intentionally allowed without {@link com.geo.analytics.infrastructure.tenant.TenantContextHolder}
+ * bindings (e.g. login lookup, workspace resolution before tenant scope is established).
+ */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE, ElementType.METHOD})
+public @interface GlobalAccess {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/infrastructure/persistence/JacksonJsonbOperations.java">
@@ -16342,28 +16944,46 @@ package com.geo.analytics.infrastructure.persistence;
 
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
+import java.lang.reflect.Method;
 import java.sql.PreparedStatement;
 import java.util.Optional;
 import java.util.UUID;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.hibernate.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+/**
+ * トランザクション内で RLS 用セッション変数を設定する。{@link Ordered#LOWEST_PRECEDENCE} で
+ * {@link org.springframework.transaction.interceptor.TransactionInterceptor} と同じ最終優先度バケットに置き、
+ * 通常はインフラ側アドバイザの登録順によりトランザクション開始後に本アドバイスが評価されることを期待する。
+ */
 @Aspect
 @Component
 @ConditionalOnProperty(prefix = "app.security.rls", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Order(Ordered.LOWEST_PRECEDENCE)
-public class RlsConnectionInterceptor {
+public class RlsConnectionInterceptor implements Ordered {
+
+    private static final Logger SECURITY_AUDIT = LoggerFactory.getLogger("SECURITY_AUDIT");
+
+    private static final String COUNTER_GLOBAL_ACCESS = "rls_global_access_total";
+    private static final String COUNTER_NAKED_BLOCKED = "rls_naked_query_blocked_total";
+    private static final String TAG_CLASS = "class";
+    private static final String TAG_METHOD = "method";
 
     private static final String SET_ORG = "SELECT set_config('app.current_org_id', ?, true)";
     private static final String SET_TENANT = "SELECT set_config('app.current_tenant_id', ?, true)";
@@ -16372,13 +16992,16 @@ public class RlsConnectionInterceptor {
     private final EntityManager entityManager;
     private final JdbcTemplate batchJdbcTemplate;
     private final boolean rlsEnabled;
+    private final MeterRegistry meterRegistry;
 
     public RlsConnectionInterceptor(
             EntityManager entityManager,
             @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
-            AppProperties appProperties) {
+            AppProperties appProperties,
+            MeterRegistry meterRegistry) {
         this.entityManager = entityManager;
         this.batchJdbcTemplate = batchJdbcTemplate;
+        this.meterRegistry = meterRegistry;
         boolean enabled = true;
         if (appProperties.getSecurity() != null && appProperties.getSecurity().getRls() != null) {
             enabled = appProperties.getSecurity().getRls().isEnabled();
@@ -16386,16 +17009,45 @@ public class RlsConnectionInterceptor {
         this.rlsEnabled = enabled;
     }
 
+    @Override
+    public int getOrder() {
+        return Ordered.LOWEST_PRECEDENCE;
+    }
+
     @Around(
             "@within(org.springframework.transaction.annotation.Transactional) || @annotation(org.springframework.transaction.annotation.Transactional)")
     public Object aroundTransactional(ProceedingJoinPoint pjp) throws Throwable {
-        if (!rlsEnabled || !TransactionSynchronizationManager.isActualTransactionActive()) {
+        if (!rlsEnabled) {
             return pjp.proceed();
         }
+
+        boolean global = hasGlobalAccess(pjp);
+        boolean txActive = TransactionSynchronizationManager.isActualTransactionActive();
+
+        if (!global && !txActive) {
+            recordNakedQueryBlocked(pjp);
+            throw new SecurityException(
+                    "Database access without an active transaction and without @GlobalAccess is blocked "
+                            + "(possible missing @Transactional).");
+        }
+
+        if (global) {
+            recordGlobalAccess(pjp);
+        }
+
+        if (!txActive) {
+            return pjp.proceed();
+        }
+
         Optional<UUID> org = TenantContextHolder.getOrganizationId();
         Optional<UUID> tenant = TenantContextHolder.getTenantId();
         if (org.isEmpty() && tenant.isEmpty()) {
-            return pjp.proceed();
+            if (global) {
+                return pjp.proceed();
+            }
+            throw new SecurityException(
+                    "Transactional database access requires tenant context (organization or workspace). "
+                            + "Annotate with @GlobalAccess only for intentional system routes.");
         }
         UUID resolvedOrg = org.orElseGet(() -> resolveOrgFromWorkspace(tenant.orElse(null)));
         Session session = entityManager.unwrap(Session.class);
@@ -16414,6 +17066,41 @@ public class RlsConnectionInterceptor {
             }
         });
         return pjp.proceed();
+    }
+
+    private static boolean hasGlobalAccess(ProceedingJoinPoint pjp) {
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        Method method = signature.getMethod();
+        if (AnnotatedElementUtils.hasAnnotation(method, GlobalAccess.class)) {
+            return true;
+        }
+        Class<?> targetClass = pjp.getTarget() != null ? pjp.getTarget().getClass() : method.getDeclaringClass();
+        return AnnotatedElementUtils.hasAnnotation(targetClass, GlobalAccess.class)
+                || AnnotatedElementUtils.hasAnnotation(method.getDeclaringClass(), GlobalAccess.class);
+    }
+
+    private void recordGlobalAccess(ProceedingJoinPoint pjp) {
+        Method m = ((MethodSignature) pjp.getSignature()).getMethod();
+        String className = m.getDeclaringClass().getName();
+        String methodName = m.getName();
+        SECURITY_AUDIT.info(
+                "RlsConnectionInterceptor: @GlobalAccess invocation allowed class={} method={} target={}",
+                className,
+                methodName,
+                pjp.getTarget() != null ? pjp.getTarget().getClass().getName() : "null");
+        meterRegistry.counter(COUNTER_GLOBAL_ACCESS, TAG_CLASS, className, TAG_METHOD, methodName).increment();
+    }
+
+    private void recordNakedQueryBlocked(ProceedingJoinPoint pjp) {
+        Method m = ((MethodSignature) pjp.getSignature()).getMethod();
+        String className = m.getDeclaringClass().getName();
+        String methodName = m.getName();
+        SECURITY_AUDIT.error(
+                "RlsConnectionInterceptor: blocked naked (non-transactional) database access class={} method={} target={}",
+                className,
+                methodName,
+                pjp.getTarget() != null ? pjp.getTarget().getClass().getName() : "null");
+        meterRegistry.counter(COUNTER_NAKED_BLOCKED, TAG_CLASS, className, TAG_METHOD, methodName).increment();
     }
 
     private UUID resolveOrgFromWorkspace(UUID workspaceId) {
@@ -16707,12 +17394,14 @@ package com.geo.analytics.infrastructure.repository;
 
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface OrganizationUserRepository extends JpaRepository<OrganizationUser, UUID> {
 
+    @GlobalAccess
     Optional<OrganizationUser> findByEmailAndDeletedAtIsNull(String email);
 
     Optional<OrganizationUser> findFirstByOrganizationIdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID organizationId);
@@ -16870,7 +17559,7 @@ import com.geo.analytics.application.service.MonthlyAuditJobLauncher;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -16888,7 +17577,7 @@ public class MonthlyAuditScheduler {
 
     @Scheduled(cron = "0 0 2 1 * *", zone = "Asia/Tokyo")
     public void triggerMonthlyAudits() {
-        List<ProjectEntity> projectEntities = TenantContext.executeWithTenant(
+        List<ProjectEntity> projectEntities = TenantPlanScope.executeWithTenant(
             DefaultTenantIds.WORKSPACE_ID,
             () -> projectRepository.findByAutoAuditEnabledIsTrue());
         ThreadLocalRandom threadLocalRandom = ThreadLocalRandom.current();
@@ -16973,6 +17662,7 @@ public class JpaUserDetailsService implements UserDetailsService {
 package com.geo.analytics.infrastructure.security;
 
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -16980,6 +17670,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.ScopedValue;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17049,36 +17741,51 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
+        TenantContext jwtContext =
+                new TenantContext(parsed.organizationId(), null, parsed.userId());
         try {
-            TenantContextHolder.set(parsed.organizationId(), null);
+            ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
+                    .run(
+                            () -> {
+                                UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
+                                if (cachedSessionId != null) {
+                                    if (!cachedSessionId.equals(parsed.sessionId())) {
+                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        return;
+                                    }
+                                } else {
+                                    if (userSessionRepository
+                                            .findBySessionId(parsed.sessionId())
+                                            .filter(s -> s.getDeletedAt() == null)
+                                            .filter(s -> s.getUserId().equals(parsed.userId()))
+                                            .isEmpty()) {
+                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        return;
+                                    }
+                                    userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                }
 
-            UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
-            if (cachedSessionId != null) {
-                if (!cachedSessionId.equals(parsed.sessionId())) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return;
-                }
-            } else {
-                if (userSessionRepository
-                        .findBySessionId(parsed.sessionId())
-                        .filter(s -> s.getDeletedAt() == null)
-                        .filter(s -> s.getUserId().equals(parsed.userId()))
-                        .isEmpty()) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return;
-                }
-                userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                UsernamePasswordAuthenticationToken authentication =
+                                        new UsernamePasswordAuthenticationToken(
+                                                parsed.userId().toString(),
+                                                null,
+                                                List.of(new SimpleGrantedAuthority("ROLE_" + parsed.role())));
+                                SecurityContextHolder.getContext().setAuthentication(authentication);
+                                try {
+                                    filterChain.doFilter(request, response);
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                } catch (ServletException e) {
+                                    throw new IllegalStateException(e);
+                                }
+                            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        } catch (IllegalStateException e) {
+            if (e.getCause() instanceof ServletException se) {
+                throw se;
             }
-
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            parsed.userId().toString(),
-                            null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + parsed.role())));
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            filterChain.doFilter(request, response);
-        } finally {
-            TenantContextHolder.clear();
+            throw e;
         }
     }
 }
@@ -17322,6 +18029,114 @@ public class TokenService {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/tenant/ContextPropagator.java">
+package com.geo.analytics.infrastructure.tenant;
+
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import java.lang.ScopedValue;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
+import org.slf4j.MDC;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+/**
+ * Captures {@link TenantContextHolder}, {@link TenantPlanScope} bindings, {@link SecurityContextHolder}, and
+ * {@link MDC} on the calling thread and re-establishes them for {@link java.util.concurrent.CompletableFuture},
+ * {@link org.springframework.scheduling.annotation.Async}, etc.
+ */
+public final class ContextPropagator {
+
+    private ContextPropagator() {}
+
+    /**
+     * Returns a {@link Supplier} that runs {@code supplier} with the same tenant / plan {@link ScopedValue} bindings,
+     * {@link SecurityContext}, and {@link MDC} as captured at wrap time.
+     *
+     * <p>子スレッド終了時は {@link MDC#getCopyOfContextMap()} で保存した「実行直前」の状態へ復元し、プール再利用時の TraceID 混線を防ぐ。
+     */
+    public static <T> Supplier<T> wrap(Supplier<T> supplier) {
+        Optional<TenantContext> ctx = TenantContextHolder.current();
+        Optional<String> tenantIdStr = TenantPlanScope.currentTenantIdString();
+        Optional<SubscriptionPlan> plan = TenantPlanScope.currentSubscriptionPlan();
+        SecurityContext captured = copySecurityContext(SecurityContextHolder.getContext());
+        Map<String, String> parentMdc = MDC.getCopyOfContextMap();
+        return () -> {
+            Map<String, String> priorOnChild = MDC.getCopyOfContextMap();
+            SecurityContext threadPrevious = SecurityContextHolder.getContext();
+            try {
+                if (parentMdc != null) {
+                    MDC.setContextMap(new HashMap<>(parentMdc));
+                }
+                SecurityContextHolder.setContext(captured);
+                return runWithCapturedScopes(ctx, tenantIdStr, plan, supplier);
+            } finally {
+                if (priorOnChild == null) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(new HashMap<>(priorOnChild));
+                }
+                restoreSecurityContext(threadPrevious);
+            }
+        };
+    }
+
+    public static Runnable wrapRunnable(Runnable runnable) {
+        Supplier<Void> wrapped =
+                wrap(() -> {
+                    runnable.run();
+                    return null;
+                });
+        return () -> wrapped.get();
+    }
+
+    private static <T> T runWithCapturedScopes(
+            Optional<TenantContext> ctx,
+            Optional<String> tenantIdStr,
+            Optional<SubscriptionPlan> plan,
+            Supplier<T> supplier) {
+        if (ctx.isEmpty() && tenantIdStr.isEmpty() && plan.isEmpty()) {
+            return supplier.get();
+        }
+        Supplier<T> work = supplier;
+        if (plan.isPresent()) {
+            SubscriptionPlan p = plan.get();
+            Supplier<T> inner = work;
+            work = () -> ScopedValue.where(TenantPlanScope.TENANT_PLAN, p).call(inner::get);
+        }
+        if (tenantIdStr.isPresent()) {
+            String t = tenantIdStr.get();
+            Supplier<T> inner = work;
+            work = () -> ScopedValue.where(TenantPlanScope.TENANT_ID, t).call(inner::get);
+        }
+        if (ctx.isPresent()) {
+            TenantContext c = ctx.get();
+            Supplier<T> inner = work;
+            work = () -> ScopedValue.where(TenantContextHolder.CONTEXT, c).call(inner::get);
+        }
+        return work.get();
+    }
+
+    private static SecurityContext copySecurityContext(SecurityContext source) {
+        SecurityContext copy = SecurityContextHolder.createEmptyContext();
+        if (source != null && source.getAuthentication() != null) {
+            copy.setAuthentication(source.getAuthentication());
+        }
+        return copy;
+    }
+
+    private static void restoreSecurityContext(SecurityContext previous) {
+        if (previous == null || previous.getAuthentication() == null) {
+            SecurityContextHolder.clearContext();
+        } else {
+            SecurityContextHolder.setContext(previous);
+        }
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/tenant/CurrentTenantIdentifierResolverImpl.java">
 package com.geo.analytics.infrastructure.tenant;
 import org.hibernate.cfg.AvailableSettings;
@@ -17333,11 +18148,9 @@ import java.util.Map;
 public class CurrentTenantIdentifierResolverImpl implements CurrentTenantIdentifierResolver<String>, HibernatePropertiesCustomizer {
     @Override
     public String resolveCurrentTenantIdentifier() {
-        String t = TenantContext.getTenantId();
-        if (t == null || t.isBlank()) {
-            return DefaultTenantIds.WORKSPACE_ID.toString();
-        }
-        return t;
+        return TenantPlanScope.currentTenantIdString()
+                .filter(t -> !t.isBlank())
+                .orElseGet(() -> DefaultTenantIds.WORKSPACE_ID.toString());
     }
     @Override
     public boolean validateExistingCurrentSessions() {
@@ -17373,111 +18186,12 @@ public record OrgTenantKey(UUID orgId, UUID tenantId) {}
 <file path="src/main/java/com/geo/analytics/infrastructure/tenant/TenantContext.java">
 package com.geo.analytics.infrastructure.tenant;
 
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-
-import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.lang.ScopedValue;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 
-public final class TenantContext {
-    public static final ScopedValue<String> TENANT_ID = ScopedValue.newInstance();
-    public static final ScopedValue<SubscriptionPlan> TENANT_PLAN = ScopedValue.newInstance();
-
-    private TenantContext() {}
-
-    public static String getTenantId() {
-        return TENANT_ID.isBound() ? TENANT_ID.get() : null;
-    }
-
-    public static SubscriptionPlan getTenantPlan() {
-        return TENANT_PLAN.isBound() ? TENANT_PLAN.get() : null;
-    }
-
-    public static void executeWithTenant(UUID tenantId, Runnable runnable) {
-        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
-        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
-        SecurityContext prevSecurity = SecurityContextHolder.getContext();
-        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
-        try {
-            SecurityContextHolder.setContext(prevSecurity);
-            ScopedValue.where(TENANT_ID, tenantId.toString()).run(runnable);
-        } finally {
-            restoreHolder(prevOrg, prevTenant);
-            restoreSecurityContext(prevSecurity);
-        }
-    }
-
-    public static <T> T executeWithTenant(UUID tenantId, Callable<T> callable) {
-        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
-        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
-        SecurityContext prevSecurity = SecurityContextHolder.getContext();
-        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
-        try {
-            SecurityContextHolder.setContext(prevSecurity);
-            return ScopedValue.where(TENANT_ID, tenantId.toString()).call(() -> wrapCallable(callable));
-        } finally {
-            restoreHolder(prevOrg, prevTenant);
-            restoreSecurityContext(prevSecurity);
-        }
-    }
-
-    public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
-        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
-        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
-        SecurityContext prevSecurity = SecurityContextHolder.getContext();
-        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
-        try {
-            SecurityContextHolder.setContext(prevSecurity);
-            ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).run(runnable);
-        } finally {
-            restoreHolder(prevOrg, prevTenant);
-            restoreSecurityContext(prevSecurity);
-        }
-    }
-
-    public static <T> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Callable<T> callable) {
-        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
-        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
-        SecurityContext prevSecurity = SecurityContextHolder.getContext();
-        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
-        try {
-            SecurityContextHolder.setContext(prevSecurity);
-            return ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).call(() -> wrapCallable(callable));
-        } finally {
-            restoreHolder(prevOrg, prevTenant);
-            restoreSecurityContext(prevSecurity);
-        }
-    }
-
-    private static void restoreSecurityContext(SecurityContext previous) {
-        if (previous == null || previous.getAuthentication() == null) {
-            SecurityContextHolder.clearContext();
-        } else {
-            SecurityContextHolder.setContext(previous);
-        }
-    }
-
-    private static void restoreHolder(Optional<UUID> prevOrg, Optional<UUID> prevTenant) {
-        if (prevOrg.isEmpty() && prevTenant.isEmpty()) {
-            TenantContextHolder.clear();
-        } else {
-            TenantContextHolder.set(prevOrg.orElse(null), prevTenant.orElse(null));
-        }
-    }
-
-    private static <T> T wrapCallable(Callable<T> callable) {
-        try {
-            return callable.call();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-}
+/**
+ * Immutable tenant / organization binding carried by {@link TenantContextHolder#CONTEXT}.
+ */
+public record TenantContext(UUID organizationId, UUID tenantId, UUID userId) {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextFilter.java">
@@ -17490,6 +18204,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ScopedValue;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.core.Ordered;
@@ -17544,17 +18259,22 @@ public class TenantContextFilter extends OncePerRequestFilter {
             return;
         }
         var info = workspacePlanResolver.resolveWorkspaceInfo(tenantUuid);
-        TenantContextHolder.set(info.organizationId(), tenantUuid);
+        TenantContext outer = new TenantContext(info.organizationId(), tenantUuid, null);
         try {
-            TenantContext.executeWithTenantAndPlan(tenantUuid, info.plan(), () -> {
-                try {
-                    filterChain.doFilter(request, response);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                } catch (ServletException e) {
-                    throw new IllegalStateException(e);
-                }
-            });
+            ScopedValue.where(TenantContextHolder.CONTEXT, outer)
+                    .run(
+                            () -> TenantPlanScope.executeWithTenantAndPlan(
+                                    tenantUuid,
+                                    info.plan(),
+                                    () -> {
+                                        try {
+                                            filterChain.doFilter(request, response);
+                                        } catch (IOException e) {
+                                            throw new UncheckedIOException(e);
+                                        } catch (ServletException e) {
+                                            throw new IllegalStateException(e);
+                                        }
+                                    }));
         } catch (UncheckedIOException e) {
             throw e.getCause();
         } catch (IllegalStateException e) {
@@ -17562,8 +18282,6 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
-        } finally {
-            TenantContextHolder.clear();
         }
     }
 
@@ -17581,39 +18299,179 @@ public class TenantContextFilter extends OncePerRequestFilter {
 <file path="src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextHolder.java">
 package com.geo.analytics.infrastructure.tenant;
 
+import java.lang.ScopedValue;
 import java.util.Optional;
 import java.util.UUID;
 
 public final class TenantContextHolder {
 
-    private static final ThreadLocal<Context> HOLDER = new ThreadLocal<>();
+    public static final ScopedValue<TenantContext> CONTEXT = ScopedValue.newInstance();
 
     private TenantContextHolder() {}
 
-    private record Context(UUID organizationId, UUID tenantId) {}
+    public static boolean isBound() {
+        return CONTEXT.isBound();
+    }
 
-    public static void set(UUID organizationId, UUID tenantId) {
-        HOLDER.set(new Context(organizationId, tenantId));
+    public static TenantContext requireContext() {
+        if (!CONTEXT.isBound()) {
+            throw new IllegalStateException("TenantContext is not bound in this scope");
+        }
+        return CONTEXT.get();
+    }
+
+    public static Optional<TenantContext> current() {
+        return CONTEXT.isBound() ? Optional.of(CONTEXT.get()) : Optional.empty();
     }
 
     public static Optional<UUID> getOrganizationId() {
-        Context c = HOLDER.get();
-        if (c == null || c.organizationId == null) {
+        if (!CONTEXT.isBound()) {
             return Optional.empty();
         }
-        return Optional.of(c.organizationId);
+        UUID id = CONTEXT.get().organizationId();
+        return id == null ? Optional.empty() : Optional.of(id);
     }
 
     public static Optional<UUID> getTenantId() {
-        Context c = HOLDER.get();
-        if (c == null || c.tenantId == null) {
+        if (!CONTEXT.isBound()) {
             return Optional.empty();
         }
-        return Optional.of(c.tenantId);
+        UUID id = CONTEXT.get().tenantId();
+        return id == null ? Optional.empty() : Optional.of(id);
     }
 
-    public static void clear() {
-        HOLDER.remove();
+    public static Optional<UUID> getUserId() {
+        if (!CONTEXT.isBound()) {
+            return Optional.empty();
+        }
+        UUID id = CONTEXT.get().userId();
+        return id == null ? Optional.empty() : Optional.of(id);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/tenant/TenantPlanScope.java">
+package com.geo.analytics.infrastructure.tenant;
+
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import java.lang.ScopedValue;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Supplier;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+/**
+ * Workspace-scoped string tenant id and subscription plan for quota / plan logic.
+ * Uses {@link TenantContextHolder#CONTEXT} for organization UUID continuity.
+ */
+public final class TenantPlanScope {
+
+    public static final ScopedValue<String> TENANT_ID = ScopedValue.newInstance();
+    public static final ScopedValue<SubscriptionPlan> TENANT_PLAN = ScopedValue.newInstance();
+
+    private TenantPlanScope() {}
+
+    /** Hibernate / string key: absent when {@link #TENANT_ID} is not bound in this scope. */
+    public static Optional<String> currentTenantIdString() {
+        return TENANT_ID.isBound() ? Optional.of(TENANT_ID.get()) : Optional.empty();
+    }
+
+    public static Optional<SubscriptionPlan> currentSubscriptionPlan() {
+        return TENANT_PLAN.isBound() ? Optional.of(TENANT_PLAN.get()) : Optional.empty();
+    }
+
+    public static String requireTenantIdString() {
+        if (!TENANT_ID.isBound()) {
+            throw new IllegalStateException("Workspace tenant id is not bound in this scope");
+        }
+        return TENANT_ID.get();
+    }
+
+    public static SubscriptionPlan requireSubscriptionPlan() {
+        if (!TENANT_PLAN.isBound()) {
+            throw new IllegalStateException("Subscription plan is not bound in this scope");
+        }
+        return TENANT_PLAN.get();
+    }
+
+    public static void executeWithTenant(UUID tenantId, Runnable runnable) {
+        Optional<TenantContext> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantContext::organizationId).orElse(null);
+        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .run(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        runnable.run();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static <T, X extends Throwable> T executeWithTenant(UUID tenantId, Supplier<T> supplier) throws X {
+        Optional<TenantContext> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantContext::organizationId).orElse(null);
+        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
+        Optional<TenantContext> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantContext::organizationId).orElse(null);
+        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .run(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        runnable.run();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static <T, X extends Throwable> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Supplier<T> supplier)
+            throws X {
+        Optional<TenantContext> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantContext::organizationId).orElse(null);
+        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    private static void restoreSecurityContext(SecurityContext previous) {
+        if (previous == null || previous.getAuthentication() == null) {
+            SecurityContextHolder.clearContext();
+        } else {
+            SecurityContextHolder.setContext(previous);
+        }
     }
 }
 </file>
@@ -17631,12 +18489,14 @@ import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.security.JwtTokenException;
 import com.geo.analytics.infrastructure.security.RefreshTokenCookieFactory;
 import com.geo.analytics.infrastructure.security.TokenService;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.lang.ScopedValue;
 import java.util.Map;
-import java.util.Optional;
+import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -17689,8 +18549,8 @@ public class AuthController {
         } catch (JwtTokenException e) {
             return unauthorizedWithReason("token_expired");
         }
-        TenantContextHolder.set(parsed.organizationId(), null);
-        try {
+        TenantContext refreshScope = new TenantContext(parsed.organizationId(), null, null);
+        Supplier<ResponseEntity<?>> refresh = () -> {
             // TODO: [Phase X] 組織エンティティに suspended フラグを追加し、ここで判定する
             boolean isTenantSuspended = false;
             if (isTenantSuspended) {
@@ -17703,9 +18563,10 @@ public class AuthController {
                     .isEmpty()) {
                 return unauthorizedWithReason("session_revoked");
             }
-            Optional<OrganizationUser> userOpt =
-                    organizationUserRepository.findById(parsed.userId()).filter(u -> u.getDeletedAt() == null);
-            if (userOpt.isEmpty()) {
+            var activeUser = organizationUserRepository
+                    .findById(parsed.userId())
+                    .filter(u -> u.getDeletedAt() == null);
+            if (activeUser.isEmpty()) {
                 return unauthorizedWithReason("account_disabled");
             }
 
@@ -17715,11 +18576,11 @@ public class AuthController {
                 return unauthorizedWithReason("credentials_revoked");
             }
 
-            String accessToken = tokenService.generateAccessToken(userOpt.get(), parsed.sessionId());
+            String accessToken = tokenService.generateAccessToken(activeUser.orElseThrow(), parsed.sessionId());
             return ResponseEntity.ok(new LoginResponse(accessToken));
-        } finally {
-            TenantContextHolder.clear();
-        }
+        };
+        // JDK 25: ScopedValue.Carrier に get(Supplier) は無く、CallableOp#call が Supplier 実行の正規手段
+        return ScopedValue.where(TenantContextHolder.CONTEXT, refreshScope).call(refresh::get);
     }
 
     private static ResponseEntity<?> unauthorizedWithReason(String reason) {
@@ -19191,14 +20052,18 @@ spring:
       username: "${API_WORKER_USER:api_worker}"
       password: "${API_WORKER_PASSWORD:api_worker_pass}"
       hikari:
-        connection-timeout: 3000
+        connection-timeout: 10000
+        leak-detection-threshold: 30000
+        max-lifetime: 300000
         maximum-pool-size: 20
     batch:
       jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
       username: "${BATCH_WORKER_USER:batch_worker}"
       password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
       hikari:
-        connection-timeout: 0
+        connection-timeout: 10000
+        leak-detection-threshold: 30000
+        max-lifetime: 300000
         maximum-pool-size: 10
   flyway:
     enabled: true
@@ -19207,6 +20072,7 @@ spring:
     user: "${FLYWAY_USER:postgres}"
     password: "${FLYWAY_PASSWORD:}"
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
   threads:
@@ -19228,6 +20094,8 @@ server:
       internal-proxies: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]\\.\\d{1,3}\\.\\d{1,3}|172\\.2\\d\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]\\.\\d{1,3}\\.\\d{1,3}"
 
 app:
+  distributed-lock:
+    impl: postgres
   security:
     max-sessions-per-user: 1
     jwt:
@@ -20612,7 +21480,6 @@ class JwtAuthenticationFilterTest {
 
     @AfterEach
     void tearDown() {
-        TenantContextHolder.clear();
         SecurityContextHolder.clearContext();
     }
 
@@ -20761,11 +21628,13 @@ import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.OrgTenantKey;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import java.io.IOException;
+import java.lang.ScopedValue;
 import java.time.Duration;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -20862,7 +21731,6 @@ class SecurityConcurrencyTest {
     void setUp() {
         transactionTemplate = new TransactionTemplate(platformTransactionManager);
         SecurityContextHolder.clearContext();
-        TenantContextHolder.clear();
         userSessionsCache.invalidateAll();
         orgTenantAffiliationCache.invalidateAll();
 
@@ -20894,7 +21762,6 @@ class SecurityConcurrencyTest {
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
-        TenantContextHolder.clear();
     }
 
     @Test
@@ -20997,24 +21864,28 @@ class SecurityConcurrencyTest {
                 final UUID expectedOrg = UUID.randomUUID();
                 futures.add(
                         executor.submit(
-                                () -> {
-                                    try {
-                                        TenantContextHolder.set(expectedOrg, null);
-                                        if (TenantContextHolder.getOrganizationId().isEmpty()
-                                                || !expectedOrg.equals(
-                                                        TenantContextHolder.getOrganizationId().get())) {
-                                            violations.add("mismatch");
-                                        }
-                                        Thread.yield();
-                                        if (TenantContextHolder.getOrganizationId().isEmpty()
-                                                || !expectedOrg.equals(
-                                                        TenantContextHolder.getOrganizationId().get())) {
-                                            violations.add("mismatch-after-yield");
-                                        }
-                                    } finally {
-                                        TenantContextHolder.clear();
-                                    }
-                                }));
+                                () ->
+                                        ScopedValue.where(
+                                                        TenantContextHolder.CONTEXT,
+                                                        new TenantContext(expectedOrg, null, null))
+                                                .run(
+                                                        () -> {
+                                                            if (TenantContextHolder.getOrganizationId().isEmpty()
+                                                                    || !expectedOrg.equals(
+                                                                            TenantContextHolder
+                                                                                    .getOrganizationId()
+                                                                                    .get())) {
+                                                                violations.add("mismatch");
+                                                            }
+                                                            Thread.yield();
+                                                            if (TenantContextHolder.getOrganizationId().isEmpty()
+                                                                    || !expectedOrg.equals(
+                                                                            TenantContextHolder
+                                                                                    .getOrganizationId()
+                                                                                    .get())) {
+                                                                violations.add("mismatch-after-yield");
+                                                            }
+                                                        })));
             }
             for (Future<?> f : futures) {
                 f.get();
@@ -21036,14 +21907,14 @@ class SecurityConcurrencyTest {
             for (int i = 0; i < n; i++) {
                 futures.add(
                         executor.submit(
-                                () -> {
-                                    TenantContextHolder.set(ORG_ID, null);
-                                    try {
-                                        return tenantAccessEvaluator.canAccessTenant(auth, TENANT_ID);
-                                    } finally {
-                                        TenantContextHolder.clear();
-                                    }
-                                }));
+                                () ->
+                                        ScopedValue.where(
+                                                        TenantContextHolder.CONTEXT,
+                                                        new TenantContext(ORG_ID, null, null))
+                                                .call(
+                                                        () ->
+                                                                tenantAccessEvaluator.canAccessTenant(
+                                                                        auth, TENANT_ID))));
             }
             for (Future<Boolean> f : futures) {
                 assertThat(f.get()).isTrue();

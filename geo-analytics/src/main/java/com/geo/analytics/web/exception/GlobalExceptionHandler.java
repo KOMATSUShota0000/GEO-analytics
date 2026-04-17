@@ -1,184 +1,256 @@
 package com.geo.analytics.web.exception;
 
+import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.exception.CredentialsRevokedException;
+import com.geo.analytics.domain.exception.ForbiddenApiException;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.SystemMaintenanceException;
+import com.geo.analytics.domain.exception.TenantSuspendedException;
 import com.geo.analytics.domain.exception.ThresholdExceededException;
+import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
+import com.geo.analytics.domain.exception.VersionMismatchException;
+import com.geo.analytics.infrastructure.lock.PostgresDistributedLockManager.LockAcquisitionException;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.web.dto.ErrorResponse;
+import com.geo.analytics.web.dto.ApiErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
+import java.sql.SQLTransientConnectionException;
+import java.time.Duration;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.sql.SQLTransientConnectionException;
-
-import java.time.Duration;
-import java.util.Map;
-import java.util.stream.Collectors;
-
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private static final String UNKNOWN_USER_MESSAGE = "予期しないエラーが発生しました。";
+
+    private static ResponseEntity<ApiErrorResponse> json(HttpStatus status, ApiErrorResponse body) {
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(body);
+    }
+
+    private static ResponseEntity<ApiErrorResponse> json(HttpStatus status, HttpHeaders headers, ApiErrorResponse body) {
+        return ResponseEntity.status(status).headers(headers).contentType(MediaType.APPLICATION_JSON).body(body);
+    }
+
+    @ExceptionHandler(TokenExpiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleTokenExpired(TokenExpiredException exception) {
+        logger.warn("Token expired: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("token_expired", exception.getMessage()));
+    }
+
+    @ExceptionHandler(SessionRevokedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSessionRevoked(SessionRevokedException exception) {
+        logger.warn("Session revoked: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("session_revoked", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CredentialsRevokedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCredentialsRevoked(CredentialsRevokedException exception) {
+        logger.warn("Credentials revoked: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("credentials_revoked", exception.getMessage()));
+    }
+
+    @ExceptionHandler(UnauthenticatedApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnauthenticatedApi(UnauthenticatedApiException exception) {
+        logger.debug("Unauthenticated: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("unauthorized", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleForbiddenApi(ForbiddenApiException exception) {
+        logger.warn("Forbidden: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("forbidden", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSpringAccessDenied(AccessDeniedException exception) {
+        logger.warn("Access denied", exception);
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("forbidden", "この操作を行う権限がありません。"));
+    }
+
+    @ExceptionHandler(AccountDisabledException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccountDisabled(AccountDisabledException exception) {
+        logger.warn("Account disabled: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("account_disabled", exception.getMessage()));
+    }
+
+    @ExceptionHandler(TenantSuspendedException.class)
+    public ResponseEntity<ApiErrorResponse> handleTenantSuspended(TenantSuspendedException exception) {
+        logger.warn("Tenant suspended: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("tenant_suspended", exception.getMessage()));
+    }
+
+    @ExceptionHandler(SystemMaintenanceException.class)
+    public ResponseEntity<ApiErrorResponse> handleSystemMaintenance(SystemMaintenanceException exception) {
+        logger.warn("Maintenance: {}", exception.getMessage());
+        return json(HttpStatus.SERVICE_UNAVAILABLE, ApiErrorResponse.of("maintenance", exception.getMessage()));
+    }
+
+    @ExceptionHandler(VersionMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleVersionMismatch(VersionMismatchException exception) {
+        logger.warn("Version mismatch: {}", exception.getMessage());
+        return json(HttpStatus.UPGRADE_REQUIRED, ApiErrorResponse.of("version_mismatch", exception.getMessage()));
+    }
+
+    @ExceptionHandler(LockAcquisitionException.class)
+    public ResponseEntity<ApiErrorResponse> handleLockAcquisition(LockAcquisitionException exception) {
+        logger.warn("Advisory lock not acquired: {}", exception.getMessage());
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("system_busy", "ただいま混み合っています。しばらくしてから再度お試しください。"));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<ApiErrorResponse> handleSecurityException(SecurityException exception) {
+        logger.error("Security violation (e.g. RLS)", exception);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiErrorResponse.of("unknown", UNKNOWN_USER_MESSAGE));
+    }
+
     @ExceptionHandler(ThresholdExceededException.class)
-    public ResponseEntity<ErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
-        var threshold = exception.getThreshold();
-        var message =
-                "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
+    public ResponseEntity<ApiErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
+        int threshold = exception.getThreshold();
+        String message = "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
         logger.warn("Threshold exceeded threshold={}", threshold);
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null, null));
+        return json(
+                HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of(
+                        "threshold_exceeded",
+                        message,
+                        Map.of("threshold", threshold)));
     }
 
     @ExceptionHandler(InsufficientQuotaException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
+    public ResponseEntity<ApiErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
         logger.warn("Insufficient quota plan={} limit={}", exception.getPlanName(), exception.getCurrentLimit());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "INSUFFICIENT_QUOTA",
+        return json(
+                HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of(
+                        "insufficient_quota",
                         exception.getMessage(),
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        null));
+                        Map.of(
+                                "current_limit", exception.getCurrentLimit(),
+                                "plan_name", exception.getPlanName())));
     }
 
     @ExceptionHandler(AiAnalysisTimeoutException.class)
-    public ResponseEntity<ProblemDetail> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
         logger.warn("AI analysis timeout", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
-        problemDetail.setTitle("AI Analysis Timeout");
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("ai_analysis_timeout", exception.getMessage()));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
-        var nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
-        var wait = Duration.ofNanos(nanos);
-        var retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
-        var hours = wait.toHours();
-        var minutes = wait.minusHours(hours).toMinutes();
-        var message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
+    public ResponseEntity<ApiErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
+        long nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
+        Duration wait = Duration.ofNanos(nanos);
+        long retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
+        long hours = wait.toHours();
+        long minutes = wait.minusHours(hours).toMinutes();
+        String message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
         logger.warn("Rate limit exceeded plan={}", exception.getPlanName());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "RATE_LIMIT_EXCEEDED",
+        return json(
+                HttpStatus.TOO_MANY_REQUESTS,
+                ApiErrorResponse.of(
+                        "rate_limit_exceeded",
                         message,
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        retryAfterSeconds));
+                        Map.of(
+                                "current_limit", exception.getCurrentLimit(),
+                                "plan_name", exception.getPlanName(),
+                                "retry_after_seconds", retryAfterSeconds)));
     }
 
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAuthentication(AuthenticationException exception) {
         logger.warn("Authentication failed", exception);
-        ProblemDetail problemDetail =
-                ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Invalid credentials");
-        problemDetail.setTitle("Unauthorized");
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.UNAUTHORIZED,
+                ApiErrorResponse.of("invalid_credentials", "認証に失敗しました。"));
     }
 
     @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<ProblemDetail> handleEntityNotFound(EntityNotFoundException exception) {
+    public ResponseEntity<ApiErrorResponse> handleEntityNotFound(EntityNotFoundException exception) {
         logger.warn("Resource not found", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
-        problemDetail.setTitle("Resource Not Found");
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.NOT_FOUND, ApiErrorResponse.of("not_found", exception.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException exception) {
+    public ResponseEntity<ApiErrorResponse> handleIllegalState(IllegalStateException exception) {
         logger.warn("Invalid state transition", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, exception.getMessage());
-        problemDetail.setTitle("Invalid State Transition");
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.CONFLICT, ApiErrorResponse.of("conflict", exception.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception) {
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException exception) {
         logger.warn("Invalid argument", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, exception.getMessage());
-        problemDetail.setTitle("Invalid Argument");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.BAD_REQUEST, ApiErrorResponse.of("invalid_argument", exception.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ProblemDetail> handleValidationFailure(MethodArgumentNotValidException exception) {
+    public ResponseEntity<ApiErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
         logger.warn("Request validation failed", exception);
-        Map<String, String> fieldValidationErrors = exception.getBindingResult().getFieldErrors().stream()
+        Map<String, String> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
                         FieldError::getField,
-                        fieldError -> fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
-                        (existingMessage, duplicateMessage) -> existingMessage
-                ));
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Request validation failed");
-        problemDetail.setTitle("Validation Error");
-        problemDetail.setProperty("fieldErrors", fieldValidationErrors);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+                        fieldError ->
+                                fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
+                        (existingMessage, duplicateMessage) -> existingMessage));
+        return json(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorResponse.of("validation_failed", "入力内容を確認してください。", Map.of("fields", fieldErrors)));
     }
 
     @ExceptionHandler(HttpMessageNotWritableException.class)
-    public ResponseEntity<Void> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
         logger.debug(exception.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("serialization_unavailable", "レスポンスの生成に失敗しました。"));
     }
 
     @ExceptionHandler(JsonbSerializationException.class)
-    public ResponseEntity<ProblemDetail> handleJsonbSerializationFailure(JsonbSerializationException exception) {
+    public ResponseEntity<ApiErrorResponse> handleJsonbSerializationFailure(JsonbSerializationException exception) {
         logger.error("AI response JSON parse failure", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
-        problemDetail.setTitle("AI Response Parse Failure");
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.BAD_GATEWAY,
+                ApiErrorResponse.of("ai_response_parse_failure", "AI の応答を解釈できませんでした。"));
     }
 
     @ExceptionHandler({CannotGetJdbcConnectionException.class, SQLTransientConnectionException.class})
-    public ResponseEntity<ProblemDetail> handleConnectionPoolExhausted(Exception exception) {
+    public ResponseEntity<ApiErrorResponse> handleConnectionPoolExhausted(Exception exception) {
         logger.warn("Database connection pool exhausted", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE, "Database connections are currently exhausted. Please retry shortly.");
-        problemDetail.setTitle("Service Unavailable");
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .header(HttpHeaders.RETRY_AFTER, "5")
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.RETRY_AFTER, "5");
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                headers,
+                ApiErrorResponse.of(
+                        "database_unavailable",
+                        "データベースへの接続が混み合っています。しばらくしてから再度お試しください。"));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
         if (status == null) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
@@ -189,21 +261,17 @@ public class GlobalExceptionHandler {
         } else {
             logger.warn("Response status exception status={} detail={}", status.value(), detail);
         }
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
-        problemDetail.setTitle(status.getReasonPhrase());
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                status,
+                ApiErrorResponse.of(
+                        "response_status",
+                        detail,
+                        Map.of("http_status", status.value())));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ProblemDetail> handleUnexpectedException(Exception exception) {
+    public ResponseEntity<ApiErrorResponse> handleUnexpectedException(Exception exception) {
         logger.error("Unhandled exception", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        problemDetail.setTitle("Internal Server Error");
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiErrorResponse.of("unknown", UNKNOWN_USER_MESSAGE));
     }
 }

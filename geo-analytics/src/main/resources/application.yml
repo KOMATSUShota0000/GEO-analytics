@@ -7,14 +7,18 @@ spring:
       username: "${API_WORKER_USER:api_worker}"
       password: "${API_WORKER_PASSWORD:api_worker_pass}"
       hikari:
-        connection-timeout: 3000
+        connection-timeout: 10000
+        leak-detection-threshold: 30000
+        max-lifetime: 300000
         maximum-pool-size: 20
     batch:
       jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
       username: "${BATCH_WORKER_USER:batch_worker}"
       password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
       hikari:
-        connection-timeout: 0
+        connection-timeout: 10000
+        leak-detection-threshold: 30000
+        max-lifetime: 300000
         maximum-pool-size: 10
   flyway:
     enabled: true
@@ -23,6 +27,7 @@ spring:
     user: "${FLYWAY_USER:postgres}"
     password: "${FLYWAY_PASSWORD:}"
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
   threads:
@@ -44,6 +49,8 @@ server:
       internal-proxies: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]\\.\\d{1,3}\\.\\d{1,3}|172\\.2\\d\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]\\.\\d{1,3}\\.\\d{1,3}"
 
 app:
+  distributed-lock:
+    impl: postgres
   security:
     max-sessions-per-user: 1
     jwt:

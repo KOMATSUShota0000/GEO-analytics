@@ -34,7 +34,7 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
 
     @Autowired
     @Qualifier("userSessionsCache")
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
 
     @MockitoBean
     private SerpApiAdapter serpApiAdapter;
@@ -49,7 +49,7 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
                 .run(
                         () -> {
                             UUID firstSessionId = sessionManagementService.createNewSession(USER_A_ADMIN);
-                            userSessionsCache.put(USER_A_ADMIN, firstSessionId);
+                            userSessionsCache.put(firstSessionId, Boolean.TRUE);
 
                             sessionManagementService.createNewSession(USER_A_ADMIN);
 
@@ -59,7 +59,7 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
                             await().atMost(Duration.ofSeconds(10))
                                     .pollInterval(Duration.ofMillis(50))
                                     .untilAsserted(
-                                            () -> assertThat(userSessionsCache.getIfPresent(USER_A_ADMIN))
+                                            () -> assertThat(userSessionsCache.getIfPresent(firstSessionId))
                                                     .isNull());
                         });
     }

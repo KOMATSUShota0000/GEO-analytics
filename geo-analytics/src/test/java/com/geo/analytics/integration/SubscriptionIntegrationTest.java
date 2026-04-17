@@ -169,9 +169,9 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectBody()
-                .jsonPath("$.error_code").isEqualTo("INSUFFICIENT_QUOTA")
-                .jsonPath("$.current_limit").isEqualTo(10)
-                .jsonPath("$.plan_name").isEqualTo("STANDARD");
+                .jsonPath("$.error_code").isEqualTo("insufficient_quota")
+                .jsonPath("$.details.current_limit").isEqualTo(10)
+                .jsonPath("$.details.plan_name").isEqualTo("STANDARD");
     }
 
     @Test
@@ -191,10 +191,10 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .exchange()
                 .expectStatus().isEqualTo(429)
                 .expectBody()
-                .jsonPath("$.error_code").isEqualTo("RATE_LIMIT_EXCEEDED")
+                .jsonPath("$.error_code").isEqualTo("rate_limit_exceeded")
                 .jsonPath("$.message").value(m -> assertThat((String) m).matches(RECOVERY_PATTERN))
-                .jsonPath("$.current_limit").isEqualTo(limit)
-                .jsonPath("$.plan_name").isEqualTo("PRO");
+                .jsonPath("$.details.current_limit").isEqualTo(limit)
+                .jsonPath("$.details.plan_name").isEqualTo("PRO");
     }
 
     @Test

@@ -1,6 +1,9 @@
 package com.geo.analytics.infrastructure.security;
 
-import com.geo.analytics.infrastructure.repository.UserSessionRepository;
+import com.geo.analytics.application.service.SessionManagementService;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -43,16 +46,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher("/ws/**"));
 
     private final TokenService tokenService;
-    private final UserSessionRepository userSessionRepository;
-    private final Cache<UUID, UUID> userSessionsCache;
+    private final SessionManagementService sessionManagementService;
+    private final Cache<UUID, Boolean> userSessionsCache;
+    private final SecurityExceptionResponseHandler securityExceptionResponseHandler;
 
     public JwtAuthenticationFilter(
             TokenService tokenService,
-            UserSessionRepository userSessionRepository,
-            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache) {
+            SessionManagementService sessionManagementService,
+            @Qualifier("userSessionsCache") Cache<UUID, Boolean> userSessionsCache,
+            SecurityExceptionResponseHandler securityExceptionResponseHandler) {
         this.tokenService = tokenService;
-        this.userSessionRepository = userSessionRepository;
+        this.sessionManagementService = sessionManagementService;
         this.userSessionsCache = userSessionsCache;
+        this.securityExceptionResponseHandler = securityExceptionResponseHandler;
     }
 
     @Override
@@ -77,7 +83,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             parsed = tokenService.parseAccessToken(token);
         } catch (JwtTokenException e) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            securityExceptionResponseHandler.handle(request, response, mapJwtFailure(e));
             return;
         }
         TenantContext jwtContext =
@@ -86,22 +92,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
                     .run(
                             () -> {
-                                UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
-                                if (cachedSessionId != null) {
-                                    if (!cachedSessionId.equals(parsed.sessionId())) {
-                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                                        return;
-                                    }
-                                } else {
-                                    if (userSessionRepository
-                                            .findBySessionId(parsed.sessionId())
-                                            .filter(s -> s.getDeletedAt() == null)
+                                Boolean cachedValid = userSessionsCache.getIfPresent(parsed.sessionId());
+                                if (!Boolean.TRUE.equals(cachedValid)) {
+                                    if (sessionManagementService
+                                            .findActiveSessionBySessionId(parsed.sessionId())
                                             .filter(s -> s.getUserId().equals(parsed.userId()))
                                             .isEmpty()) {
-                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        rejectSessionRevoked(request, response);
                                         return;
                                     }
-                                    userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                    userSessionsCache.put(parsed.sessionId(), Boolean.TRUE);
                                 }
 
                                 UsernamePasswordAuthenticationToken authentication =
@@ -125,6 +125,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
+        }
+    }
+
+    private static Exception mapJwtFailure(JwtTokenException e) {
+        if (e instanceof ExpiredJwtTokenException) {
+            return new TokenExpiredException("アクセストークンの有効期限が切れています。", e);
+        }
+        return new UnauthenticatedApiException("アクセストークンが無効です。", e);
+    }
+
+    private void rejectSessionRevoked(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            securityExceptionResponseHandler.handle(request, response, new SessionRevokedException());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 }

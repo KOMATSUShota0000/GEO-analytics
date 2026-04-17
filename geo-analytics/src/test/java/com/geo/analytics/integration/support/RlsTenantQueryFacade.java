@@ -1,5 +1,6 @@
 package com.geo.analytics.integration.support;
 
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
@@ -14,6 +15,7 @@ public class RlsTenantQueryFacade {
     @PersistenceContext
     private EntityManager entityManager;
 
+    @GlobalAccess
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Object[]> selectAllTenants() {

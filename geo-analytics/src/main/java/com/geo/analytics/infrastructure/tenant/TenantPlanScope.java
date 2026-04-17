@@ -4,7 +4,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import java.lang.ScopedValue;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -19,12 +19,27 @@ public final class TenantPlanScope {
 
     private TenantPlanScope() {}
 
-    public static String getTenantId() {
-        return TENANT_ID.isBound() ? TENANT_ID.get() : null;
+    /** Hibernate / string key: absent when {@link #TENANT_ID} is not bound in this scope. */
+    public static Optional<String> currentTenantIdString() {
+        return TENANT_ID.isBound() ? Optional.of(TENANT_ID.get()) : Optional.empty();
     }
 
-    public static SubscriptionPlan getTenantPlan() {
-        return TENANT_PLAN.isBound() ? TENANT_PLAN.get() : null;
+    public static Optional<SubscriptionPlan> currentSubscriptionPlan() {
+        return TENANT_PLAN.isBound() ? Optional.of(TENANT_PLAN.get()) : Optional.empty();
+    }
+
+    public static String requireTenantIdString() {
+        if (!TENANT_ID.isBound()) {
+            throw new IllegalStateException("Workspace tenant id is not bound in this scope");
+        }
+        return TENANT_ID.get();
+    }
+
+    public static SubscriptionPlan requireSubscriptionPlan() {
+        if (!TENANT_PLAN.isBound()) {
+            throw new IllegalStateException("Subscription plan is not bound in this scope");
+        }
+        return TENANT_PLAN.get();
     }
 
     public static void executeWithTenant(UUID tenantId, Runnable runnable) {
@@ -44,7 +59,7 @@ public final class TenantPlanScope {
         }
     }
 
-    public static <T> T executeWithTenant(UUID tenantId, Callable<T> callable) {
+    public static <T, X extends Throwable> T executeWithTenant(UUID tenantId, Supplier<T> supplier) throws X {
         Optional<TenantContext> cur = TenantContextHolder.current();
         UUID org = cur.map(TenantContext::organizationId).orElse(null);
         UUID uid = cur.map(TenantContext::userId).orElse(null);
@@ -52,7 +67,10 @@ public final class TenantPlanScope {
         try {
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
-                    .call(() -> wrapCallable(callable));
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
         } finally {
             restoreSecurityContext(prevSecurity);
         }
@@ -76,7 +94,8 @@ public final class TenantPlanScope {
         }
     }
 
-    public static <T> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Callable<T> callable) {
+    public static <T, X extends Throwable> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Supplier<T> supplier)
+            throws X {
         Optional<TenantContext> cur = TenantContextHolder.current();
         UUID org = cur.map(TenantContext::organizationId).orElse(null);
         UUID uid = cur.map(TenantContext::userId).orElse(null);
@@ -85,7 +104,10 @@ public final class TenantPlanScope {
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
-                    .call(() -> wrapCallable(callable));
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
         } finally {
             restoreSecurityContext(prevSecurity);
         }
@@ -96,16 +118,6 @@ public final class TenantPlanScope {
             SecurityContextHolder.clearContext();
         } else {
             SecurityContextHolder.setContext(previous);
-        }
-    }
-
-    private static <T> T wrapCallable(Callable<T> callable) {
-        try {
-            return callable.call();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
         }
     }
 }

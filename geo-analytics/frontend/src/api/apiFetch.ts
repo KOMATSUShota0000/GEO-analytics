@@ -100,8 +100,18 @@ export async function responseJsonAsCamel(response: Response): Promise<unknown> 
   return parseJsonTextAsCamel(text);
 }
 
-async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean): Promise<void> {
-  const fresh = getAccessToken();
+/**
+ * @param accessTokenOverride リフレッシュ直後の JWT。省略時は {@link getAccessToken}（リトライでは必ず明示すること）。
+ */
+async function reapplyAuthHeadersAfterRefresh(
+  headers: Headers,
+  unsafe: boolean,
+  accessTokenOverride?: string | null,
+): Promise<void> {
+  const fresh =
+    accessTokenOverride !== undefined && accessTokenOverride !== null
+      ? accessTokenOverride
+      : getAccessToken();
   if (fresh !== null && fresh.length > 0) {
     headers.set("Authorization", `Bearer ${fresh}`);
   } else {
@@ -117,6 +127,30 @@ async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean)
       headers.delete("X-XSRF-TOKEN");
     }
   }
+}
+
+/** 同一 Request オブジェクトを二度 fetch するとヘッダ上書きが無視されることがあるため、URL 文字列で再試行する。 */
+function resolveFetchUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  return input.url;
+}
+
+/**
+ * 401 後の再試行用。init の headers と競合しないよう、確定した Bearer を持つ Headers で組み立てる。
+ */
+function buildRetryInit(input: RequestInfo | URL, init: RequestInit, authHeaders: Headers): RequestInit {
+  return {
+    ...init,
+    method: init.method ?? (input instanceof Request ? input.method : undefined),
+    credentials: "include",
+    headers: new Headers(authHeaders),
+    signal: init.signal ?? (input instanceof Request ? input.signal : undefined),
+  };
 }
 
 function notifyRefreshFailedAndClearWaiters(reason: RefreshFailureReason): void {
@@ -164,8 +198,10 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
           if (newToken !== null && newToken.length > 0) {
             refreshFailureHandlers = [];
             onRefreshed(newToken);
-            await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-            response = await fetch(input, fetchInit);
+            await reapplyAuthHeadersAfterRefresh(headers, unsafe, newToken);
+            const retryUrl = resolveFetchUrl(input);
+            const retryInit = buildRetryInit(input, init, headers);
+            response = await fetch(retryUrl, retryInit);
           } else {
             notifyRefreshFailedAndClearWaiters("unknown");
             clearClientState();
@@ -199,11 +235,13 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
             reject(new Error(`セッション更新失敗: ${reason}`));
           }
         });
-        addRefreshSubscriber((_newToken) => {
+        addRefreshSubscriber((newTokenFromRefresh) => {
           void (async () => {
             try {
-              await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-              resolve(await fetch(input, fetchInit));
+              await reapplyAuthHeadersAfterRefresh(headers, unsafe, newTokenFromRefresh);
+              const retryUrl = resolveFetchUrl(input);
+              const retryInit = buildRetryInit(input, init, headers);
+              resolve(await fetch(retryUrl, retryInit));
             } catch (err: unknown) {
               reject(err);
             }
