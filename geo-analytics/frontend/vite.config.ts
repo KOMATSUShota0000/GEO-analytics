@@ -3,7 +3,7 @@ import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
-  const apiTarget = env.VITE_API_PROXY_TARGET || "http://localhost:8080";
+  const apiTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8080";
   return {
     define: {
       global: "window",

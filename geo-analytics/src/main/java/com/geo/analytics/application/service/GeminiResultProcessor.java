@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
@@ -17,9 +16,7 @@ import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
 import java.lang.StrictMath;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,11 +32,10 @@ import java.util.UUID;
 public class GeminiResultProcessor {
     private static final Logger log = LoggerFactory.getLogger(GeminiResultProcessor.class);
     private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final ObjectMapper objectMapper;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-    private final ProjectRepository projectRepository;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
     private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
@@ -48,11 +44,10 @@ public class GeminiResultProcessor {
     private final StrategyInsightService strategyInsightService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     public GeminiResultProcessor(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             ObjectMapper objectMapper,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
-            ProjectRepository projectRepository,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             GapAnalysisService gapAnalysisService,
@@ -60,11 +55,10 @@ public class GeminiResultProcessor {
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             InformationTheoryBasedAggregator informationTheoryBasedAggregator,
             PlanBasedQuotaManager planBasedQuotaManager) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
-        this.projectRepository = projectRepository;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
         this.gapAnalysisService = gapAnalysisService;
@@ -73,7 +67,7 @@ public class GeminiResultProcessor {
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
         this.planBasedQuotaManager = planBasedQuotaManager;
     }
-    @Transactional
+    @Transactional("batchTransactionManager")
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
@@ -135,7 +129,7 @@ public class GeminiResultProcessor {
                 .orElse(0.0);
         List<SomRawMetrics> metricsList =
                 parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
-        long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        long plannedQueries = batchPersistence.countQueriesByJobId(jobEntity.getId());
         var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
@@ -148,25 +142,27 @@ public class GeminiResultProcessor {
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
             int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
-                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
-                    jobPersistenceService.upsertAuditHistoryForJobQuery(
-                        jobEntity.getId(),
+                batchPersistence.findQueryById(line.queryId()).ifPresent(queryEntity -> {
+                    UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+                    UUID pid = Objects.requireNonNull(jobEntity.getProjectId());
+                    var negAlert = m.sentimentIntensity() < -0.5;
+                    var insight = strategyInsightService.fromModifiedZ(gbvs.modifiedZScore());
+                    batchPersistence.upsertAuditHistory(
+                        jobEntity.getId(), wid, pid,
                         line.queryId(),
                         queryEntity.getQueryText(),
                         jsonbOperations.serialize(line.consultantOutputData()),
-                        somScore,
-                        brand,
-                        m.rankPosition(),
-                        overall,
-                        line.resolved(),
-                        m.tokenCount(),
-                        m.rankPosition(),
-                        m.sentimentIntensity(),
+                        somScore, brand,
+                        m.rankPosition(), overall,
+                        line.resolved(), m.tokenCount(),
+                        m.rankPosition(), m.sentimentIntensity(),
                         gbvs.visibilityStage(),
                         GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                        gbvs.modifiedZScore(),
-                        List.of(),
-                        null);
+                        gbvs.modifiedZScore(), negAlert,
+                        insight.diagnosticMessage(),
+                        new ArrayList<>(insight.recommendedActions()),
+                        null,
+                        List.of());
                     if (quotaSettled.add(line.queryId())) {
                         long textLen = (long) queryEntity.getQueryText().length()
                             + (mainBrand != null ? mainBrand.length() : 0);
@@ -179,16 +175,16 @@ public class GeminiResultProcessor {
                     }
                 });
         }
-        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
+        for (var qe : batchPersistence.findQueriesByJobId(jobEntity.getId())) {
             if (!quotaSettled.contains(qe.getId())) {
                 planBasedQuotaManager.addTokens(
                     tid,
                     QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
             }
         }
-        var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
+        var auditsAfter = batchPersistence.findResultsByJobId(jobEntity.getId());
         var rollup = strategyInsightService.rollupJob(auditsAfter);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobEntity.getId(),
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
@@ -205,14 +201,11 @@ public class GeminiResultProcessor {
         if (projectId == null) {
             return List.of();
         }
-        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
-            .map(ProjectEntity::getCompetitorUrls)
-            .orElse(List.of())
+        return batchPersistence.findCompetitorUrlsByProjectId(projectId)
             .stream()
             .map(EntityNormalizer::hostLabelFromUrl)
             .filter(s -> !s.isBlank())
-            .toList());
+            .toList();
     }
     private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
         if (key == null || key.isBlank()) {

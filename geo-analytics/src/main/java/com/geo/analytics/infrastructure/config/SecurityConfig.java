@@ -50,6 +50,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
                         .requestMatchers("/webauthn/**", "/login/webauthn", "/login", "/error", "/ws/**").permitAll()
                         .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()

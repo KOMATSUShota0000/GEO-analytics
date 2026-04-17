@@ -10,24 +10,35 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.hibernate.Session;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Aspect
 @Component
+@ConditionalOnProperty(prefix = "app.security.rls", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class RlsConnectionInterceptor {
 
     private static final String SET_ORG = "SELECT set_config('app.current_org_id', ?, true)";
     private static final String SET_TENANT = "SELECT set_config('app.current_tenant_id', ?, true)";
+    private static final String RESOLVE_ORG = "SELECT organization_id FROM workspaces WHERE id = ? AND deleted_at IS NULL";
 
     private final EntityManager entityManager;
+    private final JdbcTemplate batchJdbcTemplate;
     private final boolean rlsEnabled;
 
-    public RlsConnectionInterceptor(EntityManager entityManager, AppProperties appProperties) {
+    public RlsConnectionInterceptor(
+            EntityManager entityManager,
+            @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
+            AppProperties appProperties) {
         this.entityManager = entityManager;
+        this.batchJdbcTemplate = batchJdbcTemplate;
         boolean enabled = true;
         if (appProperties.getSecurity() != null && appProperties.getSecurity().getRls() != null) {
             enabled = appProperties.getSecurity().getRls().isEnabled();
@@ -46,11 +57,12 @@ public class RlsConnectionInterceptor {
         if (org.isEmpty() && tenant.isEmpty()) {
             return pjp.proceed();
         }
+        UUID resolvedOrg = org.orElseGet(() -> resolveOrgFromWorkspace(tenant.orElse(null)));
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
-            if (org.isPresent()) {
+            if (resolvedOrg != null) {
                 try (PreparedStatement ps = connection.prepareStatement(SET_ORG)) {
-                    ps.setString(1, org.get().toString());
+                    ps.setString(1, resolvedOrg.toString());
                     ps.execute();
                 }
             }
@@ -62,5 +74,16 @@ public class RlsConnectionInterceptor {
             }
         });
         return pjp.proceed();
+    }
+
+    private UUID resolveOrgFromWorkspace(UUID workspaceId) {
+        if (workspaceId == null) {
+            return null;
+        }
+        try {
+            return batchJdbcTemplate.queryForObject(RESOLVE_ORG, UUID.class, workspaceId);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
     }
 }

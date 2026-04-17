@@ -9,6 +9,8 @@ public abstract class PostgresSuperuserTestBase {
 
     private static final String PG_USER = "postgres";
     private static final String PG_PASSWORD = "postgres";
+    private static final String API_WORKER_USER = "api_worker";
+    private static final String API_WORKER_PASSWORD = "api_worker_pass";
 
     private static final PostgreSQLContainer<?> POSTGRES = createContainer();
 
@@ -17,7 +19,8 @@ public abstract class PostgresSuperuserTestBase {
         var c = new PostgreSQLContainer<>("postgres:17-alpine")
                 .withDatabaseName("geo_subscription_it")
                 .withUsername(PG_USER)
-                .withPassword(PG_PASSWORD);
+                .withPassword(PG_PASSWORD)
+                .withInitScript("init.sql");
         try {
             if (DockerClientFactory.instance().isDockerAvailable()) {
                 c.start();
@@ -35,10 +38,12 @@ public abstract class PostgresSuperuserTestBase {
             throw new IllegalStateException(
                     "Docker is required for PostgreSQL-backed tests (PostgresSuperuserTestBase subclasses).");
         }
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", () -> PG_USER);
-        registry.add("spring.datasource.password", () -> PG_PASSWORD);
-        registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
+        registry.add("spring.datasource.api.jdbc-url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.api.username", () -> PG_USER);
+        registry.add("spring.datasource.api.password", () -> PG_PASSWORD);
+        registry.add("spring.datasource.batch.jdbc-url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.batch.username", () -> PG_USER);
+        registry.add("spring.datasource.batch.password", () -> PG_PASSWORD);
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", () -> PG_USER);
         registry.add("spring.flyway.password", () -> PG_PASSWORD);

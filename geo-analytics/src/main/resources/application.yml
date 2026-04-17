@@ -1,9 +1,27 @@
 spring:
   profiles:
     default: dev
+  datasource:
+    api:
+      jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+      username: "${API_WORKER_USER:api_worker}"
+      password: "${API_WORKER_PASSWORD:api_worker_pass}"
+      hikari:
+        connection-timeout: 3000
+        maximum-pool-size: 20
+    batch:
+      jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+      username: "${BATCH_WORKER_USER:batch_worker}"
+      password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
+      hikari:
+        connection-timeout: 0
+        maximum-pool-size: 10
   flyway:
     enabled: true
     baseline-on-migrate: true
+    url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+    user: "${FLYWAY_USER:postgres}"
+    password: "${FLYWAY_PASSWORD:}"
   jpa:
     hibernate:
       ddl-auto: validate

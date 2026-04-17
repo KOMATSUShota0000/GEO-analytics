@@ -15,11 +15,11 @@ import java.util.UUID;
 public class GapAnalysisBatchProcessor {
     private static final Logger log = LoggerFactory.getLogger(GapAnalysisBatchProcessor.class);
     private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final ObjectMapper objectMapper;
 
-    public GapAnalysisBatchProcessor(JobPersistenceService jobPersistenceService, ObjectMapper objectMapper) {
-        this.jobPersistenceService = jobPersistenceService;
+    public GapAnalysisBatchProcessor(BatchPersistenceService batchPersistence, ObjectMapper objectMapper) {
+        this.batchPersistence = batchPersistence;
         this.objectMapper = objectMapper;
     }
 
@@ -41,7 +41,7 @@ public class GapAnalysisBatchProcessor {
                 if (reason != null && !reason.isBlank() && !reason.startsWith("【乖離理由】")) {
                     reason = "【乖離理由】" + reason;
                 }
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     auditHistoryId,
                     reason != null ? reason : "",
                     parsed.recommendedActions(),
@@ -55,7 +55,7 @@ public class GapAnalysisBatchProcessor {
                 log.warn("Skipping gap batch output line jobId={} line={}", jobId, lineForLog, exception);
             }
         }
-        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+        batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 
     private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {

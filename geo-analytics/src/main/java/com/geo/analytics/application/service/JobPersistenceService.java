@@ -20,17 +20,17 @@ import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,41 +41,40 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class JobPersistenceService {
     public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
+    private final JobPersistenceService self;
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final AuditHistoryRepository auditHistoryRepository;
     private final ProjectRepository projectRepository;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectManagementService projectManagementService;
-    private final JdbcTemplate jdbcTemplate;
-    private final TransactionTemplate jobCreateTransactionTemplate;
+    private final JdbcTemplate batchJdbcTemplate;
     private final StrategyInsightService strategyInsightService;
     private final JsonbOperations jsonbOperations;
     public JobPersistenceService(
+            @Lazy JobPersistenceService self,
             JobRepository jobRepository,
             QueryRepository queryRepository,
             AuditHistoryRepository auditHistoryRepository,
             ProjectRepository projectRepository,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectManagementService projectManagementService,
-            JdbcTemplate jdbcTemplate,
-            PlatformTransactionManager platformTransactionManager,
+            @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
             StrategyInsightService strategyInsightService,
             JsonbOperations jsonbOperations) {
+        this.self = self;
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
         this.projectRepository = projectRepository;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectManagementService = projectManagementService;
-        this.jdbcTemplate = jdbcTemplate;
-        this.jobCreateTransactionTemplate = new TransactionTemplate(platformTransactionManager);
-        this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.batchJdbcTemplate = batchJdbcTemplate;
         this.strategyInsightService = strategyInsightService;
         this.jsonbOperations = jsonbOperations;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT tenant_id FROM jobs WHERE id = ?",
             ps -> ps.setObject(1, jobId),
             (rs, rowNum) -> rs.getString(1));
@@ -85,7 +84,7 @@ public class JobPersistenceService {
         return UUID.fromString(rows.get(0));
     }
     private UUID readWorkspaceIdForQuery(UUID queryId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT j.tenant_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
             ps -> ps.setObject(1, queryId),
             (rs, rowNum) -> rs.getString(1));
@@ -95,7 +94,7 @@ public class JobPersistenceService {
         return UUID.fromString(rows.get(0));
     }
     private UUID readWorkspaceIdForAudit(UUID auditHistoryId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT tenant_id FROM audit_histories WHERE id = ?",
             ps -> ps.setObject(1, auditHistoryId),
             (rs, rowNum) -> rs.getString(1));
@@ -226,7 +225,8 @@ public class JobPersistenceService {
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
                 applyCompetitorScores(auditHistoryEntity, competitorScoreRows);
-                auditHistoryRepository.save(auditHistoryEntity);
+                forceSetTenantId(auditHistoryEntity, workspaceId);
+                auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
                 queryEntity.setProcessed(true);
@@ -275,6 +275,7 @@ public class JobPersistenceService {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
+        UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         return TenantContext.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
@@ -282,18 +283,11 @@ public class JobPersistenceService {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
+            TenantContextHolder.set(orgId, workspaceId);
             try {
-                var created = jobCreateTransactionTemplate.execute(status -> {
-                    JobEntity jobEntity = new JobEntity();
-                    jobEntity.setBrandName(normalizedBrandName);
-                    jobEntity.setWorkspaceId(workspaceId);
-                    jobEntity.setProjectId(projectEntity.getId());
-                    jobEntity.setCreateIdempotencyKey(idempotencyKey);
-                    String pbc = projectEntity.getBrandColor();
-                    jobEntity.setBrandColor(pbc != null && !pbc.isBlank() ? pbc : "#4F46E5");
-                    jobEntity.setLogoUrl(projectEntity.getLogoUrl());
-                    return jobRepository.save(jobEntity);
-                });
+                var created = self.saveJobInNewTransaction(
+                        normalizedBrandName, workspaceId, projectEntity.getId(),
+                        idempotencyKey, projectEntity.getBrandColor(), projectEntity.getLogoUrl());
                 return new JobCreateOutcome(created, true);
             } catch (DataIntegrityViolationException exception) {
                 if (idempotencyKey == null) {
@@ -302,8 +296,24 @@ public class JobPersistenceService {
                 return jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey)
                     .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
                     .orElseThrow(() -> exception);
+            } finally {
+                TenantContextHolder.clear();
             }
         });
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public JobEntity saveJobInNewTransaction(
+            String brandName, UUID workspaceId, UUID projectId,
+            UUID idempotencyKey, String brandColor, String logoUrl) {
+        JobEntity jobEntity = new JobEntity();
+        jobEntity.setBrandName(brandName);
+        jobEntity.setWorkspaceId(workspaceId);
+        jobEntity.setProjectId(projectId);
+        jobEntity.setCreateIdempotencyKey(idempotencyKey);
+        jobEntity.setBrandColor(brandColor != null && !brandColor.isBlank() ? brandColor : "#4F46E5");
+        jobEntity.setLogoUrl(logoUrl);
+        forceSetTenantId(jobEntity, workspaceId);
+        return jobRepository.saveAndFlush(jobEntity);
     }
     @Transactional
     public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
@@ -335,7 +345,8 @@ public class JobPersistenceService {
                 queryEntity.setJobId(jobId);
                 queryEntity.setWorkspaceId(jobEntity.getWorkspaceId());
                 queryEntity.setQueryText(queryText);
-                queryRepository.save(queryEntity);
+                forceSetTenantId(queryEntity, jobEntity.getWorkspaceId());
+                queryRepository.saveAndFlush(queryEntity);
             });
             jobEntity.setAppliedPlan(subscriptionPlan);
             jobEntity.setPlanLimitsSnapshot(jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(subscriptionPlan)));
@@ -519,5 +530,30 @@ public class JobPersistenceService {
         return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findProJobsAwaitingGapBatchCreation(
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
+    }
+
+    private void forceSetTenantId(Object entity, UUID tenantId) {
+        if (entity == null || tenantId == null) return;
+        Class<?> clazz = entity.getClass();
+        while (clazz != null) {
+            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
+                for (java.lang.annotation.Annotation ann : field.getAnnotations()) {
+                    if (ann.annotationType().getSimpleName().equals("TenantId")) {
+                        field.setAccessible(true);
+                        try {
+                            if (field.getType().equals(String.class)) {
+                                field.set(entity, tenantId.toString());
+                            } else {
+                                field.set(entity, tenantId);
+                            }
+                            return;
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException("Failed to force set TenantId", e);
+                        }
+                    }
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
     }
 }

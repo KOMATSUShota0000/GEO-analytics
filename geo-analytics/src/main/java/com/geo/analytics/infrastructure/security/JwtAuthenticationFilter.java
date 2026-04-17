@@ -31,6 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.OPTIONS, "/**"),
+                    PATHS.matcher(HttpMethod.GET, "/api/v1/jobs/*/stream"),
                     PATHS.matcher("/webauthn/**"),
                     PATHS.matcher("/login/webauthn/**"),
                     PATHS.matcher("/login"),

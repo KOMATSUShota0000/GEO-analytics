@@ -20,6 +20,8 @@ import com.geo.analytics.infrastructure.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Objects;
@@ -148,23 +150,31 @@ public class JobQuerySubmissionService {
             var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
             throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
         }
+        SecurityContext parentSecurityContext = SecurityContextHolder.getContext();
         @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = queryEntities.stream()
                 .map(qe -> CompletableFuture.runAsync(
-                        () -> TenantContext.executeWithTenant(
-                                tenantId,
-                                () -> {
-                                    try {
-                                        processOneQueryRealtimeCore(
-                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
-                                    } catch (Throwable x) {
-                                        quotaManager.addTokens(
-                                                tenantId,
-                                                QuotaCreditCalculator.refundAfterDeposit(
-                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
-                                        throw x;
-                                    }
-                                }),
+                        () -> {
+                            SecurityContextHolder.setContext(parentSecurityContext);
+                            try {
+                                TenantContext.executeWithTenant(
+                                        tenantId,
+                                        () -> {
+                                            try {
+                                                processOneQueryRealtimeCore(
+                                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                            } catch (Throwable x) {
+                                                quotaManager.addTokens(
+                                                        tenantId,
+                                                        QuotaCreditCalculator.refundAfterDeposit(
+                                                                QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                                throw x;
+                                            }
+                                        });
+                            } finally {
+                                SecurityContextHolder.clearContext();
+                            }
+                        },
                         streamDeliveryVirtualExecutor))
                 .toArray(CompletableFuture[]::new);
         try {

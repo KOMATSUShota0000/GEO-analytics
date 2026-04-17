@@ -152,8 +152,23 @@ export default {
 </file>
 
 <file path="frontend/src/api/apiFetch.ts">
-import { getAccessToken } from "../auth/authSession";
+import { clearAccessToken, getAccessToken, tryRestoreSession } from "../auth/authSession";
 import { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+
+/** Single-flight refresh: only one `/api/auth/refresh` at a time; others wait for the new token. */
+let isRefreshing = false;
+let refreshSubscribers: ((accessToken: string) => void)[] = [];
+/** Paired with concurrent 401 waiters: invoked if refresh fails so Promises do not hang. */
+let refreshFailureHandlers: Array<() => void> = [];
+
+function onRefreshed(accessToken: string): void {
+  refreshSubscribers.forEach((callback) => callback(accessToken));
+  refreshSubscribers = [];
+}
+
+function addRefreshSubscriber(callback: (accessToken: string) => void): void {
+  refreshSubscribers.push(callback);
+}
 
 /** Playwright / print route: workspace tenant from injected storage (see ReportPrintPage). */
 let pdfPrintTenantOverride: string | null = null;
@@ -163,6 +178,13 @@ export function setPdfPrintTenantIdOverride(tenantId: string | null): void {
 }
 
 function resolveTenantHeader(): string {
+  if (typeof window !== "undefined") {
+    const w = window as unknown as { __PDF_TENANT_ID__?: string };
+    const tid = w.__PDF_TENANT_ID__;
+    if (typeof tid === "string" && tid.trim().length > 0) {
+      return tid.trim();
+    }
+  }
   return pdfPrintTenantOverride ?? DEFAULT_WORKSPACE_TENANT_ID;
 }
 
@@ -226,7 +248,36 @@ export async function responseJsonAsCamel(response: Response): Promise<unknown> 
   return parseJsonTextAsCamel(text);
 }
 
+async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean): Promise<void> {
+  const fresh = getAccessToken();
+  if (fresh !== null && fresh.length > 0) {
+    headers.set("Authorization", `Bearer ${fresh}`);
+  } else {
+    headers.delete("Authorization");
+  }
+  if (unsafe) {
+    resetCsrfPrime();
+    await primeCsrfCookie();
+    const xsrf = readXsrfToken();
+    if (xsrf.length > 0) {
+      headers.set("X-XSRF-TOKEN", xsrf);
+    } else {
+      headers.delete("X-XSRF-TOKEN");
+    }
+  }
+}
+
+function notifyRefreshFailedAndClearWaiters(): void {
+  refreshSubscribers = [];
+  refreshFailureHandlers.splice(0).forEach((handler) => handler());
+  refreshFailureHandlers = [];
+}
+
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const isPdfMode =
+    typeof window !== "undefined" &&
+    window.location.pathname.includes("/reports/print") &&
+    window.location.search.includes("internal_token");
   const baseReq = input instanceof Request ? input : null;
   const method = (init.method ?? baseReq?.method ?? "GET").toUpperCase();
   const headers = new Headers(baseReq?.headers);
@@ -244,7 +295,54 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
       headers.set("X-XSRF-TOKEN", token);
     }
   }
-  return fetch(input, { ...init, credentials: "include", headers });
+
+  const fetchInit: RequestInit = { ...init, credentials: "include", headers };
+  let response = await fetch(input, fetchInit);
+
+  if (response.status === 401) {
+    if (isPdfMode) {
+      return response;
+    }
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        const restored = await tryRestoreSession({ force: true });
+        const newToken = restored ? getAccessToken() : null;
+        if (restored && newToken !== null && newToken.length > 0) {
+          refreshFailureHandlers = [];
+          onRefreshed(newToken);
+          await reapplyAuthHeadersAfterRefresh(headers, unsafe);
+          response = await fetch(input, fetchInit);
+        } else {
+          notifyRefreshFailedAndClearWaiters();
+          clearAccessToken();
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    } else {
+      return new Promise<Response>((resolve, reject) => {
+        refreshFailureHandlers.push(() => {
+          reject(new Error("セッションの更新に失敗しました。再度ログインしてください。"));
+        });
+        addRefreshSubscriber((_newToken) => {
+          void (async () => {
+            try {
+              await reapplyAuthHeadersAfterRefresh(headers, unsafe);
+              resolve(await fetch(input, fetchInit));
+            } catch (err: unknown) {
+              reject(err);
+            }
+          })();
+        });
+      });
+    }
+  }
+
+  return response;
 }
 
 // Re-export for call sites that already import tenant id from apiFetch
@@ -452,12 +550,20 @@ export function clearAccessToken(): void {
   }
 }
 
+export type TryRestoreSessionOptions = {
+  /**
+   * If true, always POST /api/auth/refresh (e.g. after HTTP 401 with an expired in-memory JWT).
+   * If false/omitted, skip the network call when a non-empty access token is already cached.
+   */
+  force?: boolean;
+};
+
 /**
  * When access token is absent but refresh cookie may exist, obtain a new access token.
  * @returns true if an access token is now available
  */
-export async function tryRestoreSession(): Promise<boolean> {
-  if (getAccessToken()) {
+export async function tryRestoreSession(options?: TryRestoreSessionOptions): Promise<boolean> {
+  if (!options?.force && getAccessToken()) {
     return true;
   }
   const res = await fetch("/api/auth/refresh", {
@@ -502,7 +608,7 @@ export function logout(): void {
 import { Box, CircularProgress } from "@mui/material";
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { getAccessToken, tryRestoreSession } from "./authSession";
+import { getAccessToken, setAccessToken, tryRestoreSession } from "./authSession";
 
 type GateState = "loading" | "authed" | "anon";
 
@@ -513,6 +619,22 @@ export default function RequireAuthLayout(): JSX.Element {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (
+        typeof window !== "undefined" &&
+        window.location.search.includes("internal_token")
+      ) {
+        if (!getAccessToken()) {
+          const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
+          const injected = w.__PDF_AUTH_TOKEN__;
+          if (typeof injected === "string" && injected.trim().length > 0) {
+            setAccessToken(injected.trim());
+          }
+        }
+        if (!cancelled) {
+          setState("authed");
+        }
+        return;
+      }
       if (getAccessToken()) {
         if (!cancelled) {
           setState("authed");
@@ -3460,8 +3582,7 @@ export default function ProjectSettingsPage(): JSX.Element {
 <file path="frontend/src/pages/ReportPrintPage.tsx">
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { apiFetch, resetCsrfPrime, responseJsonAsCamel, setPdfPrintTenantIdOverride } from "../api/apiFetch";
-import { ACCESS_TOKEN_STORAGE_KEY, setAccessToken, TENANT_STORAGE_KEY } from "../auth/authSession";
+import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   competitorLabelsFromProject,
@@ -3477,48 +3598,6 @@ import {
 } from "../types/analysis";
 
 const TOKEN_FALLBACK = "dev-internal-token";
-
-function readInjectedAccessToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const g = window as unknown as { __PDF_AUTH_TOKEN__?: string };
-  if (typeof g.__PDF_AUTH_TOKEN__ === "string" && g.__PDF_AUTH_TOKEN__.trim().length > 0) {
-    return g.__PDF_AUTH_TOKEN__.trim();
-  }
-  for (const st of [localStorage, sessionStorage]) {
-    try {
-      const v = st.getItem(ACCESS_TOKEN_STORAGE_KEY);
-      if (v != null && v.trim().length > 0) {
-        return v.trim();
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return null;
-}
-
-function readInjectedTenantId(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const g = window as unknown as { __PDF_TENANT_ID__?: string };
-  if (typeof g.__PDF_TENANT_ID__ === "string" && g.__PDF_TENANT_ID__.trim().length > 0) {
-    return g.__PDF_TENANT_ID__.trim();
-  }
-  for (const st of [localStorage, sessionStorage]) {
-    try {
-      const v = st.getItem(TENANT_STORAGE_KEY);
-      if (v != null && v.trim().length > 0) {
-        return v.trim();
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return null;
-}
 
 function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
@@ -3628,19 +3707,11 @@ export default function ReportPrintPage(): JSX.Element {
       return;
     }
     if (!tokenOk) {
-      setPdfPrintTenantIdOverride(null);
       resetCsrfPrime();
       return;
     }
     resetCsrfPrime();
-    const injectedToken = readInjectedAccessToken();
-    const injectedTenant = readInjectedTenantId();
-    if (injectedToken != null) {
-      setAccessToken(injectedToken);
-    }
-    setPdfPrintTenantIdOverride(injectedTenant);
     return () => {
-      setPdfPrintTenantIdOverride(null);
       resetCsrfPrime();
       try {
         const w = window as unknown as { __PDF_AUTH_TOKEN__?: unknown; __PDF_TENANT_ID__?: unknown };
@@ -3715,8 +3786,12 @@ export default function ReportPrintPage(): JSX.Element {
         setFontsReady(true);
       }
     });
+    const timer = setTimeout(() => {
+      if (!cancelled) setFontsReady(true);
+    }, 3000);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [analysisReady]);
 
@@ -3750,10 +3825,11 @@ export default function ReportPrintPage(): JSX.Element {
     };
   }, [data]);
 
+  const isErrorState = loadError != null;
   useEffect(() => {
-    const ok = analysisReady && analyticsSettled && fontsReady && logoReady;
+    const ok = (analysisReady && analyticsSettled && fontsReady && logoReady) || isErrorState;
     setPdfReadyFlag(ok);
-  }, [analysisReady, analyticsSettled, fontsReady, logoReady]);
+  }, [analysisReady, analyticsSettled, fontsReady, logoReady, isErrorState]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;
@@ -3777,7 +3853,15 @@ export default function ReportPrintPage(): JSX.Element {
   const logoSrc = data ? pickLogoUrl(data) : "";
 
   if (!tokenOk) {
-    return <div className="p-8 text-slate-500" />;
+    return (
+      <div className="p-8 text-red-600">
+        <h1 className="text-xl font-bold">PDF Print Error</h1>
+        <p>Internal Token Mismatch.</p>
+        <p>Expected: {expectedToken}</p>
+        <p>Got: {searchParams.get("internal_token")}</p>
+        <div id="pdf-ready-flag" aria-hidden="true" />
+      </div>
+    );
   }
 
   return (

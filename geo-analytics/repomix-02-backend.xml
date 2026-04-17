@@ -86,6 +86,7 @@ src/main/java/com/geo/analytics/application/service/AsyncBatchService.java
 src/main/java/com/geo/analytics/application/service/AsyncPdfReportService.java
 src/main/java/com/geo/analytics/application/service/AsyncSgeMeasurementService.java
 src/main/java/com/geo/analytics/application/service/AuthService.java
+src/main/java/com/geo/analytics/application/service/BatchPersistenceService.java
 src/main/java/com/geo/analytics/application/service/DomainTrustService.java
 src/main/java/com/geo/analytics/application/service/EntityResolutionService.java
 src/main/java/com/geo/analytics/application/service/ExceptionStackTraceText.java
@@ -206,7 +207,7 @@ src/main/java/com/geo/analytics/infrastructure/config/AuditConfiguration.java
 src/main/java/com/geo/analytics/infrastructure/config/Bucket4jConfiguration.java
 src/main/java/com/geo/analytics/infrastructure/config/CacheConfig.java
 src/main/java/com/geo/analytics/infrastructure/config/CrawlerConfiguration.java
-src/main/java/com/geo/analytics/infrastructure/config/JpaTransactionConfiguration.java
+src/main/java/com/geo/analytics/infrastructure/config/DataSourceConfig.java
 src/main/java/com/geo/analytics/infrastructure/config/OracleSecondaryDataSourceConfiguration.java
 src/main/java/com/geo/analytics/infrastructure/config/PdfStorageConfig.java
 src/main/java/com/geo/analytics/infrastructure/config/SchedulerConfig.java
@@ -298,6 +299,8 @@ src/main/resources/db/manual/V20260331_job_strategy_gap_batch.sql
 src/main/resources/db/manual/V20260407_job_plan_limits_snapshot.sql
 src/main/resources/db/migration/V1__init_schema.sql
 src/main/resources/db/migration/V2__organization_users_role_varchar.sql
+src/main/resources/db/migration/V3__setup_roles_and_grants.sql
+src/main/resources/db/migration/V4__auth_select_policy.sql
 src/main/resources/db/rls/tenant_isolation.sql
 src/test/java/com/geo/analytics/domain/support/TextWhitespaceNormalizerTest.java
 src/test/java/com/geo/analytics/infrastructure/config/CacheConfigTest.java
@@ -613,7 +616,7 @@ if not "%JAVA_HOME%"=="" set JAVA_CMD=%JAVA_HOME%\bin\java
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>--enable-preview</argLine>
+                    <argLine>--enable-preview -Djdk.tracePinnedThreads=short</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -1556,7 +1559,7 @@ import java.util.concurrent.CompletableFuture;
 public class AsyncBatchService {
     private static final Logger logger = LoggerFactory.getLogger(AsyncBatchService.class);
 
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final GeminiBatchExecutorService geminiBatchExecutorService;
     private final GeminiBatchClient geminiBatchClient;
     private final GeminiResultProcessor geminiResultProcessor;
@@ -1567,7 +1570,7 @@ public class AsyncBatchService {
     private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public AsyncBatchService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             GeminiBatchExecutorService geminiBatchExecutorService,
             GeminiBatchClient geminiBatchClient,
             GeminiResultProcessor geminiResultProcessor,
@@ -1576,7 +1579,7 @@ public class AsyncBatchService {
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
             GapAnalysisService gapAnalysisService,
             PlanBasedQuotaManager planBasedQuotaManager) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
         this.geminiResultProcessor = geminiResultProcessor;
@@ -1588,7 +1591,7 @@ public class AsyncBatchService {
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
-        JobEntity refreshedJobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity refreshedJobEntity = batchPersistence.findJobById(jobId);
         jobStatusBroadcastPublisher.publish(refreshedJobEntity);
     }
 
@@ -1596,7 +1599,7 @@ public class AsyncBatchService {
     public void submitFileUploadedJobsToBatchApi() {
         logger.info("Batch submission task started");
         List<JobEntity> fileUploadedJobs =
-            jobPersistenceService.findJobsByStatus(JobStatus.FILE_UPLOADED);
+            batchPersistence.findJobsByStatus(JobStatus.FILE_UPLOADED);
         logger.info("Found {} FILE_UPLOADED job(s) to submit", fileUploadedJobs.size());
         fileUploadedJobs.forEach(jobEntity -> {
             logger.info("[Job:{}] Processing started", jobEntity.getId());
@@ -1606,9 +1609,7 @@ public class AsyncBatchService {
                 .exceptionally(throwable -> {
                     logger.error("[Job:{}] Batch submission async failure",
                         jobEntity.getId(), throwable);
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         ExceptionStackTraceText.of(throwable));
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     return null;
@@ -1621,15 +1622,13 @@ public class AsyncBatchService {
     public void pollRunningJobsAndProcessCompletedResults() {
         logger.info("Batch polling task started");
         List<JobEntity> jobsToPoll = new ArrayList<>();
-        jobsToPoll.addAll(jobPersistenceService.findJobsByStatus(JobStatus.SUBMITTED));
-        jobsToPoll.addAll(jobPersistenceService.findJobsByStatus(JobStatus.RUNNING));
+        jobsToPoll.addAll(batchPersistence.findJobsByStatus(JobStatus.SUBMITTED));
+        jobsToPoll.addAll(batchPersistence.findJobsByStatus(JobStatus.RUNNING));
         logger.info("Found {} job(s) to poll (SUBMITTED or RUNNING)", jobsToPoll.size());
         jobsToPoll.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 if (jobEntity.getGeminiJobName() == null || jobEntity.getGeminiJobName().isBlank()) {
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         "Missing Gemini job name while polling batch");
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     return;
@@ -1642,7 +1641,7 @@ public class AsyncBatchService {
                 }
                 if (jobEntity.getJobStatus() == JobStatus.SUBMITTED
                     && geminiBatchClient.isBatchJobActivelyProcessing(batchJobState)) {
-                    jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.RUNNING, null);
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.RUNNING, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 }
                 if (!geminiBatchClient.isTerminalState(batchJobState)) {
@@ -1654,24 +1653,20 @@ public class AsyncBatchService {
                     String outputFileContent =
                         geminiBatchClient.downloadOutputFileContent(outputFileName);
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
-                    jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
-                    projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobEntity.getId()));
+                    projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobEntity.getId()));
                 } else {
                     refundBatchQuotaDeposit(jobEntity);
                     String stateDescription = batchJobState == null ? "null" : batchJobState;
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         "Gemini batch terminal state=" + stateDescription);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 }
             } catch (Exception exception) {
                 refundBatchQuotaDeposit(jobEntity);
                 try {
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         ExceptionStackTraceText.of(exception));
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 } catch (RuntimeException secondary) {
@@ -1682,9 +1677,7 @@ public class AsyncBatchService {
             logger.error("[Job:{}] Batch polling async failure", jobEntity.getId(), throwable);
             refundBatchQuotaDeposit(jobEntity);
             try {
-                jobPersistenceService.updateJobStatus(
-                    jobEntity.getId(),
-                    JobStatus.FAILED,
+                batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                     ExceptionStackTraceText.of(throwable));
                 broadcastJobStatusOverStomp(jobEntity.getId());
             } catch (RuntimeException secondary) {
@@ -1698,19 +1691,19 @@ public class AsyncBatchService {
     @Scheduled(fixedDelay = 15000)
     public void pollGapAnalysisBatches() {
         logger.info("Gap batch polling task started");
-        List<JobEntity> gapJobs = jobPersistenceService.findJobsPendingGapAnalysisOutput();
+        List<JobEntity> gapJobs = batchPersistence.findJobsPendingGapAnalysisOutput();
         logger.info("Found {} job(s) with pending gap batch output", gapJobs.size());
         gapJobs.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 pollOneGapAnalysisJob(jobEntity);
             } catch (Exception exception) {
                 logger.error("[Job:{}] Gap batch polling failure", jobEntity.getId(), exception);
-                jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+                batchPersistence.markGapAnalysisCompleted(jobEntity.getId(), true);
                 broadcastJobStatusOverStomp(jobEntity.getId());
             }
         }).exceptionally(throwable -> {
             logger.error("[Job:{}] Gap batch polling async failure", jobEntity.getId(), throwable);
-            jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+            batchPersistence.markGapAnalysisCompleted(jobEntity.getId(), true);
             broadcastJobStatusOverStomp(jobEntity.getId());
             return null;
         }));
@@ -1719,7 +1712,7 @@ public class AsyncBatchService {
 
     @Scheduled(fixedDelay = 60000)
     public void retryProGapBatchCreation() {
-        List<JobEntity> pending = jobPersistenceService.findProJobsAwaitingGapBatchCreation();
+        List<JobEntity> pending = batchPersistence.findProJobsAwaitingGapBatchCreation();
         pending.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 gapAnalysisService.retryGapBatchForJob(jobEntity.getId());
@@ -1731,11 +1724,12 @@ public class AsyncBatchService {
 
     private void refundBatchQuotaDeposit(JobEntity jobEntity) {
         var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        long n = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        long n = batchPersistence.countQueriesByJobId(jobEntity.getId());
         if (n > 0L) {
             planBasedQuotaManager.addTokens(tid, n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         }
     }
+
     private void pollOneGapAnalysisJob(JobEntity jobEntity) {
         String gapJobName = jobEntity.getGapAnalysisGeminiJobName();
         if (gapJobName == null || gapJobName.isBlank()) {
@@ -1755,9 +1749,9 @@ public class AsyncBatchService {
             String outputContent = geminiBatchClient.downloadOutputFileContent(outputFileName);
             gapAnalysisBatchProcessor.processOutputJsonl(jobId, outputContent);
             broadcastJobStatusOverStomp(jobId);
-            projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobId));
+            projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobId));
         } else {
-            jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+            batchPersistence.markGapAnalysisCompleted(jobId, true);
             broadcastJobStatusOverStomp(jobId);
         }
     }
@@ -1775,16 +1769,9 @@ import com.geo.analytics.application.port.PdfReportPort;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.OrganizationUser;
-import com.geo.analytics.domain.enums.OrganizationUserRole;
-import com.geo.analytics.domain.entity.ProjectEntity;
-import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
-import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
@@ -1814,8 +1801,7 @@ public class AsyncPdfReportService {
     private static final int PDF_RENDER_WALL_SECONDS = 180;
     private static final Executor PDF_RENDER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final PdfReportPort pdfReportPort;
-    private final JobPersistenceService jobPersistenceService;
-    private final ProjectRepository projectRepository;
+    private final BatchPersistenceService batchPersistence;
     private final PdfStorageConfig pdfStorageConfig;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final String internalToken;
@@ -1824,32 +1810,24 @@ public class AsyncPdfReportService {
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
     private final Semaphore pdfPlaywrightSemaphore;
-    private final WorkspaceRepository workspaceRepository;
-    private final OrganizationUserRepository organizationUserRepository;
     private final SessionManagementService sessionManagementService;
     private final TokenService tokenService;
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
-            JobPersistenceService jobPersistenceService,
-            ProjectRepository projectRepository,
+            BatchPersistenceService batchPersistence,
             PdfStorageConfig pdfStorageConfig,
             SimpMessagingTemplate simpMessagingTemplate,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper,
             AppProperties appProperties,
-            WorkspaceRepository workspaceRepository,
-            OrganizationUserRepository organizationUserRepository,
             SessionManagementService sessionManagementService,
             TokenService tokenService) {
         this.pdfReportPort = pdfReportPort;
-        this.jobPersistenceService = jobPersistenceService;
-        this.projectRepository = projectRepository;
+        this.batchPersistence = batchPersistence;
         this.pdfStorageConfig = pdfStorageConfig;
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
-        this.workspaceRepository = workspaceRepository;
-        this.organizationUserRepository = organizationUserRepository;
         this.sessionManagementService = sessionManagementService;
         this.tokenService = tokenService;
         AppProperties.Pdf pdf = appProperties.getPdf();
@@ -1865,8 +1843,8 @@ public class AsyncPdfReportService {
     public void generatePdfReport(UUID jobId) {
         try {
             try {
-                JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-                if (jobPersistenceService.findResultsByJobId(jobId).isEmpty()) {
+                JobEntity jobEntity = batchPersistence.findJobById(jobId);
+                if (batchPersistence.findResultsByJobId(jobId).isEmpty()) {
                     log.error("PDF generation skipped: zero analysis results jobId={}", jobId);
                     markPdfFailedAndPublishSafely(jobId);
                     return;
@@ -1874,20 +1852,20 @@ public class AsyncPdfReportService {
                 UUID workspaceId = jobEntity.getWorkspaceId() != null
                     ? jobEntity.getWorkspaceId()
                     : DefaultTenantIds.WORKSPACE_ID;
-                ProjectEntity projectEntity = TenantContext.executeWithTenant(
-                    workspaceId,
-                    () -> projectRepository.findById(jobEntity.getProjectId()).orElse(null));
+                var projectInfo = jobEntity.getProjectId() != null
+                    ? batchPersistence.findProjectBrandInfo(jobEntity.getProjectId()).orElse(null)
+                    : null;
                 String brandColor = pickFirstNonBlank(
                     jobEntity.getBrandColor(),
-                    projectEntity != null ? projectEntity.getBrandColor() : null,
+                    projectInfo != null ? projectInfo.brandColor() : null,
                     defaultBrandColor);
                 String logoUrl = pickFirstNonBlank(
                     jobEntity.getLogoUrl(),
-                    projectEntity != null ? projectEntity.getLogoUrl() : null,
+                    projectInfo != null ? projectInfo.logoUrl() : null,
                     defaultLogoUrl);
                 String pdfContextJson = "{}";
                 try {
-                    var rows = jobPersistenceService.findResultsByJobId(jobId);
+                    var rows = batchPersistence.findResultsByJobId(jobId);
                     var rollup = strategyInsightService.rollupJob(rows);
                     var medZ = strategyInsightService.medianModifiedZ(rows);
                     var medSt = strategyInsightService.medianVisibilityStage(rows);
@@ -1927,7 +1905,7 @@ public class AsyncPdfReportService {
                 Path targetPath = pdfStorageConfig.getTempDirectory().resolve(jobId + ".pdf");
                 Files.write(targetPath, pdfBytes);
                 String absolutePath = targetPath.toAbsolutePath().normalize().toString();
-                jobPersistenceService.markPdfCompletedAndPublish(jobId, absolutePath);
+                batchPersistence.markPdfCompleted(jobId, absolutePath);
             } catch (TimeoutException timeoutException) {
                 log.error("PDF generation wall-clock timeout jobId={} seconds={}", jobId, PDF_RENDER_WALL_SECONDS, timeoutException);
                 markPdfFailedAndPublishSafely(jobId);
@@ -1962,15 +1940,13 @@ public class AsyncPdfReportService {
     }
     private void markPdfFailedAndPublishSafely(UUID jobId) {
         try {
-            jobPersistenceService.markPdfFailedAndPublish(jobId);
-            return;
+            batchPersistence.markPdfFailed(jobId);
         } catch (Exception publishException) {
             log.error("PDF failure state update failed jobId={}", jobId, publishException);
         }
-        jobPersistenceService.markPdfFailedBestEffort(jobId);
-        jobPersistenceService.findJobByIdOptional(jobId).ifPresent(job -> {
+        batchPersistence.findJobByIdOptional(jobId).ifPresent(job -> {
             if (PdfJobStatusValues.GENERATING.equals(job.getPdfStatus())) {
-                var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
+                var rollup = strategyInsightService.rollupJob(batchPersistence.findResultsByJobId(jobId));
                 var base = JobStompStatusPayload.from(job, rollup);
                 var payload = new JobStompStatusPayload(
                     base.jobId(),
@@ -1993,23 +1969,23 @@ public class AsyncPdfReportService {
             UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
             TenantContextHolder.set(orgId, workspaceId);
             try {
-                OrganizationUser user = organizationUserRepository
-                        .findFirstByOrganizationIdAndRoleAndDeletedAtIsNullOrderByCreatedAtAsc(
-                                orgId, OrganizationUserRole.ADMIN)
-                        .orElse(null);
-                if (user == null) {
-                    log.warn(
-                            "pdf_browser_auth skipped: no ADMIN organization user orgId={} workspaceId={}",
-                            orgId,
-                            workspaceId);
-                    return PdfBrowserAuthHeaders.NONE;
-                }
+                var userInfo = batchPersistence.findFirstActiveOrgUser(orgId)
+                        .orElseThrow(
+                                () -> new IllegalStateException(
+                                        "PDF生成用の有効なユーザーが組織内に見つかりません: orgId=" + orgId));
+                OrganizationUser user = new OrganizationUser();
+                user.setId(userInfo.id());
+                user.setEmail(userInfo.email());
+                user.setPasswordHash(userInfo.passwordHash());
+                user.setOrganizationId(orgId);
                 UUID sessionId = sessionManagementService.appendRenderingSession(user.getId());
                 String jwt = tokenService.generateAccessToken(user, sessionId);
                 return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
             } finally {
                 TenantContextHolder.clear();
             }
+        } catch (IllegalStateException illegalStateException) {
+            throw illegalStateException;
         } catch (Exception exception) {
             log.warn("pdf_browser_auth failed workspaceId={}", workspaceId, exception);
             return PdfBrowserAuthHeaders.NONE;
@@ -2020,10 +1996,8 @@ public class AsyncPdfReportService {
         if (DefaultTenantIds.WORKSPACE_ID.equals(workspaceId)) {
             return DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         }
-        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository
-                .findById(workspaceId)
-                .map(WorkspaceEntity::getOrganizationId)
-                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId)));
+        return batchPersistence.findWorkspaceOrganizationId(workspaceId)
+                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId));
     }
 
     private static String pickFirstNonBlank(String a, String b, String fallback) {
@@ -2055,12 +2029,10 @@ import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.application.port.SgeMeasurementPort;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.entity.SgeResultEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.ratelimit.SerpApiGlobalRequestGate;
-import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -2079,8 +2051,7 @@ import java.util.concurrent.StructuredTaskScope;
 public class AsyncSgeMeasurementService {
     private static final Logger log = LoggerFactory.getLogger(AsyncSgeMeasurementService.class);
     private final SgeMeasurementPort sgeMeasurementPort;
-    private final SgeResultRepository sgeResultRepository;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final SerpApiGlobalRequestGate serpApiGlobalRequestGate;
@@ -2089,15 +2060,13 @@ public class AsyncSgeMeasurementService {
 
     public AsyncSgeMeasurementService(
             SgeMeasurementPort sgeMeasurementPort,
-            SgeResultRepository sgeResultRepository,
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             PlanBasedQuotaManager planBasedQuotaManager,
             SerpApiGlobalRequestGate serpApiGlobalRequestGate,
             AppProperties appProperties) {
         this.sgeMeasurementPort = sgeMeasurementPort;
-        this.sgeResultRepository = sgeResultRepository;
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
         this.serpApiGlobalRequestGate = serpApiGlobalRequestGate;
@@ -2151,15 +2120,13 @@ public class AsyncSgeMeasurementService {
                     throw new IllegalStateException(
                             "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryEntity.getQueryText());
                 }
-                SgeResultEntity sgeResultEntity = new SgeResultEntity();
-                sgeResultEntity.setJobId(jobId);
-                sgeResultEntity.setWorkspaceId(job.getWorkspaceId());
-                sgeResultEntity.setQueryId(queryEntity.getId());
-                sgeResultEntity.setQuery(queryEntity.getQueryText());
-                sgeResultEntity.setSgeRawResponse(sgeMentionResult.rawResponseJson());
-                sgeResultEntity.setSgeMentioned(sgeMentionResult.mentioned());
-                sgeResultEntity.setMentionCount(sgeMentionResult.mentionCount());
-                sgeResultRepository.save(sgeResultEntity);
+                UUID wid = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+                batchPersistence.insertSgeResult(
+                    wid, jobId, queryEntity.getId(),
+                    queryEntity.getQueryText(),
+                    sgeMentionResult.rawResponseJson(),
+                    sgeMentionResult.mentioned(),
+                    sgeMentionResult.mentionCount());
             }
         } catch (Exception exception) {
             if (exception instanceof InterruptedException) {
@@ -2171,15 +2138,15 @@ public class AsyncSgeMeasurementService {
 
     private void failJobAndBroadcast(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
         if (dailyQuotaRefundOnFailure > 0) {
-            var je = jobPersistenceService.findJobById(jobId);
+            var je = batchPersistence.findJobById(jobId);
             var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
             planBasedQuotaManager.addTokens(
                     tid, (long) dailyQuotaRefundOnFailure * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         }
         String trace = ExceptionStackTraceText.of(throwable);
-        jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, trace);
+        batchPersistence.updateJobStatus(jobId, JobStatus.FAILED, trace);
         log.error("SGE measurement failed jobId={}", jobId, throwable);
-        jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
+        jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobId));
     }
 }
 </file>
@@ -2230,6 +2197,464 @@ public class AuthService {
         String accessToken = tokenService.generateAccessToken(user, sessionId);
         String refreshToken = tokenService.generateRefreshToken(user, sessionId);
         return new AuthTokenPair(accessToken, refreshToken);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/service/BatchPersistenceService.java">
+package com.geo.analytics.application.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.application.dto.CompetitorScoreRow;
+import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+@Transactional("batchTransactionManager")
+public class BatchPersistenceService {
+
+    private static final TypeReference<List<String>> LIST_STRING_TYPE = new TypeReference<>() {};
+
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
+
+    public BatchPersistenceService(
+            @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
+            ObjectMapper objectMapper) {
+        this.jdbc = batchJdbcTemplate;
+        this.objectMapper = objectMapper;
+    }
+
+    private static final String JOB_COLS =
+            "id, tenant_id, project_id, job_status, subscription_plan, "
+            + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
+            + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
+            + "job_diagnostic_message, job_recommended_actions, gap_batch_idempotency_key, "
+            + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed";
+
+    public JobEntity findJobById(UUID jobId) {
+        return jdbc.queryForObject(
+                "SELECT " + JOB_COLS + " FROM jobs WHERE id = ?",
+                this::mapJobRow, jobId);
+    }
+
+    public Optional<JobEntity> findJobByIdOptional(UUID jobId) {
+        List<JobEntity> rows = jdbc.query(
+                "SELECT " + JOB_COLS + " FROM jobs WHERE id = ?",
+                this::mapJobRow, jobId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
+    public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
+        return jdbc.query(
+                "SELECT id, tenant_id, job_id, project_id, query, raw_response, "
+                + "som_score, brand_mentioned, mention_rank, overall_score, resolved_entity_label, "
+                + "token_count, rank_position, sentiment_intensity, visibility_stage, "
+                + "calculation_version, negative_alert, modified_z_score, diagnostic_message, "
+                + "recommended_actions, model_insights, audit_date, created_at "
+                + "FROM audit_histories WHERE job_id = ?",
+                (rs, rn) -> mapAuditRow(rs), jobId);
+    }
+
+    public Optional<UUID> findAuditIdByJobIdAndQuery(UUID jobId, String queryText) {
+        List<UUID> ids = jdbc.query(
+                "SELECT id FROM audit_histories WHERE job_id = ? AND query = ?",
+                (rs, rn) -> rs.getObject("id", UUID.class), jobId, queryText);
+        return ids.isEmpty() ? Optional.empty() : Optional.of(ids.getFirst());
+    }
+
+    public Optional<QueryEntity> findQueryById(UUID queryId) {
+        List<QueryEntity> rows = jdbc.query(
+                "SELECT id, tenant_id, job_id, query_text, processed FROM job_queries WHERE id = ?",
+                BatchPersistenceService::mapQueryRow, queryId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
+    public List<QueryEntity> findQueriesByJobId(UUID jobId) {
+        return jdbc.query(
+                "SELECT id, tenant_id, job_id, query_text, processed FROM job_queries WHERE job_id = ?",
+                BatchPersistenceService::mapQueryRow, jobId);
+    }
+
+    public List<QueryEntity> findUnprocessedQueriesByJobId(UUID jobId) {
+        return jdbc.query(
+                "SELECT id, tenant_id, job_id, query_text, processed FROM job_queries WHERE job_id = ? AND processed = false",
+                BatchPersistenceService::mapQueryRow, jobId);
+    }
+
+    public long countQueriesByJobId(UUID jobId) {
+        Long c = jdbc.queryForObject("SELECT count(*) FROM job_queries WHERE job_id = ?", Long.class, jobId);
+        return c != null ? c : 0L;
+    }
+
+    public void updateJobStatus(UUID jobId, JobStatus newStatus, String errorMessage) {
+        jdbc.update("UPDATE jobs SET job_status = ?, error_message = ?, updated_at = now() WHERE id = ?",
+                newStatus.name(), errorMessage, jobId);
+    }
+
+    public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
+        jdbc.update("UPDATE jobs SET job_status = ?, gemini_job_name = ?, updated_at = now() WHERE id = ?",
+                JobStatus.SUBMITTED.name(), geminiJobName, jobId);
+    }
+
+    public void markGapAnalysisCompleted(UUID jobId, boolean completed) {
+        jdbc.update("UPDATE jobs SET gap_analysis_completed = ?, updated_at = now() WHERE id = ?",
+                completed, jobId);
+    }
+
+    public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement(
+                    "UPDATE jobs SET job_diagnostic_message = ?, job_recommended_actions = ?, updated_at = now() WHERE id = ?");
+            ps.setString(1, diagnosticMessage);
+            setJsonb(ps, 2, toJson(recommendedActions));
+            ps.setObject(3, jobId);
+            return ps;
+        });
+    }
+
+    public void markPdfCompleted(UUID jobId, String absolutePath) {
+        jdbc.update("UPDATE jobs SET pdf_status = 'COMPLETED', pdf_file_path = ?, updated_at = now() WHERE id = ?",
+                absolutePath, jobId);
+    }
+
+    public void markPdfFailed(UUID jobId) {
+        jdbc.update("UPDATE jobs SET pdf_status = 'FAILED', pdf_file_path = NULL, updated_at = now() WHERE id = ?",
+                jobId);
+    }
+
+    public void updateAuditStrategyInsights(UUID auditHistoryId, String diagnosticMessage,
+                                            List<String> recommendedActions, String calculationVersion) {
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement(
+                    "UPDATE audit_histories SET diagnostic_message = ?, recommended_actions = ?, "
+                    + "calculation_version = ? WHERE id = ?");
+            ps.setString(1, diagnosticMessage);
+            setJsonb(ps, 2, toJson(recommendedActions));
+            ps.setString(3, calculationVersion);
+            ps.setObject(4, auditHistoryId);
+            return ps;
+        });
+    }
+
+    public UUID upsertAuditHistory(UUID jobId, UUID workspaceId, UUID projectId,
+                                   UUID queryId, String queryText, String rawResponse,
+                                   double somScore, boolean brandMentioned,
+                                   Integer mentionRank, Integer overallScore,
+                                   String resolvedEntityLabel, int tokenCount,
+                                   int rankPosition, double sentimentIntensity,
+                                   Integer visibilityStage, String calculationVersion,
+                                   double modifiedZScore, boolean negativeAlert,
+                                   String diagnosticMessage, List<String> recommendedActions,
+                                   String modelInsightsJson,
+                                   List<CompetitorScoreRow> competitorScoreRows) {
+        Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
+        UUID auditId;
+        if (existingId.isPresent()) {
+            auditId = existingId.get();
+            jdbc.update(con -> {
+                PreparedStatement ps = con.prepareStatement(
+                        "UPDATE audit_histories SET raw_response = ?, som_score = ?, brand_mentioned = ?, "
+                        + "mention_rank = ?, overall_score = ?, resolved_entity_label = ?, "
+                        + "token_count = ?, rank_position = ?, sentiment_intensity = ?, "
+                        + "visibility_stage = ?, calculation_version = ?, negative_alert = ?, "
+                        + "modified_z_score = ?, diagnostic_message = ?, recommended_actions = ?, "
+                        + "model_insights = ?, audit_date = ? WHERE id = ?");
+                setJsonb(ps, 1, rawResponse);
+                ps.setDouble(2, somScore);
+                ps.setBoolean(3, brandMentioned);
+                setNullableInt(ps, 4, mentionRank);
+                setNullableInt(ps, 5, overallScore);
+                ps.setString(6, resolvedEntityLabel);
+                ps.setInt(7, tokenCount);
+                ps.setInt(8, rankPosition);
+                ps.setDouble(9, sentimentIntensity);
+                setNullableInt(ps, 10, visibilityStage);
+                ps.setString(11, calculationVersion);
+                ps.setBoolean(12, negativeAlert);
+                ps.setDouble(13, modifiedZScore);
+                ps.setString(14, diagnosticMessage);
+                setJsonb(ps, 15, toJson(recommendedActions));
+                setJsonb(ps, 16, modelInsightsJson);
+                ps.setObject(17, LocalDate.now());
+                ps.setObject(18, auditId);
+                return ps;
+            });
+        } else {
+            auditId = UUID.randomUUID();
+            jdbc.update(con -> {
+                PreparedStatement ps = con.prepareStatement(
+                        "INSERT INTO audit_histories (id, tenant_id, job_id, project_id, query, "
+                        + "raw_response, som_score, brand_mentioned, mention_rank, overall_score, "
+                        + "resolved_entity_label, token_count, rank_position, sentiment_intensity, "
+                        + "visibility_stage, calculation_version, negative_alert, modified_z_score, "
+                        + "diagnostic_message, recommended_actions, model_insights, audit_date, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
+                ps.setObject(1, auditId);
+                ps.setString(2, workspaceId.toString());
+                ps.setObject(3, jobId);
+                ps.setObject(4, projectId);
+                ps.setString(5, queryText);
+                setJsonb(ps, 6, rawResponse);
+                ps.setDouble(7, somScore);
+                ps.setBoolean(8, brandMentioned);
+                setNullableInt(ps, 9, mentionRank);
+                setNullableInt(ps, 10, overallScore);
+                ps.setString(11, resolvedEntityLabel);
+                ps.setInt(12, tokenCount);
+                ps.setInt(13, rankPosition);
+                ps.setDouble(14, sentimentIntensity);
+                setNullableInt(ps, 15, visibilityStage);
+                ps.setString(16, calculationVersion);
+                ps.setBoolean(17, negativeAlert);
+                ps.setDouble(18, modifiedZScore);
+                ps.setString(19, diagnosticMessage);
+                setJsonb(ps, 20, toJson(recommendedActions));
+                setJsonb(ps, 21, modelInsightsJson);
+                ps.setObject(22, LocalDate.now());
+                return ps;
+            });
+        }
+        jdbc.update("DELETE FROM job_competitor_scores WHERE audit_history_id = ?", auditId);
+        if (competitorScoreRows != null) {
+            for (CompetitorScoreRow row : competitorScoreRows) {
+                jdbc.update(
+                        "INSERT INTO job_competitor_scores (id, audit_history_id, competitor_name, "
+                        + "som_score, rank_position, visibility_stage, match_status, noun_count) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        UUID.randomUUID(), auditId, row.competitorName(),
+                        row.somScore(), row.rankPosition(), row.visibilityStage(),
+                        row.matchStatus() != null ? row.matchStatus().name() : null, row.nounCount());
+            }
+        }
+        jdbc.update("UPDATE job_queries SET processed = true WHERE id = ?", queryId);
+        return auditId;
+    }
+
+    public void insertSgeResult(UUID workspaceId, UUID jobId, UUID queryId,
+                                String queryText, String sgeRawResponse,
+                                boolean sgeMentioned, int mentionCount) {
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement(
+                    "INSERT INTO sge_results (id, tenant_id, job_id, query_id, query, "
+                    + "sge_raw_response, sge_mentioned, mention_count, created_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())");
+            ps.setObject(1, UUID.randomUUID());
+            ps.setString(2, workspaceId.toString());
+            ps.setObject(3, jobId);
+            ps.setObject(4, queryId);
+            ps.setString(5, queryText);
+            setJsonb(ps, 6, sgeRawResponse);
+            ps.setBoolean(7, sgeMentioned);
+            ps.setInt(8, mentionCount);
+            return ps;
+        });
+    }
+
+    public record ProjectBrandInfo(UUID id, String brandColor, String logoUrl) {}
+
+    public Optional<ProjectBrandInfo> findProjectBrandInfo(UUID projectId) {
+        List<ProjectBrandInfo> rows = jdbc.query(
+                "SELECT id, brand_color, logo_url FROM projects WHERE id = ?",
+                (rs, rn) -> new ProjectBrandInfo(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("brand_color"),
+                        rs.getString("logo_url")),
+                projectId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
+    public List<String> findCompetitorUrlsByProjectId(UUID projectId) {
+        return jdbc.query(
+                "SELECT competitor_url FROM project_competitors WHERE project_id = ?",
+                (rs, rn) -> rs.getString("competitor_url"), projectId);
+    }
+
+    public Optional<UUID> findWorkspaceOrganizationId(UUID workspaceId) {
+        List<UUID> rows = jdbc.query(
+                "SELECT organization_id FROM workspaces WHERE id = ?",
+                (rs, rn) -> rs.getObject("organization_id", UUID.class), workspaceId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
+    public record OrgUserInfo(UUID id, String email, String passwordHash) {}
+
+    public List<JobEntity> findJobsByStatus(JobStatus status) {
+        return jdbc.query("SELECT " + JOB_COLS + " FROM jobs WHERE job_status = ?",
+                this::mapJobRow, status.name());
+    }
+
+    public List<JobEntity> findJobsPendingGapAnalysisOutput() {
+        return jdbc.query(
+                "SELECT " + JOB_COLS + " FROM jobs WHERE gap_analysis_gemini_job_name IS NOT NULL AND gap_analysis_completed = false",
+                this::mapJobRow);
+    }
+
+    public List<JobEntity> findProJobsAwaitingGapBatchCreation() {
+        return jdbc.query(
+                "SELECT " + JOB_COLS + " FROM jobs WHERE job_status = ? AND subscription_plan IN (?, ?)"
+                + " AND gap_batch_idempotency_key IS NOT NULL"
+                + " AND (gap_analysis_gemini_job_name IS NULL OR gap_analysis_gemini_job_name = '')",
+                this::mapJobRow,
+                JobStatus.COMPLETED.name(),
+                SubscriptionPlan.PRO.name(),
+                SubscriptionPlan.EXPERT.name());
+    }
+
+    public Optional<UUID> claimGapBatchIdempotencyKeyForUpdate(UUID jobId) {
+        List<JobEntity> rows = jdbc.query(
+                "SELECT " + JOB_COLS + " FROM jobs WHERE id = ? FOR UPDATE",
+                this::mapJobRow, jobId);
+        if (rows.isEmpty()) return Optional.empty();
+        JobEntity job = rows.getFirst();
+        SubscriptionPlan applied = job.getAppliedPlan();
+        if (applied == null || !applied.usesProTierFeatures()) return Optional.empty();
+        String existingName = job.getGapAnalysisGeminiJobName();
+        if (existingName != null && !existingName.isBlank()) return Optional.empty();
+        if (job.getGapBatchIdempotencyKey() == null) {
+            UUID newKey = UUID.randomUUID();
+            jdbc.update("UPDATE jobs SET gap_batch_idempotency_key = ?, updated_at = now() WHERE id = ?",
+                    newKey, jobId);
+            return Optional.of(newKey);
+        }
+        return Optional.of(job.getGapBatchIdempotencyKey());
+    }
+
+    public void saveGapAnalysisGeminiJobName(UUID jobId, String geminiJobName) {
+        jdbc.update("UPDATE jobs SET gap_analysis_gemini_job_name = ?, updated_at = now() WHERE id = ?",
+                geminiJobName, jobId);
+    }
+
+    public Optional<OrgUserInfo> findFirstActiveOrgUser(UUID organizationId) {
+        List<OrgUserInfo> rows = jdbc.query(
+                "SELECT id, email, password_hash FROM organization_users "
+                + "WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1",
+                (rs, rn) -> new OrgUserInfo(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("email"),
+                        rs.getString("password_hash")),
+                organizationId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
+    private JobEntity mapJobRow(ResultSet rs, int rowNum) throws SQLException {
+        JobEntity job = new JobEntity();
+        job.setId(rs.getObject("id", UUID.class));
+        String tid = rs.getString("tenant_id");
+        if (tid != null) job.setWorkspaceId(UUID.fromString(tid));
+        job.setProjectId(rs.getObject("project_id", UUID.class));
+        String st = rs.getString("job_status");
+        if (st != null) job.setJobStatus(JobStatus.valueOf(st));
+        String pl = rs.getString("subscription_plan");
+        if (pl != null) job.setAppliedPlan(SubscriptionPlan.valueOf(pl));
+        job.setPlanLimitsSnapshot(rs.getString("plan_limits_snapshot"));
+        job.setBrandName(rs.getString("brand_name"));
+        job.setBrandColor(rs.getString("brand_color"));
+        job.setLogoUrl(rs.getString("logo_url"));
+        job.setGeminiJobName(rs.getString("gemini_job_name"));
+        job.setErrorMessage(rs.getString("error_message"));
+        job.setPdfStatus(rs.getString("pdf_status"));
+        job.setPdfFilePath(rs.getString("pdf_file_path"));
+        Timestamp ca = rs.getTimestamp("created_at");
+        if (ca != null) job.setCreatedAt(ca.toLocalDateTime());
+        Timestamp ua = rs.getTimestamp("updated_at");
+        if (ua != null) job.setUpdatedAt(ua.toLocalDateTime());
+        job.setJobDiagnosticMessage(rs.getString("job_diagnostic_message"));
+        String jraJson = rs.getString("job_recommended_actions");
+        if (jraJson != null) {
+            try { job.setJobRecommendedActions(objectMapper.readValue(jraJson, LIST_STRING_TYPE)); }
+            catch (JsonProcessingException ignored) {}
+        }
+        job.setGapBatchIdempotencyKey(rs.getObject("gap_batch_idempotency_key", UUID.class));
+        job.setCreateIdempotencyKey(rs.getObject("create_idempotency_key", UUID.class));
+        job.setGapAnalysisGeminiJobName(rs.getString("gap_analysis_gemini_job_name"));
+        job.setGapAnalysisCompleted(rs.getBoolean("gap_analysis_completed"));
+        return job;
+    }
+
+    private AuditHistoryEntity mapAuditRow(ResultSet rs) throws SQLException {
+        AuditHistoryEntity e = new AuditHistoryEntity();
+        e.setId(rs.getObject("id", UUID.class));
+        String tid = rs.getString("tenant_id");
+        if (tid != null) e.setWorkspaceId(UUID.fromString(tid));
+        e.setJobId(rs.getObject("job_id", UUID.class));
+        e.setQuery(rs.getString("query"));
+        e.setRawResponse(rs.getString("raw_response"));
+        e.setSomScore(rs.getDouble("som_score"));
+        e.setBrandMentioned(rs.getBoolean("brand_mentioned"));
+        e.setMentionRank((Integer) rs.getObject("mention_rank"));
+        e.setOverallScore((Integer) rs.getObject("overall_score"));
+        e.setResolvedEntityLabel(rs.getString("resolved_entity_label"));
+        e.setTokenCount(rs.getInt("token_count"));
+        e.setRankPosition(rs.getInt("rank_position"));
+        e.setSentimentIntensity(rs.getDouble("sentiment_intensity"));
+        e.setVisibilityStage((Integer) rs.getObject("visibility_stage"));
+        e.setCalculationVersion(rs.getString("calculation_version"));
+        e.setNegativeAlert(rs.getBoolean("negative_alert"));
+        e.setModifiedZScore((Double) rs.getObject("modified_z_score"));
+        e.setDiagnosticMessage(rs.getString("diagnostic_message"));
+        String raJson = rs.getString("recommended_actions");
+        if (raJson != null) {
+            try { e.setRecommendedActions(objectMapper.readValue(raJson, LIST_STRING_TYPE)); }
+            catch (JsonProcessingException ignored) {}
+        }
+        e.setModelInsightsJson(rs.getString("model_insights"));
+        e.setAuditDate(rs.getObject("audit_date", LocalDate.class));
+        Timestamp ts = rs.getTimestamp("created_at");
+        if (ts != null) e.setCreatedAt(ts.toInstant());
+        return e;
+    }
+
+    private static QueryEntity mapQueryRow(ResultSet rs, int rowNum) throws SQLException {
+        QueryEntity q = new QueryEntity();
+        q.setId(rs.getObject("id", UUID.class));
+        String tid = rs.getString("tenant_id");
+        if (tid != null) q.setWorkspaceId(UUID.fromString(tid));
+        q.setJobId(rs.getObject("job_id", UUID.class));
+        q.setQueryText(rs.getString("query_text"));
+        q.setProcessed(rs.getBoolean("processed"));
+        return q;
+    }
+
+    private static void setJsonb(PreparedStatement ps, int idx, String json) throws SQLException {
+        if (json == null) {
+            ps.setNull(idx, Types.OTHER);
+        } else {
+            ps.setObject(idx, json, Types.OTHER);
+        }
+    }
+
+    private static void setNullableInt(PreparedStatement ps, int idx, Integer val) throws SQLException {
+        if (val == null) {
+            ps.setNull(idx, Types.INTEGER);
+        } else {
+            ps.setInt(idx, val);
+        }
+    }
+
+    private String toJson(Object obj) {
+        if (obj == null) return null;
+        try { return objectMapper.writeValueAsString(obj); }
+        catch (JsonProcessingException e) { return null; }
     }
 }
 </file>
@@ -2604,11 +3029,11 @@ import java.util.UUID;
 public class GapAnalysisBatchProcessor {
     private static final Logger log = LoggerFactory.getLogger(GapAnalysisBatchProcessor.class);
     private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final ObjectMapper objectMapper;
 
-    public GapAnalysisBatchProcessor(JobPersistenceService jobPersistenceService, ObjectMapper objectMapper) {
-        this.jobPersistenceService = jobPersistenceService;
+    public GapAnalysisBatchProcessor(BatchPersistenceService batchPersistence, ObjectMapper objectMapper) {
+        this.batchPersistence = batchPersistence;
         this.objectMapper = objectMapper;
     }
 
@@ -2630,7 +3055,7 @@ public class GapAnalysisBatchProcessor {
                 if (reason != null && !reason.isBlank() && !reason.startsWith("【乖離理由】")) {
                     reason = "【乖離理由】" + reason;
                 }
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     auditHistoryId,
                     reason != null ? reason : "",
                     parsed.recommendedActions(),
@@ -2644,7 +3069,7 @@ public class GapAnalysisBatchProcessor {
                 log.warn("Skipping gap batch output line jobId={} line={}", jobId, lineForLog, exception);
             }
         }
-        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+        batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 
     private String extractAiResponseText(GeminiBatchOutputRecord outputRecord) {
@@ -2692,15 +3117,15 @@ import java.util.concurrent.Executors;
 public final class GapAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(GapAnalysisService.class);
     private static final Executor SCHEDULER = Executors.newVirtualThreadPerTaskExecutor();
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final StrategyInsightService strategyInsightService;
     private final GapBatchSubmissionService gapBatchSubmissionService;
 
     public GapAnalysisService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             StrategyInsightService strategyInsightService,
             GapBatchSubmissionService gapBatchSubmissionService) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.strategyInsightService = strategyInsightService;
         this.gapBatchSubmissionService = gapBatchSubmissionService;
     }
@@ -2716,9 +3141,9 @@ public final class GapAnalysisService {
     }
 
     public void runForJob(UUID jobId) {
-        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity jobEntity = batchPersistence.findJobById(jobId);
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<AuditHistoryEntity> rows = jobPersistenceService.findResultsByJobId(jobId);
+        List<AuditHistoryEntity> rows = batchPersistence.findResultsByJobId(jobId);
         if (rows.size() < 2) {
             finalizeJobRollupAndGapFlag(jobId, rows);
             return;
@@ -2731,7 +3156,7 @@ public final class GapAnalysisService {
         Integer medStBox = strategyInsightService.medianVisibilityStage(rows);
         int medSt = medStBox != null ? medStBox : 1;
         var rollup = strategyInsightService.rollupJob(rows);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
@@ -2747,14 +3172,14 @@ public final class GapAnalysisService {
             boolean outlier = StrictMath.abs(z - medZ) >= 1.0;
             if (!outlier) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     row.getId(),
                     ins.diagnosticMessage(),
                     ins.recommendedActions(),
                     StrategyInsightService.REL_BASELINE_VERSION);
             } else if (plan == SubscriptionPlan.STANDARD) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     row.getId(),
                     ins.diagnosticMessage(),
                     ins.recommendedActions(),
@@ -2765,7 +3190,7 @@ public final class GapAnalysisService {
         }
         if (plan.usesProTierFeatures()) {
             if (outlierRows.isEmpty()) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
             } else {
                 List<AuditHistoryEntity> snapshot = List.copyOf(outlierRows);
                 SCHEDULER.execute(() -> {
@@ -2776,24 +3201,24 @@ public final class GapAnalysisService {
                         for (AuditHistoryEntity row : snapshot) {
                             Double z = row.getModifiedZScore();
                             var ins = strategyInsightService.fromModifiedZ(z != null ? z : 0.0);
-                            jobPersistenceService.updateAuditStrategyInsights(
+                            batchPersistence.updateAuditStrategyInsights(
                                 row.getId(),
                                 ins.diagnosticMessage(),
                                 ins.recommendedActions(),
                                 GeoVisibilityCalculatorService.CALCULATION_VERSION);
                         }
-                        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                        batchPersistence.markGapAnalysisCompleted(jobId, true);
                     }
                 });
             }
         } else {
-            jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+            batchPersistence.markGapAnalysisCompleted(jobId, true);
         }
     }
 
     public void retryGapBatchForJob(UUID jobId) {
         try {
-            JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+            JobEntity jobEntity = batchPersistence.findJobById(jobId);
             if (jobEntity.getJobStatus() != JobStatus.COMPLETED) {
                 return;
             }
@@ -2808,14 +3233,14 @@ public final class GapAnalysisService {
             if (jobEntity.getGapBatchIdempotencyKey() == null) {
                 return;
             }
-            List<AuditHistoryEntity> rows = jobPersistenceService.findResultsByJobId(jobId);
+            List<AuditHistoryEntity> rows = batchPersistence.findResultsByJobId(jobId);
             if (rows.size() < 2) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             Double medZ = strategyInsightService.medianModifiedZ(rows);
             if (medZ == null) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             Integer medStBox = strategyInsightService.medianVisibilityStage(rows);
@@ -2833,7 +3258,7 @@ public final class GapAnalysisService {
                 }
             }
             if (outlierRows.isEmpty()) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             gapBatchSubmissionService.submitGapAnalysisBatch(jobId, outlierRows, medZ, medSt, trendClip);
@@ -2844,11 +3269,11 @@ public final class GapAnalysisService {
 
     private void finalizeJobRollupAndGapFlag(UUID jobId, List<AuditHistoryEntity> rows) {
         var rollup = strategyInsightService.rollupJob(rows);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
-        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+        batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 }
 </file>
@@ -2870,17 +3295,17 @@ import java.util.UUID;
 @Service
 public class GapBatchSubmissionService {
     private static final int RESPONSE_EXCERPT = 1800;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final GeminiBatchClient geminiBatchClient;
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
 
     public GapBatchSubmissionService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             GeminiBatchClient geminiBatchClient,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.geminiBatchClient = geminiBatchClient;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
@@ -2895,11 +3320,11 @@ public class GapBatchSubmissionService {
         if (outlierRows == null || outlierRows.isEmpty()) {
             return;
         }
-        var keyOpt = jobPersistenceService.claimGapBatchIdempotencyKeyForUpdate(jobId);
+        var keyOpt = batchPersistence.claimGapBatchIdempotencyKeyForUpdate(jobId);
         if (keyOpt.isEmpty()) {
             return;
         }
-        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity jobEntity = batchPersistence.findJobById(jobId);
         String existing = jobEntity.getGapAnalysisGeminiJobName();
         if (existing != null && !existing.isBlank()) {
             return;
@@ -2914,7 +3339,7 @@ public class GapBatchSubmissionService {
         var path = geminiBatchClient.writeGapAnalystBatchJsonlToTempFile(lines);
         var meta = geminiBatchClient.uploadJsonlFile(path);
         var batch = geminiBatchClient.createBatchJob(meta, idempotencyKey.toString());
-        jobPersistenceService.saveGapAnalysisGeminiJobName(jobId, batch.name());
+        batchPersistence.saveGapAnalysisGeminiJobName(jobId, batch.name());
     }
 
     private String extractResponseExcerpt(String raw) {
@@ -2963,19 +3388,19 @@ import java.util.concurrent.CompletableFuture;
 @Service
 public class GeminiBatchExecutorService {
     private final GeminiBatchClient geminiBatchClient;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager planBasedQuotaManager) {
         this.geminiBatchClient = geminiBatchClient;
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
@@ -2987,10 +3412,10 @@ public class GeminiBatchExecutorService {
         int quotaRefundOnFailure = 0;
         try {
             List<QueryEntity> unprocessedQueryEntities =
-                jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
+                batchPersistence.findUnprocessedQueriesByJobId(jobEntity.getId());
             if (unprocessedQueryEntities.isEmpty()) {
-                jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
-                JobEntity emptyJobEntity = jobPersistenceService.findJobById(jobEntity.getId());
+                batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
+                JobEntity emptyJobEntity = batchPersistence.findJobById(jobEntity.getId());
                 jobStatusBroadcastPublisher.publish(emptyJobEntity);
                 projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
@@ -3006,19 +3431,19 @@ public class GeminiBatchExecutorService {
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
             String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
             GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
-            jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(
+            batchPersistence.updateJobStatusToSubmittedWithGeminiJobName(
                 jobEntity.getId(), createdBatchJob.name());
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } catch (Exception exception) {
             if (quotaRefundOnFailure > 0) {
                 var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
                 planBasedQuotaManager.addTokens(tid, quotaRefundOnFailure);
             }
-            jobPersistenceService.updateJobStatus(
+            batchPersistence.updateJobStatus(
                 jobEntity.getId(),
                 JobStatus.FAILED,
                 ExceptionStackTraceText.of(exception));
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } finally {
             if (jsonlPath != null) {
                 try {
@@ -3077,7 +3502,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
@@ -3089,9 +3513,7 @@ import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
 import java.lang.StrictMath;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -3107,11 +3529,10 @@ import java.util.UUID;
 public class GeminiResultProcessor {
     private static final Logger log = LoggerFactory.getLogger(GeminiResultProcessor.class);
     private static final int OUTPUT_LINE_LOG_MAX_CHARS = 2000;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final ObjectMapper objectMapper;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-    private final ProjectRepository projectRepository;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
     private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
@@ -3120,11 +3541,10 @@ public class GeminiResultProcessor {
     private final StrategyInsightService strategyInsightService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     public GeminiResultProcessor(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             ObjectMapper objectMapper,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
-            ProjectRepository projectRepository,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             GapAnalysisService gapAnalysisService,
@@ -3132,11 +3552,10 @@ public class GeminiResultProcessor {
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             InformationTheoryBasedAggregator informationTheoryBasedAggregator,
             PlanBasedQuotaManager planBasedQuotaManager) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.objectMapper = objectMapper;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
-        this.projectRepository = projectRepository;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
         this.gapAnalysisService = gapAnalysisService;
@@ -3145,7 +3564,7 @@ public class GeminiResultProcessor {
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
         this.planBasedQuotaManager = planBasedQuotaManager;
     }
-    @Transactional
+    @Transactional("batchTransactionManager")
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<String> competitorHosts = loadCompetitorHosts(jobEntity);
@@ -3207,7 +3626,7 @@ public class GeminiResultProcessor {
                 .orElse(0.0);
         List<SomRawMetrics> metricsList =
                 parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
-        long plannedQueries = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        long plannedQueries = batchPersistence.countQueriesByJobId(jobEntity.getId());
         var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
@@ -3220,25 +3639,27 @@ public class GeminiResultProcessor {
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
             int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
-                jobPersistenceService.findQueryById(line.queryId()).ifPresent(queryEntity -> {
-                    jobPersistenceService.upsertAuditHistoryForJobQuery(
-                        jobEntity.getId(),
+                batchPersistence.findQueryById(line.queryId()).ifPresent(queryEntity -> {
+                    UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+                    UUID pid = Objects.requireNonNull(jobEntity.getProjectId());
+                    var negAlert = m.sentimentIntensity() < -0.5;
+                    var insight = strategyInsightService.fromModifiedZ(gbvs.modifiedZScore());
+                    batchPersistence.upsertAuditHistory(
+                        jobEntity.getId(), wid, pid,
                         line.queryId(),
                         queryEntity.getQueryText(),
                         jsonbOperations.serialize(line.consultantOutputData()),
-                        somScore,
-                        brand,
-                        m.rankPosition(),
-                        overall,
-                        line.resolved(),
-                        m.tokenCount(),
-                        m.rankPosition(),
-                        m.sentimentIntensity(),
+                        somScore, brand,
+                        m.rankPosition(), overall,
+                        line.resolved(), m.tokenCount(),
+                        m.rankPosition(), m.sentimentIntensity(),
                         gbvs.visibilityStage(),
                         GeoVisibilityCalculatorService.CALCULATION_VERSION,
-                        gbvs.modifiedZScore(),
-                        List.of(),
-                        null);
+                        gbvs.modifiedZScore(), negAlert,
+                        insight.diagnosticMessage(),
+                        new ArrayList<>(insight.recommendedActions()),
+                        null,
+                        List.of());
                     if (quotaSettled.add(line.queryId())) {
                         long textLen = (long) queryEntity.getQueryText().length()
                             + (mainBrand != null ? mainBrand.length() : 0);
@@ -3251,16 +3672,16 @@ public class GeminiResultProcessor {
                     }
                 });
         }
-        for (var qe : jobPersistenceService.findQueriesByJobId(jobEntity.getId())) {
+        for (var qe : batchPersistence.findQueriesByJobId(jobEntity.getId())) {
             if (!quotaSettled.contains(qe.getId())) {
                 planBasedQuotaManager.addTokens(
                     tid,
                     QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
             }
         }
-        var auditsAfter = jobPersistenceService.findResultsByJobId(jobEntity.getId());
+        var auditsAfter = batchPersistence.findResultsByJobId(jobEntity.getId());
         var rollup = strategyInsightService.rollupJob(auditsAfter);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobEntity.getId(),
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
@@ -3277,14 +3698,11 @@ public class GeminiResultProcessor {
         if (projectId == null) {
             return List.of();
         }
-        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findById(projectId)
-            .map(ProjectEntity::getCompetitorUrls)
-            .orElse(List.of())
+        return batchPersistence.findCompetitorUrlsByProjectId(projectId)
             .stream()
             .map(EntityNormalizer::hostLabelFromUrl)
             .filter(s -> !s.isBlank())
-            .toList());
+            .toList();
     }
     private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
         if (key == null || key.isBlank()) {
@@ -3345,15 +3763,17 @@ import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -3364,41 +3784,40 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class JobPersistenceService {
     public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
+    private final JobPersistenceService self;
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final AuditHistoryRepository auditHistoryRepository;
     private final ProjectRepository projectRepository;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectManagementService projectManagementService;
-    private final JdbcTemplate jdbcTemplate;
-    private final TransactionTemplate jobCreateTransactionTemplate;
+    private final JdbcTemplate batchJdbcTemplate;
     private final StrategyInsightService strategyInsightService;
     private final JsonbOperations jsonbOperations;
     public JobPersistenceService(
+            @Lazy JobPersistenceService self,
             JobRepository jobRepository,
             QueryRepository queryRepository,
             AuditHistoryRepository auditHistoryRepository,
             ProjectRepository projectRepository,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectManagementService projectManagementService,
-            JdbcTemplate jdbcTemplate,
-            PlatformTransactionManager platformTransactionManager,
+            @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
             StrategyInsightService strategyInsightService,
             JsonbOperations jsonbOperations) {
+        this.self = self;
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
         this.projectRepository = projectRepository;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectManagementService = projectManagementService;
-        this.jdbcTemplate = jdbcTemplate;
-        this.jobCreateTransactionTemplate = new TransactionTemplate(platformTransactionManager);
-        this.jobCreateTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.batchJdbcTemplate = batchJdbcTemplate;
         this.strategyInsightService = strategyInsightService;
         this.jsonbOperations = jsonbOperations;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT tenant_id FROM jobs WHERE id = ?",
             ps -> ps.setObject(1, jobId),
             (rs, rowNum) -> rs.getString(1));
@@ -3408,7 +3827,7 @@ public class JobPersistenceService {
         return UUID.fromString(rows.get(0));
     }
     private UUID readWorkspaceIdForQuery(UUID queryId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT j.tenant_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
             ps -> ps.setObject(1, queryId),
             (rs, rowNum) -> rs.getString(1));
@@ -3418,7 +3837,7 @@ public class JobPersistenceService {
         return UUID.fromString(rows.get(0));
     }
     private UUID readWorkspaceIdForAudit(UUID auditHistoryId) {
-        List<String> rows = jdbcTemplate.query(
+        List<String> rows = batchJdbcTemplate.query(
             "SELECT tenant_id FROM audit_histories WHERE id = ?",
             ps -> ps.setObject(1, auditHistoryId),
             (rs, rowNum) -> rs.getString(1));
@@ -3598,6 +4017,7 @@ public class JobPersistenceService {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
+        UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         return TenantContext.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
@@ -3605,18 +4025,11 @@ public class JobPersistenceService {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
+            TenantContextHolder.set(orgId, workspaceId);
             try {
-                var created = jobCreateTransactionTemplate.execute(status -> {
-                    JobEntity jobEntity = new JobEntity();
-                    jobEntity.setBrandName(normalizedBrandName);
-                    jobEntity.setWorkspaceId(workspaceId);
-                    jobEntity.setProjectId(projectEntity.getId());
-                    jobEntity.setCreateIdempotencyKey(idempotencyKey);
-                    String pbc = projectEntity.getBrandColor();
-                    jobEntity.setBrandColor(pbc != null && !pbc.isBlank() ? pbc : "#4F46E5");
-                    jobEntity.setLogoUrl(projectEntity.getLogoUrl());
-                    return jobRepository.save(jobEntity);
-                });
+                var created = self.saveJobInNewTransaction(
+                        normalizedBrandName, workspaceId, projectEntity.getId(),
+                        idempotencyKey, projectEntity.getBrandColor(), projectEntity.getLogoUrl());
                 return new JobCreateOutcome(created, true);
             } catch (DataIntegrityViolationException exception) {
                 if (idempotencyKey == null) {
@@ -3625,8 +4038,23 @@ public class JobPersistenceService {
                 return jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey)
                     .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
                     .orElseThrow(() -> exception);
+            } finally {
+                TenantContextHolder.clear();
             }
         });
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public JobEntity saveJobInNewTransaction(
+            String brandName, UUID workspaceId, UUID projectId,
+            UUID idempotencyKey, String brandColor, String logoUrl) {
+        JobEntity jobEntity = new JobEntity();
+        jobEntity.setBrandName(brandName);
+        jobEntity.setWorkspaceId(workspaceId);
+        jobEntity.setProjectId(projectId);
+        jobEntity.setCreateIdempotencyKey(idempotencyKey);
+        jobEntity.setBrandColor(brandColor != null && !brandColor.isBlank() ? brandColor : "#4F46E5");
+        jobEntity.setLogoUrl(logoUrl);
+        return jobRepository.save(jobEntity);
     }
     @Transactional
     public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
@@ -3727,7 +4155,18 @@ public class JobPersistenceService {
             jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
             jobEntity.setPdfFilePath(absolutePath);
             JobEntity saved = jobRepository.save(jobEntity);
-            jobStatusBroadcastPublisher.publish(saved);
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            jobStatusBroadcastPublisher.publish(saved);
+                        }
+                    }
+                );
+            } else {
+                jobStatusBroadcastPublisher.publish(saved);
+            }
             return saved;
         });
     }
@@ -3740,7 +4179,18 @@ public class JobPersistenceService {
             jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
             jobEntity.setPdfFilePath(null);
             JobEntity saved = jobRepository.save(jobEntity);
-            jobStatusBroadcastPublisher.publish(saved);
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            jobStatusBroadcastPublisher.publish(saved);
+                        }
+                    }
+                );
+            } else {
+                jobStatusBroadcastPublisher.publish(saved);
+            }
             return saved;
         });
     }
@@ -3847,6 +4297,8 @@ import com.geo.analytics.infrastructure.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Objects;
@@ -3975,23 +4427,31 @@ public class JobQuerySubmissionService {
             var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
             throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
         }
+        SecurityContext parentSecurityContext = SecurityContextHolder.getContext();
         @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = queryEntities.stream()
                 .map(qe -> CompletableFuture.runAsync(
-                        () -> TenantContext.executeWithTenant(
-                                tenantId,
-                                () -> {
-                                    try {
-                                        processOneQueryRealtimeCore(
-                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
-                                    } catch (Throwable x) {
-                                        quotaManager.addTokens(
-                                                tenantId,
-                                                QuotaCreditCalculator.refundAfterDeposit(
-                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
-                                        throw x;
-                                    }
-                                }),
+                        () -> {
+                            SecurityContextHolder.setContext(parentSecurityContext);
+                            try {
+                                TenantContext.executeWithTenant(
+                                        tenantId,
+                                        () -> {
+                                            try {
+                                                processOneQueryRealtimeCore(
+                                                        jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                            } catch (Throwable x) {
+                                                quotaManager.addTokens(
+                                                        tenantId,
+                                                        QuotaCreditCalculator.refundAfterDeposit(
+                                                                QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                                throw x;
+                                            }
+                                        });
+                            } finally {
+                                SecurityContextHolder.clearContext();
+                            }
+                        },
                         streamDeliveryVirtualExecutor))
                 .toArray(CompletableFuture[]::new);
         try {
@@ -5730,8 +6190,6 @@ public class SubscriptionManagementService {
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.CompetitorScoreRow;
-import com.geo.analytics.application.dto.CrawledPageData;
-import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
@@ -5897,9 +6355,10 @@ public class SyncVerificationService {
 <file path="src/main/java/com/geo/analytics/application/service/WorkspacePlanResolver.java">
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
-import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -5907,17 +6366,41 @@ import java.util.UUID;
 
 @Service
 public class WorkspacePlanResolver {
-    private final WorkspaceRepository workspaceRepository;
+    public record WorkspaceInfo(UUID organizationId, SubscriptionPlan plan) {}
 
-    public WorkspacePlanResolver(WorkspaceRepository workspaceRepository) {
-        this.workspaceRepository = Objects.requireNonNull(workspaceRepository);
+    private static final String SQL = """
+            SELECT organization_id, subscription_plan
+            FROM workspaces
+            WHERE id = ? AND deleted_at IS NULL
+            """;
+
+    private final JdbcTemplate batchJdbcTemplate;
+
+    public WorkspacePlanResolver(@Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate) {
+        this.batchJdbcTemplate = Objects.requireNonNull(batchJdbcTemplate);
     }
 
     public SubscriptionPlan resolvePlan(UUID workspaceId) {
-        return workspaceRepository.findById(workspaceId)
-                .map(WorkspaceEntity::getSubscriptionPlan)
-                .filter(Objects::nonNull)
-                .orElse(SubscriptionPlan.STANDARD);
+        return resolveWorkspaceInfo(workspaceId).plan();
+    }
+
+    public WorkspaceInfo resolveWorkspaceInfo(UUID workspaceId) {
+        try {
+            return batchJdbcTemplate.queryForObject(SQL, (rs, rowNum) -> {
+                UUID orgId = rs.getObject("organization_id", UUID.class);
+                String planStr = rs.getString("subscription_plan");
+                SubscriptionPlan plan = SubscriptionPlan.STANDARD;
+                if (planStr != null) {
+                    try {
+                        plan = SubscriptionPlan.valueOf(planStr);
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+                return new WorkspaceInfo(orgId, plan);
+            }, workspaceId);
+        } catch (EmptyResultDataAccessException e) {
+            return new WorkspaceInfo(null, SubscriptionPlan.STANDARD);
+        }
     }
 }
 </file>
@@ -13671,9 +14154,13 @@ import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -13682,44 +14169,60 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(prefix = "app.bootstrap", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class DataSeeder implements CommandLineRunner {
 
+    private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
     private static final String SEED_EMAIL = "bootstrap@example.com";
     private static final String SEED_PASSWORD = "bootstrap";
 
+    private final DataSeeder self;
     private final WorkspaceRepository workspaceRepository;
     private final OrganizationUserRepository organizationUserRepository;
     private final PasswordEncoder passwordEncoder;
 
     public DataSeeder(
+            @Lazy DataSeeder self,
             WorkspaceRepository workspaceRepository,
             OrganizationUserRepository organizationUserRepository,
             PasswordEncoder passwordEncoder) {
+        this.self = self;
         this.workspaceRepository = workspaceRepository;
         this.organizationUserRepository = organizationUserRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
     @Override
-    @Transactional
     public void run(String... args) {
-        if (workspaceRepository.count() > 0) {
-            return;
-        }
+        UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
-        TenantContext.executeWithTenant(wid, () -> {
+        TenantContextHolder.set(orgId, wid);
+        try {
+            TenantContext.executeWithTenant(wid, () -> self.seedData(orgId, wid));
+        } finally {
+            TenantContextHolder.clear();
+        }
+    }
+
+    @Transactional
+    public void seedData(UUID orgId, UUID wid) {
+        if (workspaceRepository.count() == 0) {
             WorkspaceEntity w = new WorkspaceEntity();
             w.setId(wid);
-            w.setOrganizationId(DefaultTenantIds.DEFAULT_ORGANIZATION_ID);
+            w.setOrganizationId(orgId);
             w.setName("Default");
             workspaceRepository.save(w);
             if (organizationUserRepository.findByEmailAndDeletedAtIsNull(SEED_EMAIL).isEmpty()) {
                 OrganizationUser u = new OrganizationUser();
-                u.setOrganizationId(DefaultTenantIds.DEFAULT_ORGANIZATION_ID);
+                u.setOrganizationId(orgId);
                 u.setEmail(SEED_EMAIL);
                 u.setPasswordHash(passwordEncoder.encode(SEED_PASSWORD));
                 u.setRole(OrganizationUserRole.ADMIN);
                 organizationUserRepository.save(u);
             }
-        });
+        }
+        log.info("\n=========================================\n"
+                + "[DEV] 初期ユーザーでのログイン情報:\n"
+                + "Email: {}\n"
+                + "Password: {}\n"
+                + "=========================================", SEED_EMAIL, SEED_PASSWORD);
     }
 }
 </file>
@@ -14528,25 +15031,75 @@ public class CrawlerConfiguration {
 }
 </file>
 
-<file path="src/main/java/com/geo/analytics/infrastructure/config/JpaTransactionConfiguration.java">
+<file path="src/main/java/com/geo/analytics/infrastructure/config/DataSourceConfig.java">
 package com.geo.analytics.infrastructure.config;
 
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManagerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import javax.sql.DataSource;
+
 @Configuration
-@Profile("!test")
-public class JpaTransactionConfiguration {
+public class DataSourceConfig {
+
+    @Bean
+    @Primary
+    @ConfigurationProperties("spring.datasource.api.hikari")
+    public HikariDataSource apiDataSource(
+            @Value("${spring.datasource.api.jdbc-url}") String jdbcUrl,
+            @Value("${spring.datasource.api.username}") String username,
+            @Value("${spring.datasource.api.password:}") String password) {
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(jdbcUrl);
+        ds.setUsername(username);
+        ds.setPassword(password);
+        return ds;
+    }
+
+    @Bean("batchDataSource")
+    @ConfigurationProperties("spring.datasource.batch.hikari")
+    public HikariDataSource batchDataSource(
+            @Value("${spring.datasource.batch.jdbc-url}") String jdbcUrl,
+            @Value("${spring.datasource.batch.username}") String username,
+            @Value("${spring.datasource.batch.password:}") String password) {
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(jdbcUrl);
+        ds.setUsername(username);
+        ds.setPassword(password);
+        return ds;
+    }
 
     @Bean
     @Primary
     public PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
         return new JpaTransactionManager(entityManagerFactory);
+    }
+
+    @Bean
+    @Primary
+    public JdbcTemplate jdbcTemplate(@Qualifier("apiDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean("batchJdbcTemplate")
+    public JdbcTemplate batchJdbcTemplate(@Qualifier("batchDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean("batchTransactionManager")
+    public PlatformTransactionManager batchTransactionManager(
+            @Qualifier("batchDataSource") DataSource dataSource) {
+        return new JdbcTransactionManager(dataSource);
     }
 }
 </file>
@@ -14703,7 +15256,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -14742,9 +15295,9 @@ public class SecurityConfig {
                         .csrfTokenRepository(tokenRepository)
                         .csrfTokenRequestHandler(requestHandler)
                         .ignoringRequestMatchers(
-                                AntPathRequestMatcher.antMatcher("/ws/**"),
-                                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                                AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh")))
+                                PathPatternRequestMatcher.withDefaults().matcher("/ws/**"),
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh")))
                 .httpBasic(basic -> basic.authenticationEntryPoint(unauthorizedEntryPoint))
                 .formLogin(Customizer.withDefaults())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -14809,23 +15362,29 @@ import com.geo.analytics.domain.matching.NormalizationLayer;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.worksap.nlp.sudachi.Config;
 import com.worksap.nlp.sudachi.Dictionary;
 import com.worksap.nlp.sudachi.DictionaryFactory;
+import com.worksap.nlp.sudachi.PathAnchor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.ResourceUtils;
-import java.lang.StrictMath;
 import java.io.File;
 import java.io.IOException;
+import java.lang.StrictMath;
 
 @Configuration
 public class SudachiConfig {
+
     @Bean(destroyMethod = "close")
     public Dictionary sudachiDictionary() throws IOException {
         File dictFile = ResourceUtils.getFile("classpath:system_core.dic");
         String dictPath = dictFile.getAbsolutePath().replace("\\", "/");
         String settings = "{\"systemDict\":\"" + dictPath + "\"}";
-        return new DictionaryFactory().create(settings);
+        DictionaryFactory dictionaryFactory = new DictionaryFactory();
+        Config defaults = Config.defaultConfig();
+        Config passed = Config.fromJsonString(settings, PathAnchor.classpath().andThen(PathAnchor.none()));
+        return dictionaryFactory.create(passed.withFallback(defaults));
     }
 
     @Bean
@@ -15167,7 +15726,7 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
         String pageUrl = pdfBaseUrl + "/job/" + jobId + "?pdf=1";
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+        try (SemaphoreLease _ = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser, PdfBrowserAuthHeaders.NONE)) {
@@ -15187,7 +15746,7 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel, PdfBrowserAuthHeaders browserAuth) {
         String encodedToken = URLEncoder.encode(internalToken, StandardCharsets.UTF_8);
         String pageUrl = pdfBaseUrl + "/reports/print/" + jobId + "?internal_token=" + encodedToken;
-        try (SemaphoreLease ignored = SemaphoreLease.acquire(pdfSemaphore);
+        try (SemaphoreLease _ = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
             try (BrowserContextLease contextLease = new BrowserContextLease(browser, browserAuth)) {
@@ -15220,7 +15779,7 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
     private static String pdfAuthBootstrapScript(String rawJwt, String workspaceTenantId) {
         String tokenLit = jsSingleQuotedLiteral(rawJwt);
         String tenantLit = jsSingleQuotedLiteral(workspaceTenantId);
-        return "() => {\n"
+        return "(() => {\n"
                 + "  const token = "
                 + tokenLit
                 + ";\n"
@@ -15235,7 +15794,7 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
                 + "    window.__PDF_AUTH_TOKEN__ = token;\n"
                 + "    window.__PDF_TENANT_ID__ = tenant;\n"
                 + "  } catch (e) {}\n"
-                + "}";
+                + "})();";
     }
 
     private static String jsSingleQuotedLiteral(String value) {
@@ -15736,24 +16295,35 @@ import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.hibernate.Session;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Aspect
 @Component
+@ConditionalOnProperty(prefix = "app.security.rls", name = "enabled", havingValue = "true", matchIfMissing = true)
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class RlsConnectionInterceptor {
 
     private static final String SET_ORG = "SELECT set_config('app.current_org_id', ?, true)";
     private static final String SET_TENANT = "SELECT set_config('app.current_tenant_id', ?, true)";
+    private static final String RESOLVE_ORG = "SELECT organization_id FROM workspaces WHERE id = ? AND deleted_at IS NULL";
 
     private final EntityManager entityManager;
+    private final JdbcTemplate batchJdbcTemplate;
     private final boolean rlsEnabled;
 
-    public RlsConnectionInterceptor(EntityManager entityManager, AppProperties appProperties) {
+    public RlsConnectionInterceptor(
+            EntityManager entityManager,
+            @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
+            AppProperties appProperties) {
         this.entityManager = entityManager;
+        this.batchJdbcTemplate = batchJdbcTemplate;
         boolean enabled = true;
         if (appProperties.getSecurity() != null && appProperties.getSecurity().getRls() != null) {
             enabled = appProperties.getSecurity().getRls().isEnabled();
@@ -15772,11 +16342,12 @@ public class RlsConnectionInterceptor {
         if (org.isEmpty() && tenant.isEmpty()) {
             return pjp.proceed();
         }
+        UUID resolvedOrg = org.orElseGet(() -> resolveOrgFromWorkspace(tenant.orElse(null)));
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
-            if (org.isPresent()) {
+            if (resolvedOrg != null) {
                 try (PreparedStatement ps = connection.prepareStatement(SET_ORG)) {
-                    ps.setString(1, org.get().toString());
+                    ps.setString(1, resolvedOrg.toString());
                     ps.execute();
                 }
             }
@@ -15788,6 +16359,17 @@ public class RlsConnectionInterceptor {
             }
         });
         return pjp.proceed();
+    }
+
+    private UUID resolveOrgFromWorkspace(UUID workspaceId) {
+        if (workspaceId == null) {
+            return null;
+        }
+        try {
+            return batchJdbcTemplate.queryForObject(RESOLVE_ORG, UUID.class, workspaceId);
+        } catch (EmptyResultDataAccessException e) {
+            return null;
+        }
     }
 }
 </file>
@@ -15807,7 +16389,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -15816,11 +16398,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 35)
 public class RateLimitFilter extends OncePerRequestFilter {
 
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
     private static final List<RequestMatcher> SKIP_RATE_LIMIT =
             List.of(
-                    AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/csrf"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
 
     private final RateLimiterService rateLimiterService;
 
@@ -15972,6 +16555,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface OrganizationUserRepository extends JpaRepository<OrganizationUser, UUID> {
 
     Optional<OrganizationUser> findByEmailAndDeletedAtIsNull(String email);
+
+    Optional<OrganizationUser> findFirstByOrganizationIdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID organizationId);
 
     Optional<OrganizationUser> findFirstByOrganizationIdAndRoleAndDeletedAtIsNullOrderByCreatedAtAsc(
             UUID organizationId, OrganizationUserRole role);
@@ -16244,7 +16829,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -16252,17 +16837,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
     private static final List<RequestMatcher> SKIP_MATCHERS =
             List.of(
-                    AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/csrf"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.OPTIONS, "/**"),
-                    new AntPathRequestMatcher("/webauthn/**"),
-                    new AntPathRequestMatcher("/login/webauthn/**"),
-                    new AntPathRequestMatcher("/login"),
-                    new AntPathRequestMatcher("/error"),
-                    new AntPathRequestMatcher("/ws/**"));
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher(HttpMethod.OPTIONS, "/**"),
+                    PATHS.matcher("/webauthn/**"),
+                    PATHS.matcher("/login/webauthn/**"),
+                    PATHS.matcher("/login"),
+                    PATHS.matcher("/error"),
+                    PATHS.matcher("/ws/**"));
 
     private final TokenService tokenService;
     private final UserSessionRepository userSessionRepository;
@@ -16282,16 +16868,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return SKIP_MATCHERS.stream().anyMatch(m -> m.matches(request));
     }
 
+    private String extractToken(HttpServletRequest request) {
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            String bearer = header.substring(7).trim();
+            if (!bearer.isEmpty()) {
+                return bearer;
+            }
+        }
+        String path = request.getRequestURI();
+        if (path != null && path.contains("/api/v1/jobs/") && path.endsWith("/stream")) {
+            String queryToken = request.getParameter("token");
+            if (queryToken != null && !queryToken.isBlank()) {
+                return queryToken.trim();
+            }
+        }
+        return null;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-        String token = header.substring(7).trim();
-        if (token.isEmpty()) {
+        String token = extractToken(request);
+        if (token == null) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -16628,9 +17227,12 @@ package com.geo.analytics.infrastructure.tenant;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.lang.ScopedValue;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 public final class TenantContext {
     public static final ScopedValue<String> TENANT_ID = ScopedValue.newInstance();
@@ -16647,19 +17249,75 @@ public final class TenantContext {
     }
 
     public static void executeWithTenant(UUID tenantId, Runnable runnable) {
-        ScopedValue.where(TENANT_ID, tenantId.toString()).run(runnable);
+        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
+        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
+        try {
+            SecurityContextHolder.setContext(prevSecurity);
+            ScopedValue.where(TENANT_ID, tenantId.toString()).run(runnable);
+        } finally {
+            restoreHolder(prevOrg, prevTenant);
+            restoreSecurityContext(prevSecurity);
+        }
     }
 
     public static <T> T executeWithTenant(UUID tenantId, Callable<T> callable) {
-        return ScopedValue.where(TENANT_ID, tenantId.toString()).call(() -> wrapCallable(callable));
+        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
+        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
+        try {
+            SecurityContextHolder.setContext(prevSecurity);
+            return ScopedValue.where(TENANT_ID, tenantId.toString()).call(() -> wrapCallable(callable));
+        } finally {
+            restoreHolder(prevOrg, prevTenant);
+            restoreSecurityContext(prevSecurity);
+        }
     }
 
     public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
-        ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).run(runnable);
+        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
+        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
+        try {
+            SecurityContextHolder.setContext(prevSecurity);
+            ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).run(runnable);
+        } finally {
+            restoreHolder(prevOrg, prevTenant);
+            restoreSecurityContext(prevSecurity);
+        }
     }
 
     public static <T> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Callable<T> callable) {
-        return ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).call(() -> wrapCallable(callable));
+        Optional<UUID> prevOrg = TenantContextHolder.getOrganizationId();
+        Optional<UUID> prevTenant = TenantContextHolder.getTenantId();
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        TenantContextHolder.set(prevOrg.orElse(null), tenantId);
+        try {
+            SecurityContextHolder.setContext(prevSecurity);
+            return ScopedValue.where(TENANT_ID, tenantId.toString()).where(TENANT_PLAN, plan).call(() -> wrapCallable(callable));
+        } finally {
+            restoreHolder(prevOrg, prevTenant);
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    private static void restoreSecurityContext(SecurityContext previous) {
+        if (previous == null || previous.getAuthentication() == null) {
+            SecurityContextHolder.clearContext();
+        } else {
+            SecurityContextHolder.setContext(previous);
+        }
+    }
+
+    private static void restoreHolder(Optional<UUID> prevOrg, Optional<UUID> prevTenant) {
+        if (prevOrg.isEmpty() && prevTenant.isEmpty()) {
+            TenantContextHolder.clear();
+        } else {
+            TenantContextHolder.set(prevOrg.orElse(null), prevTenant.orElse(null));
+        }
     }
 
     private static <T> T wrapCallable(Callable<T> callable) {
@@ -16689,7 +17347,7 @@ import java.util.UUID;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -16699,11 +17357,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class TenantContextFilter extends OncePerRequestFilter {
     public static final String TENANT_HEADER = "X-Tenant-ID";
 
+    private static final PathPatternRequestMatcher.Builder PATHS = PathPatternRequestMatcher.withDefaults();
     private static final List<RequestMatcher> SKIP_TENANT_HEADER =
             List.of(
-                    AntPathRequestMatcher.antMatcher(HttpMethod.GET, "/api/csrf"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/login"),
-                    AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.GET, "/api/csrf"),
+                    PATHS.matcher(HttpMethod.POST, "/api/login"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
 
     private final WorkspacePlanResolver workspacePlanResolver;
 
@@ -16735,9 +17394,10 @@ public class TenantContextFilter extends OncePerRequestFilter {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid " + TENANT_HEADER);
             return;
         }
-        var plan = workspacePlanResolver.resolvePlan(tenantUuid);
+        var info = workspacePlanResolver.resolveWorkspaceInfo(tenantUuid);
+        TenantContextHolder.set(info.organizationId(), tenantUuid);
         try {
-            TenantContext.executeWithTenantAndPlan(tenantUuid, plan, () -> {
+            TenantContext.executeWithTenantAndPlan(tenantUuid, info.plan(), () -> {
                 try {
                     filterChain.doFilter(request, response);
                 } catch (IOException e) {
@@ -16753,6 +17413,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
+        } finally {
+            TenantContextHolder.clear();
         }
     }
 
@@ -18050,17 +18712,21 @@ import com.geo.analytics.web.dto.ErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.sql.SQLTransientConnectionException;
 
 import java.time.Duration;
 import java.util.Map;
@@ -18202,6 +18868,18 @@ public class GlobalExceptionHandler {
                 .body(problemDetail);
     }
 
+    @ExceptionHandler({CannotGetJdbcConnectionException.class, SQLTransientConnectionException.class})
+    public ResponseEntity<ProblemDetail> handleConnectionPoolExhausted(Exception exception) {
+        logger.warn("Database connection pool exhausted", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE, "Database connections are currently exhausted. Please retry shortly.");
+        problemDetail.setTitle("Service Unavailable");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
@@ -18239,11 +18917,18 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-  datasource:
     url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
-    username: "postgres"
+    user: "postgres"
     password: "Koma7851"
-    driver-class-name: org.postgresql.Driver
+  datasource:
+    api:
+      jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+      username: "api_worker"
+      password: "api_worker_pass"
+    batch:
+      jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+      username: "batch_worker"
+      password: "batch_worker_pass"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -18254,6 +18939,11 @@ spring:
       "[org.hibernate.envers.revision_type_field_name]": revtype
     show-sql: false
     open-in-view: false
+
+logging:
+  level:
+    com.geo.analytics: DEBUG
+    org.springframework.security: DEBUG
 </file>
 
 <file path="src/main/resources/application-prod.yml">
@@ -18301,9 +18991,27 @@ app:
 spring:
   profiles:
     default: dev
+  datasource:
+    api:
+      jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+      username: "${API_WORKER_USER:api_worker}"
+      password: "${API_WORKER_PASSWORD:api_worker_pass}"
+      hikari:
+        connection-timeout: 3000
+        maximum-pool-size: 20
+    batch:
+      jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+      username: "${BATCH_WORKER_USER:batch_worker}"
+      password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
+      hikari:
+        connection-timeout: 0
+        maximum-pool-size: 10
   flyway:
     enabled: true
     baseline-on-migrate: true
+    url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
+    user: "${FLYWAY_USER:postgres}"
+    password: "${FLYWAY_PASSWORD:}"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -19336,6 +20044,55 @@ ALTER TABLE organization_users
 DROP TYPE user_role;
 </file>
 
+<file path="src/main/resources/db/migration/V3__setup_roles_and_grants.sql">
+DO $$
+BEGIN
+    CREATE ROLE api_worker WITH LOGIN PASSWORD 'api_worker_pass';
+EXCEPTION WHEN duplicate_object THEN
+    NULL;
+END $$;
+
+DO $$
+BEGIN
+    CREATE ROLE batch_worker WITH LOGIN PASSWORD 'batch_worker_pass';
+EXCEPTION WHEN duplicate_object THEN
+    NULL;
+END $$;
+
+ALTER ROLE api_worker WITH LOGIN PASSWORD 'api_worker_pass';
+ALTER ROLE batch_worker WITH LOGIN PASSWORD 'batch_worker_pass';
+ALTER ROLE batch_worker BYPASSRLS;
+
+ALTER ROLE api_worker SET statement_timeout = 10000;
+ALTER ROLE batch_worker SET statement_timeout = 0;
+
+GRANT USAGE ON SCHEMA public TO api_worker, batch_worker;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO api_worker, batch_worker;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO api_worker, batch_worker;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_worker, batch_worker;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO api_worker, batch_worker;
+</file>
+
+<file path="src/main/resources/db/migration/V4__auth_select_policy.sql">
+DROP POLICY IF EXISTS organization_users_auth_select_policy ON public.organization_users;
+CREATE POLICY organization_users_auth_select_policy ON public.organization_users
+    FOR SELECT TO api_worker
+    USING (
+        NULLIF(current_setting('app.current_org_id', true), '') IS NULL
+        AND deleted_at IS NULL
+    );
+
+DROP POLICY IF EXISTS user_sessions_auth_select_policy ON public.user_sessions;
+CREATE POLICY user_sessions_auth_select_policy ON public.user_sessions
+    FOR SELECT TO api_worker
+    USING (
+        NULLIF(current_setting('app.current_org_id', true), '') IS NULL
+        AND deleted_at IS NULL
+    );
+</file>
+
 <file path="src/main/resources/db/rls/tenant_isolation.sql">
 ALTER TABLE projects RENAME COLUMN workspace_id TO tenant_id;
 ALTER TABLE projects ALTER COLUMN tenant_id TYPE varchar(36) USING trim(tenant_id::text);
@@ -19546,7 +20303,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 @Configuration
 @Profile("test")
@@ -19578,8 +20335,8 @@ public class TestSecurityConfig {
     SecurityFilterChain testSecurityFilterChain(HttpSecurity http) throws Exception {
         return http.securityMatcher("/**")
                 .csrf(csrf -> csrf.ignoringRequestMatchers(
-                        AntPathRequestMatcher.antMatcher(HttpMethod.POST, "/api/**"),
-                        AntPathRequestMatcher.antMatcher("/ws/**")))
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/**"),
+                        PathPatternRequestMatcher.withDefaults().matcher("/ws/**")))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }
@@ -20117,7 +20874,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
 import com.geo.analytics.infrastructure.config.AppProperties;
-import com.geo.analytics.infrastructure.security.ExpiredJwtTokenException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;

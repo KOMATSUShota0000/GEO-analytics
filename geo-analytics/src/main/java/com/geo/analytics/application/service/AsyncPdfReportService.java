@@ -8,15 +8,9 @@ import com.geo.analytics.application.port.PdfReportPort;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.OrganizationUser;
-import com.geo.analytics.domain.entity.ProjectEntity;
-import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
-import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
@@ -46,8 +40,7 @@ public class AsyncPdfReportService {
     private static final int PDF_RENDER_WALL_SECONDS = 180;
     private static final Executor PDF_RENDER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final PdfReportPort pdfReportPort;
-    private final JobPersistenceService jobPersistenceService;
-    private final ProjectRepository projectRepository;
+    private final BatchPersistenceService batchPersistence;
     private final PdfStorageConfig pdfStorageConfig;
     private final SimpMessagingTemplate simpMessagingTemplate;
     private final String internalToken;
@@ -56,32 +49,24 @@ public class AsyncPdfReportService {
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
     private final Semaphore pdfPlaywrightSemaphore;
-    private final WorkspaceRepository workspaceRepository;
-    private final OrganizationUserRepository organizationUserRepository;
     private final SessionManagementService sessionManagementService;
     private final TokenService tokenService;
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
-            JobPersistenceService jobPersistenceService,
-            ProjectRepository projectRepository,
+            BatchPersistenceService batchPersistence,
             PdfStorageConfig pdfStorageConfig,
             SimpMessagingTemplate simpMessagingTemplate,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper,
             AppProperties appProperties,
-            WorkspaceRepository workspaceRepository,
-            OrganizationUserRepository organizationUserRepository,
             SessionManagementService sessionManagementService,
             TokenService tokenService) {
         this.pdfReportPort = pdfReportPort;
-        this.jobPersistenceService = jobPersistenceService;
-        this.projectRepository = projectRepository;
+        this.batchPersistence = batchPersistence;
         this.pdfStorageConfig = pdfStorageConfig;
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
-        this.workspaceRepository = workspaceRepository;
-        this.organizationUserRepository = organizationUserRepository;
         this.sessionManagementService = sessionManagementService;
         this.tokenService = tokenService;
         AppProperties.Pdf pdf = appProperties.getPdf();
@@ -97,8 +82,8 @@ public class AsyncPdfReportService {
     public void generatePdfReport(UUID jobId) {
         try {
             try {
-                JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-                if (jobPersistenceService.findResultsByJobId(jobId).isEmpty()) {
+                JobEntity jobEntity = batchPersistence.findJobById(jobId);
+                if (batchPersistence.findResultsByJobId(jobId).isEmpty()) {
                     log.error("PDF generation skipped: zero analysis results jobId={}", jobId);
                     markPdfFailedAndPublishSafely(jobId);
                     return;
@@ -106,20 +91,20 @@ public class AsyncPdfReportService {
                 UUID workspaceId = jobEntity.getWorkspaceId() != null
                     ? jobEntity.getWorkspaceId()
                     : DefaultTenantIds.WORKSPACE_ID;
-                ProjectEntity projectEntity = TenantContext.executeWithTenant(
-                    workspaceId,
-                    () -> projectRepository.findById(jobEntity.getProjectId()).orElse(null));
+                var projectInfo = jobEntity.getProjectId() != null
+                    ? batchPersistence.findProjectBrandInfo(jobEntity.getProjectId()).orElse(null)
+                    : null;
                 String brandColor = pickFirstNonBlank(
                     jobEntity.getBrandColor(),
-                    projectEntity != null ? projectEntity.getBrandColor() : null,
+                    projectInfo != null ? projectInfo.brandColor() : null,
                     defaultBrandColor);
                 String logoUrl = pickFirstNonBlank(
                     jobEntity.getLogoUrl(),
-                    projectEntity != null ? projectEntity.getLogoUrl() : null,
+                    projectInfo != null ? projectInfo.logoUrl() : null,
                     defaultLogoUrl);
                 String pdfContextJson = "{}";
                 try {
-                    var rows = jobPersistenceService.findResultsByJobId(jobId);
+                    var rows = batchPersistence.findResultsByJobId(jobId);
                     var rollup = strategyInsightService.rollupJob(rows);
                     var medZ = strategyInsightService.medianModifiedZ(rows);
                     var medSt = strategyInsightService.medianVisibilityStage(rows);
@@ -159,7 +144,8 @@ public class AsyncPdfReportService {
                 Path targetPath = pdfStorageConfig.getTempDirectory().resolve(jobId + ".pdf");
                 Files.write(targetPath, pdfBytes);
                 String absolutePath = targetPath.toAbsolutePath().normalize().toString();
-                jobPersistenceService.markPdfCompletedAndPublish(jobId, absolutePath);
+                batchPersistence.markPdfCompleted(jobId, absolutePath);
+                broadcastPdfStatus(jobId);
             } catch (TimeoutException timeoutException) {
                 log.error("PDF generation wall-clock timeout jobId={} seconds={}", jobId, PDF_RENDER_WALL_SECONDS, timeoutException);
                 markPdfFailedAndPublishSafely(jobId);
@@ -194,42 +180,38 @@ public class AsyncPdfReportService {
     }
     private void markPdfFailedAndPublishSafely(UUID jobId) {
         try {
-            jobPersistenceService.markPdfFailedAndPublish(jobId);
-            return;
+            batchPersistence.markPdfFailed(jobId);
         } catch (Exception publishException) {
             log.error("PDF failure state update failed jobId={}", jobId, publishException);
         }
-        jobPersistenceService.markPdfFailedBestEffort(jobId);
-        jobPersistenceService.findJobByIdOptional(jobId).ifPresent(job -> {
-            if (PdfJobStatusValues.GENERATING.equals(job.getPdfStatus())) {
-                var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
-                var base = JobStompStatusPayload.from(job, rollup);
-                var payload = new JobStompStatusPayload(
-                    base.jobId(),
-                    base.jobStatus(),
-                    base.brandName(),
-                    "PDF generation failed",
-                    PdfJobStatusValues.FAILED,
-                    null,
-                    base.createdAt(),
-                    base.updatedAt(),
-                    base.diagnosticMessage(),
-                    base.recommendedActions(),
-                    base.jobMedianModifiedZ());
+        broadcastPdfStatus(jobId);
+    }
+
+    private void broadcastPdfStatus(UUID jobId) {
+        try {
+            batchPersistence.findJobByIdOptional(jobId).ifPresent(job -> {
+                var rollup = strategyInsightService.rollupJob(batchPersistence.findResultsByJobId(jobId));
+                var payload = JobStompStatusPayload.from(job, rollup);
                 simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobId, payload);
-            }
-        });
+            });
+        } catch (Exception e) {
+            log.warn("PDF status broadcast failed jobId={}", jobId, e);
+        }
     }
     private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
         try {
             UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
             TenantContextHolder.set(orgId, workspaceId);
             try {
-                OrganizationUser user = organizationUserRepository
-                        .findFirstByOrganizationIdAndDeletedAtIsNullOrderByCreatedAtAsc(orgId)
+                var userInfo = batchPersistence.findFirstActiveOrgUser(orgId)
                         .orElseThrow(
                                 () -> new IllegalStateException(
                                         "PDF生成用の有効なユーザーが組織内に見つかりません: orgId=" + orgId));
+                OrganizationUser user = new OrganizationUser();
+                user.setId(userInfo.id());
+                user.setEmail(userInfo.email());
+                user.setPasswordHash(userInfo.passwordHash());
+                user.setOrganizationId(orgId);
                 UUID sessionId = sessionManagementService.appendRenderingSession(user.getId());
                 String jwt = tokenService.generateAccessToken(user, sessionId);
                 return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
@@ -248,10 +230,8 @@ public class AsyncPdfReportService {
         if (DefaultTenantIds.WORKSPACE_ID.equals(workspaceId)) {
             return DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         }
-        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository
-                .findById(workspaceId)
-                .map(WorkspaceEntity::getOrganizationId)
-                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId)));
+        return batchPersistence.findWorkspaceOrganizationId(workspaceId)
+                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId));
     }
 
     private static String pickFirstNonBlank(String a, String b, String fallback) {

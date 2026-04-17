@@ -20,15 +20,15 @@ import java.util.concurrent.Executors;
 public final class GapAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(GapAnalysisService.class);
     private static final Executor SCHEDULER = Executors.newVirtualThreadPerTaskExecutor();
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final StrategyInsightService strategyInsightService;
     private final GapBatchSubmissionService gapBatchSubmissionService;
 
     public GapAnalysisService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             StrategyInsightService strategyInsightService,
             GapBatchSubmissionService gapBatchSubmissionService) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.strategyInsightService = strategyInsightService;
         this.gapBatchSubmissionService = gapBatchSubmissionService;
     }
@@ -44,9 +44,9 @@ public final class GapAnalysisService {
     }
 
     public void runForJob(UUID jobId) {
-        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity jobEntity = batchPersistence.findJobById(jobId);
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<AuditHistoryEntity> rows = jobPersistenceService.findResultsByJobId(jobId);
+        List<AuditHistoryEntity> rows = batchPersistence.findResultsByJobId(jobId);
         if (rows.size() < 2) {
             finalizeJobRollupAndGapFlag(jobId, rows);
             return;
@@ -59,7 +59,7 @@ public final class GapAnalysisService {
         Integer medStBox = strategyInsightService.medianVisibilityStage(rows);
         int medSt = medStBox != null ? medStBox : 1;
         var rollup = strategyInsightService.rollupJob(rows);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
@@ -75,14 +75,14 @@ public final class GapAnalysisService {
             boolean outlier = StrictMath.abs(z - medZ) >= 1.0;
             if (!outlier) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     row.getId(),
                     ins.diagnosticMessage(),
                     ins.recommendedActions(),
                     StrategyInsightService.REL_BASELINE_VERSION);
             } else if (plan == SubscriptionPlan.STANDARD) {
                 var ins = strategyInsightService.keywordInsightRelative(z, medZ, st, medSt);
-                jobPersistenceService.updateAuditStrategyInsights(
+                batchPersistence.updateAuditStrategyInsights(
                     row.getId(),
                     ins.diagnosticMessage(),
                     ins.recommendedActions(),
@@ -93,7 +93,7 @@ public final class GapAnalysisService {
         }
         if (plan.usesProTierFeatures()) {
             if (outlierRows.isEmpty()) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
             } else {
                 List<AuditHistoryEntity> snapshot = List.copyOf(outlierRows);
                 SCHEDULER.execute(() -> {
@@ -104,24 +104,24 @@ public final class GapAnalysisService {
                         for (AuditHistoryEntity row : snapshot) {
                             Double z = row.getModifiedZScore();
                             var ins = strategyInsightService.fromModifiedZ(z != null ? z : 0.0);
-                            jobPersistenceService.updateAuditStrategyInsights(
+                            batchPersistence.updateAuditStrategyInsights(
                                 row.getId(),
                                 ins.diagnosticMessage(),
                                 ins.recommendedActions(),
                                 GeoVisibilityCalculatorService.CALCULATION_VERSION);
                         }
-                        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                        batchPersistence.markGapAnalysisCompleted(jobId, true);
                     }
                 });
             }
         } else {
-            jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+            batchPersistence.markGapAnalysisCompleted(jobId, true);
         }
     }
 
     public void retryGapBatchForJob(UUID jobId) {
         try {
-            JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+            JobEntity jobEntity = batchPersistence.findJobById(jobId);
             if (jobEntity.getJobStatus() != JobStatus.COMPLETED) {
                 return;
             }
@@ -136,14 +136,14 @@ public final class GapAnalysisService {
             if (jobEntity.getGapBatchIdempotencyKey() == null) {
                 return;
             }
-            List<AuditHistoryEntity> rows = jobPersistenceService.findResultsByJobId(jobId);
+            List<AuditHistoryEntity> rows = batchPersistence.findResultsByJobId(jobId);
             if (rows.size() < 2) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             Double medZ = strategyInsightService.medianModifiedZ(rows);
             if (medZ == null) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             Integer medStBox = strategyInsightService.medianVisibilityStage(rows);
@@ -161,7 +161,7 @@ public final class GapAnalysisService {
                 }
             }
             if (outlierRows.isEmpty()) {
-                jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+                batchPersistence.markGapAnalysisCompleted(jobId, true);
                 return;
             }
             gapBatchSubmissionService.submitGapAnalysisBatch(jobId, outlierRows, medZ, medSt, trendClip);
@@ -172,10 +172,10 @@ public final class GapAnalysisService {
 
     private void finalizeJobRollupAndGapFlag(UUID jobId, List<AuditHistoryEntity> rows) {
         var rollup = strategyInsightService.rollupJob(rows);
-        jobPersistenceService.updateJobStrategyRollup(
+        batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()));
-        jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+        batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 }

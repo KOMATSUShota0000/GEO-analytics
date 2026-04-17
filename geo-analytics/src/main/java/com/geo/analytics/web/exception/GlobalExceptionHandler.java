@@ -9,17 +9,21 @@ import com.geo.analytics.web.dto.ErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.sql.SQLTransientConnectionException;
 
 import java.time.Duration;
 import java.util.Map;
@@ -157,6 +161,18 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
         problemDetail.setTitle("AI Response Parse Failure");
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(problemDetail);
+    }
+
+    @ExceptionHandler({CannotGetJdbcConnectionException.class, SQLTransientConnectionException.class})
+    public ResponseEntity<ProblemDetail> handleConnectionPoolExhausted(Exception exception) {
+        logger.warn("Database connection pool exhausted", exception);
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE, "Database connections are currently exhausted. Please retry shortly.");
+        problemDetail.setTitle("Service Unavailable");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(problemDetail);
     }

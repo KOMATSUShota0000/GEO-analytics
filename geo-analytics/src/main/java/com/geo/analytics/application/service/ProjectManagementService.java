@@ -26,6 +26,31 @@ public class ProjectManagementService {
         this.projectRepository = projectRepository;
     }
 
+    private void forceSetTenantId(Object entity, UUID tenantId) {
+        if (entity == null || tenantId == null) return;
+        Class<?> clazz = entity.getClass();
+        while (clazz != null) {
+            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
+                for (java.lang.annotation.Annotation ann : field.getAnnotations()) {
+                    if (ann.annotationType().getSimpleName().equals("TenantId")) {
+                        field.setAccessible(true);
+                        try {
+                            if (field.getType().equals(String.class)) {
+                                field.set(entity, tenantId.toString());
+                            } else {
+                                field.set(entity, tenantId);
+                            }
+                            return;
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException("Failed to force set TenantId", e);
+                        }
+                    }
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+    }
+
     @Transactional
     public ProjectEntity getOrCreateDefaultProject(String brandName) {
         Objects.requireNonNull(brandName, "brandName");
@@ -46,7 +71,8 @@ public class ProjectManagementService {
                 projectEntity.setName(brandName);
                 projectEntity.setTargetUrl("");
                 projectEntity.setCompetitorUrls(new ArrayList<>());
-                return projectRepository.save(projectEntity);
+                forceSetTenantId(projectEntity, workspaceId);
+                return projectRepository.saveAndFlush(projectEntity);
             });
         });
     }

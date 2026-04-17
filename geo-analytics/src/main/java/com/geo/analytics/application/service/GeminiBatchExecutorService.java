@@ -24,19 +24,19 @@ import java.util.concurrent.CompletableFuture;
 @Service
 public class GeminiBatchExecutorService {
     private final GeminiBatchClient geminiBatchClient;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager planBasedQuotaManager) {
         this.geminiBatchClient = geminiBatchClient;
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
@@ -48,10 +48,10 @@ public class GeminiBatchExecutorService {
         int quotaRefundOnFailure = 0;
         try {
             List<QueryEntity> unprocessedQueryEntities =
-                jobPersistenceService.findUnprocessedQueriesByJobId(jobEntity.getId());
+                batchPersistence.findUnprocessedQueriesByJobId(jobEntity.getId());
             if (unprocessedQueryEntities.isEmpty()) {
-                jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
-                JobEntity emptyJobEntity = jobPersistenceService.findJobById(jobEntity.getId());
+                batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
+                JobEntity emptyJobEntity = batchPersistence.findJobById(jobEntity.getId());
                 jobStatusBroadcastPublisher.publish(emptyJobEntity);
                 projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
@@ -67,19 +67,19 @@ public class GeminiBatchExecutorService {
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
             String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
             GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
-            jobPersistenceService.updateJobStatusToSubmittedWithGeminiJobName(
+            batchPersistence.updateJobStatusToSubmittedWithGeminiJobName(
                 jobEntity.getId(), createdBatchJob.name());
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } catch (Exception exception) {
             if (quotaRefundOnFailure > 0) {
                 var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
                 planBasedQuotaManager.addTokens(tid, quotaRefundOnFailure);
             }
-            jobPersistenceService.updateJobStatus(
+            batchPersistence.updateJobStatus(
                 jobEntity.getId(),
                 JobStatus.FAILED,
                 ExceptionStackTraceText.of(exception));
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobEntity.getId()));
+            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } finally {
             if (jsonlPath != null) {
                 try {

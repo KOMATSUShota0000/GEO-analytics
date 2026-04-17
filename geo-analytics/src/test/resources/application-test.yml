@@ -1,11 +1,18 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   flyway:
     enabled: false
   datasource:
-    url: jdbc:h2:mem:ga_it;DB_CLOSE_DELAY=-1
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    api:
+      jdbc-url: jdbc:h2:mem:ga_it;DB_CLOSE_DELAY=-1
+      username: sa
+      password:
+    batch:
+      jdbc-url: jdbc:h2:mem:ga_it;DB_CLOSE_DELAY=-1
+      username: sa
+      password:
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -20,6 +27,8 @@ spring:
 
 app:
   security:
+    rls:
+      enabled: false
     max-sessions-per-user: 1
     jwt:
       secret: "9f2e7c4a8b1d6e3f0a5c9b2d7e1f4a8c0b3d6e9f2a5c8b1d4e7f0a3c6b9d2e5f8a1c4b7d0e3f6a9c2b5d8e1f4a7c0b3d6e9f2a5c8b1d4e7f0a3c6b9d2e5f8a1c4b7d0e3f6a9c2b5d8e1f4a7c0b3d6e9f2a5c8"

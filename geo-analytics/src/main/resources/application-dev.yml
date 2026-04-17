@@ -2,11 +2,18 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
-  datasource:
     url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
-    username: "postgres"
+    user: "postgres"
     password: "Koma7851"
-    driver-class-name: org.postgresql.Driver
+  datasource:
+    api:
+      jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+      username: "api_worker"
+      password: "api_worker_pass"
+    batch:
+      jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
+      username: "batch_worker"
+      password: "batch_worker_pass"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -17,3 +24,12 @@ spring:
       "[org.hibernate.envers.revision_type_field_name]": revtype
     show-sql: false
     open-in-view: false
+
+server:
+  address: 127.0.0.1
+  port: 8080
+
+logging:
+  level:
+    com.geo.analytics: DEBUG
+    org.springframework.security: DEBUG

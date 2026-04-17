@@ -59,9 +59,10 @@ public class TenantContextFilter extends OncePerRequestFilter {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid " + TENANT_HEADER);
             return;
         }
-        var plan = workspacePlanResolver.resolvePlan(tenantUuid);
+        var info = workspacePlanResolver.resolveWorkspaceInfo(tenantUuid);
+        TenantContextHolder.set(info.organizationId(), tenantUuid);
         try {
-            TenantContext.executeWithTenantAndPlan(tenantUuid, plan, () -> {
+            TenantContext.executeWithTenantAndPlan(tenantUuid, info.plan(), () -> {
                 try {
                     filterChain.doFilter(request, response);
                 } catch (IOException e) {
@@ -77,6 +78,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
+        } finally {
+            TenantContextHolder.clear();
         }
     }
 

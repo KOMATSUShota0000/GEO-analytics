@@ -14,17 +14,17 @@ import java.util.UUID;
 @Service
 public class GapBatchSubmissionService {
     private static final int RESPONSE_EXCERPT = 1800;
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final GeminiBatchClient geminiBatchClient;
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
 
     public GapBatchSubmissionService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             GeminiBatchClient geminiBatchClient,
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.geminiBatchClient = geminiBatchClient;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
@@ -39,11 +39,11 @@ public class GapBatchSubmissionService {
         if (outlierRows == null || outlierRows.isEmpty()) {
             return;
         }
-        var keyOpt = jobPersistenceService.claimGapBatchIdempotencyKeyForUpdate(jobId);
+        var keyOpt = batchPersistence.claimGapBatchIdempotencyKeyForUpdate(jobId);
         if (keyOpt.isEmpty()) {
             return;
         }
-        JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity jobEntity = batchPersistence.findJobById(jobId);
         String existing = jobEntity.getGapAnalysisGeminiJobName();
         if (existing != null && !existing.isBlank()) {
             return;
@@ -58,7 +58,7 @@ public class GapBatchSubmissionService {
         var path = geminiBatchClient.writeGapAnalystBatchJsonlToTempFile(lines);
         var meta = geminiBatchClient.uploadJsonlFile(path);
         var batch = geminiBatchClient.createBatchJob(meta, idempotencyKey.toString());
-        jobPersistenceService.saveGapAnalysisGeminiJobName(jobId, batch.name());
+        batchPersistence.saveGapAnalysisGeminiJobName(jobId, batch.name());
     }
 
     private String extractResponseExcerpt(String raw) {

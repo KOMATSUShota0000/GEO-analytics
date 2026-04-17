@@ -21,7 +21,7 @@ import java.util.concurrent.CompletableFuture;
 public class AsyncBatchService {
     private static final Logger logger = LoggerFactory.getLogger(AsyncBatchService.class);
 
-    private final JobPersistenceService jobPersistenceService;
+    private final BatchPersistenceService batchPersistence;
     private final GeminiBatchExecutorService geminiBatchExecutorService;
     private final GeminiBatchClient geminiBatchClient;
     private final GeminiResultProcessor geminiResultProcessor;
@@ -32,7 +32,7 @@ public class AsyncBatchService {
     private final PlanBasedQuotaManager planBasedQuotaManager;
 
     public AsyncBatchService(
-            JobPersistenceService jobPersistenceService,
+            BatchPersistenceService batchPersistence,
             GeminiBatchExecutorService geminiBatchExecutorService,
             GeminiBatchClient geminiBatchClient,
             GeminiResultProcessor geminiResultProcessor,
@@ -41,7 +41,7 @@ public class AsyncBatchService {
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
             GapAnalysisService gapAnalysisService,
             PlanBasedQuotaManager planBasedQuotaManager) {
-        this.jobPersistenceService = jobPersistenceService;
+        this.batchPersistence = batchPersistence;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
         this.geminiResultProcessor = geminiResultProcessor;
@@ -53,7 +53,7 @@ public class AsyncBatchService {
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
-        JobEntity refreshedJobEntity = jobPersistenceService.findJobById(jobId);
+        JobEntity refreshedJobEntity = batchPersistence.findJobById(jobId);
         jobStatusBroadcastPublisher.publish(refreshedJobEntity);
     }
 
@@ -61,7 +61,7 @@ public class AsyncBatchService {
     public void submitFileUploadedJobsToBatchApi() {
         logger.info("Batch submission task started");
         List<JobEntity> fileUploadedJobs =
-            jobPersistenceService.findJobsByStatus(JobStatus.FILE_UPLOADED);
+            batchPersistence.findJobsByStatus(JobStatus.FILE_UPLOADED);
         logger.info("Found {} FILE_UPLOADED job(s) to submit", fileUploadedJobs.size());
         fileUploadedJobs.forEach(jobEntity -> {
             logger.info("[Job:{}] Processing started", jobEntity.getId());
@@ -71,9 +71,7 @@ public class AsyncBatchService {
                 .exceptionally(throwable -> {
                     logger.error("[Job:{}] Batch submission async failure",
                         jobEntity.getId(), throwable);
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         ExceptionStackTraceText.of(throwable));
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     return null;
@@ -86,15 +84,13 @@ public class AsyncBatchService {
     public void pollRunningJobsAndProcessCompletedResults() {
         logger.info("Batch polling task started");
         List<JobEntity> jobsToPoll = new ArrayList<>();
-        jobsToPoll.addAll(jobPersistenceService.findJobsByStatus(JobStatus.SUBMITTED));
-        jobsToPoll.addAll(jobPersistenceService.findJobsByStatus(JobStatus.RUNNING));
+        jobsToPoll.addAll(batchPersistence.findJobsByStatus(JobStatus.SUBMITTED));
+        jobsToPoll.addAll(batchPersistence.findJobsByStatus(JobStatus.RUNNING));
         logger.info("Found {} job(s) to poll (SUBMITTED or RUNNING)", jobsToPoll.size());
         jobsToPoll.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 if (jobEntity.getGeminiJobName() == null || jobEntity.getGeminiJobName().isBlank()) {
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         "Missing Gemini job name while polling batch");
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     return;
@@ -107,7 +103,7 @@ public class AsyncBatchService {
                 }
                 if (jobEntity.getJobStatus() == JobStatus.SUBMITTED
                     && geminiBatchClient.isBatchJobActivelyProcessing(batchJobState)) {
-                    jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.RUNNING, null);
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.RUNNING, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 }
                 if (!geminiBatchClient.isTerminalState(batchJobState)) {
@@ -119,24 +115,20 @@ public class AsyncBatchService {
                     String outputFileContent =
                         geminiBatchClient.downloadOutputFileContent(outputFileName);
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
-                    jobPersistenceService.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
-                    projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobEntity.getId()));
+                    projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobEntity.getId()));
                 } else {
                     refundBatchQuotaDeposit(jobEntity);
                     String stateDescription = batchJobState == null ? "null" : batchJobState;
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         "Gemini batch terminal state=" + stateDescription);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 }
             } catch (Exception exception) {
                 refundBatchQuotaDeposit(jobEntity);
                 try {
-                    jobPersistenceService.updateJobStatus(
-                        jobEntity.getId(),
-                        JobStatus.FAILED,
+                    batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                         ExceptionStackTraceText.of(exception));
                     broadcastJobStatusOverStomp(jobEntity.getId());
                 } catch (RuntimeException secondary) {
@@ -147,9 +139,7 @@ public class AsyncBatchService {
             logger.error("[Job:{}] Batch polling async failure", jobEntity.getId(), throwable);
             refundBatchQuotaDeposit(jobEntity);
             try {
-                jobPersistenceService.updateJobStatus(
-                    jobEntity.getId(),
-                    JobStatus.FAILED,
+                batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.FAILED,
                     ExceptionStackTraceText.of(throwable));
                 broadcastJobStatusOverStomp(jobEntity.getId());
             } catch (RuntimeException secondary) {
@@ -163,19 +153,19 @@ public class AsyncBatchService {
     @Scheduled(fixedDelay = 15000)
     public void pollGapAnalysisBatches() {
         logger.info("Gap batch polling task started");
-        List<JobEntity> gapJobs = jobPersistenceService.findJobsPendingGapAnalysisOutput();
+        List<JobEntity> gapJobs = batchPersistence.findJobsPendingGapAnalysisOutput();
         logger.info("Found {} job(s) with pending gap batch output", gapJobs.size());
         gapJobs.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 pollOneGapAnalysisJob(jobEntity);
             } catch (Exception exception) {
                 logger.error("[Job:{}] Gap batch polling failure", jobEntity.getId(), exception);
-                jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+                batchPersistence.markGapAnalysisCompleted(jobEntity.getId(), true);
                 broadcastJobStatusOverStomp(jobEntity.getId());
             }
         }).exceptionally(throwable -> {
             logger.error("[Job:{}] Gap batch polling async failure", jobEntity.getId(), throwable);
-            jobPersistenceService.markGapAnalysisCompleted(jobEntity.getId(), true);
+            batchPersistence.markGapAnalysisCompleted(jobEntity.getId(), true);
             broadcastJobStatusOverStomp(jobEntity.getId());
             return null;
         }));
@@ -184,7 +174,7 @@ public class AsyncBatchService {
 
     @Scheduled(fixedDelay = 60000)
     public void retryProGapBatchCreation() {
-        List<JobEntity> pending = jobPersistenceService.findProJobsAwaitingGapBatchCreation();
+        List<JobEntity> pending = batchPersistence.findProJobsAwaitingGapBatchCreation();
         pending.forEach(jobEntity -> CompletableFuture.runAsync(() -> {
             try {
                 gapAnalysisService.retryGapBatchForJob(jobEntity.getId());
@@ -196,11 +186,12 @@ public class AsyncBatchService {
 
     private void refundBatchQuotaDeposit(JobEntity jobEntity) {
         var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        long n = jobPersistenceService.countQueriesByJobId(jobEntity.getId());
+        long n = batchPersistence.countQueriesByJobId(jobEntity.getId());
         if (n > 0L) {
             planBasedQuotaManager.addTokens(tid, n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
         }
     }
+
     private void pollOneGapAnalysisJob(JobEntity jobEntity) {
         String gapJobName = jobEntity.getGapAnalysisGeminiJobName();
         if (gapJobName == null || gapJobName.isBlank()) {
@@ -220,9 +211,9 @@ public class AsyncBatchService {
             String outputContent = geminiBatchClient.downloadOutputFileContent(outputFileName);
             gapAnalysisBatchProcessor.processOutputJsonl(jobId, outputContent);
             broadcastJobStatusOverStomp(jobId);
-            projectAuditLifecyclePublisher.publishAuditCompleted(jobPersistenceService.findJobById(jobId));
+            projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobId));
         } else {
-            jobPersistenceService.markGapAnalysisCompleted(jobId, true);
+            batchPersistence.markGapAnalysisCompleted(jobId, true);
             broadcastJobStatusOverStomp(jobId);
         }
     }
