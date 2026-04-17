@@ -37,8 +37,11 @@ spring:
 
 server:
   shutdown: graceful
+  forward-headers-strategy: native
   tomcat:
     connection-timeout: 180s
+    remoteip:
+      internal-proxies: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]\\.\\d{1,3}\\.\\d{1,3}|172\\.2\\d\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]\\.\\d{1,3}\\.\\d{1,3}"
 
 app:
   security:
@@ -70,5 +73,9 @@ app:
     default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
     default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
     max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
+  rate-limit:
+    public-api:
+      capacity: 10
+      refill-minutes: 1
   notifications:
     mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"

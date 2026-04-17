@@ -5,7 +5,7 @@ import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
@@ -55,7 +55,7 @@ public class ProjectManagementService {
     public ProjectEntity getOrCreateDefaultProject(String brandName) {
         Objects.requireNonNull(brandName, "brandName");
         UUID workspaceId = DefaultTenantIds.WORKSPACE_ID;
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             workspaceRepository.findById(workspaceId).orElseGet(() -> {
                 WorkspaceEntity workspaceEntity = new WorkspaceEntity();
                 workspaceEntity.setId(workspaceId);

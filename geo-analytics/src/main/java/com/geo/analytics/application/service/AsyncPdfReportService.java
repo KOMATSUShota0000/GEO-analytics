@@ -11,6 +11,7 @@ import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
@@ -22,6 +23,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.ScopedValue;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -201,23 +203,26 @@ public class AsyncPdfReportService {
     private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
         try {
             UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
-            TenantContextHolder.set(orgId, workspaceId);
-            try {
-                var userInfo = batchPersistence.findFirstActiveOrgUser(orgId)
-                        .orElseThrow(
-                                () -> new IllegalStateException(
-                                        "PDF生成用の有効なユーザーが組織内に見つかりません: orgId=" + orgId));
-                OrganizationUser user = new OrganizationUser();
-                user.setId(userInfo.id());
-                user.setEmail(userInfo.email());
-                user.setPasswordHash(userInfo.passwordHash());
-                user.setOrganizationId(orgId);
-                UUID sessionId = sessionManagementService.appendRenderingSession(user.getId());
-                String jwt = tokenService.generateAccessToken(user, sessionId);
-                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
-            } finally {
-                TenantContextHolder.clear();
-            }
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+                    .call(
+                            () -> {
+                                var userInfo =
+                                        batchPersistence
+                                                .findFirstActiveOrgUser(orgId)
+                                                .orElseThrow(
+                                                        () -> new IllegalStateException(
+                                                                "PDF生成用の有効なユーザーが組織内に見つかりません: orgId="
+                                                                        + orgId));
+                                OrganizationUser user = new OrganizationUser();
+                                user.setId(userInfo.id());
+                                user.setEmail(userInfo.email());
+                                user.setPasswordHash(userInfo.passwordHash());
+                                user.setOrganizationId(orgId);
+                                UUID sessionId =
+                                        sessionManagementService.appendRenderingSession(user.getId());
+                                String jwt = tokenService.generateAccessToken(user, sessionId);
+                                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
+                            });
         } catch (IllegalStateException illegalStateException) {
             throw illegalStateException;
         } catch (Exception exception) {

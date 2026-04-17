@@ -11,7 +11,7 @@ import com.geo.analytics.domain.event.ProjectAuditCompletedEvent;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,7 +63,7 @@ public class NotificationService {
 
     public void deliver(ProjectAuditCompletedEvent projectAuditCompletedEvent) {
         UUID workspaceId = projectAuditCompletedEvent.workspaceId();
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectAuditCompletedEvent.projectId()).orElse(null);
             if (projectEntity == null) {
                 return;

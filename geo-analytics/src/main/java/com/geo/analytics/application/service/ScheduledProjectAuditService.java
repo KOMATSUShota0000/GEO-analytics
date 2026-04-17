@@ -8,7 +8,7 @@ import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectKeywordRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,7 +43,7 @@ public class ScheduledProjectAuditService {
 
     public void executeMonthlyAuditForProject(UUID projectId) {
         UUID workspaceId = readWorkspaceId(projectId);
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId).orElse(null);
             if (projectEntity == null || !projectEntity.isAutoAuditEnabled()) {
                 return;

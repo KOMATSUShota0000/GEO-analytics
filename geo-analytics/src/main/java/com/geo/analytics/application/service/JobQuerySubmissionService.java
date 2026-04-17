@@ -16,7 +16,7 @@ import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -157,7 +157,7 @@ public class JobQuerySubmissionService {
                         () -> {
                             SecurityContextHolder.setContext(parentSecurityContext);
                             try {
-                                TenantContext.executeWithTenant(
+                                TenantPlanScope.executeWithTenant(
                                         tenantId,
                                         () -> {
                                             try {
@@ -212,7 +212,7 @@ public class JobQuerySubmissionService {
             return List.of();
         }
         var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantContext.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
+        return TenantPlanScope.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
                 .map(ProjectEntity::getCompetitorUrls)
                 .orElse(List.of())
                 .stream()

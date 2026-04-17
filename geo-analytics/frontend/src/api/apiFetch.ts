@@ -1,11 +1,11 @@
 import { clearAccessToken, getAccessToken, tryRestoreSession } from "../auth/authSession";
+import { clearClientState } from "../auth/logout";
+import type { RefreshFailureReason } from "../types/auth";
 import { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
 
-/** Single-flight refresh: only one `/api/auth/refresh` at a time; others wait for the new token. */
 let isRefreshing = false;
 let refreshSubscribers: ((accessToken: string) => void)[] = [];
-/** Paired with concurrent 401 waiters: invoked if refresh fails so Promises do not hang. */
-let refreshFailureHandlers: Array<() => void> = [];
+let refreshFailureHandlers: Array<(reason: RefreshFailureReason) => void> = [];
 
 function onRefreshed(accessToken: string): void {
   refreshSubscribers.forEach((callback) => callback(accessToken));
@@ -42,24 +42,30 @@ function readXsrfToken(): string {
   return m ? decodeURIComponent(m[1].trim()) : "";
 }
 
-let csrfPrime: Promise<void> | null = null;
+let csrfPrimePromise: Promise<void> | null = null;
 
 /** Call on logout so the next mutating request re-fetches CSRF for the new session. */
 export function resetCsrfPrime(): void {
-  csrfPrime = null;
+  csrfPrimePromise = null;
 }
 
 function primeCsrfCookie(): Promise<void> {
-  if (!csrfPrime) {
-    csrfPrime = fetch("/api/csrf", {
-      credentials: "include",
-      method: "GET",
-      headers: {
-        "X-Tenant-ID": resolveTenantHeader(),
-      },
-    }).then(() => undefined);
+  if (csrfPrimePromise !== null) {
+    return csrfPrimePromise;
   }
-  return csrfPrime;
+  const p = fetch("/api/csrf", {
+    credentials: "include",
+    method: "GET",
+    headers: {
+      "X-Tenant-ID": resolveTenantHeader(),
+    },
+  })
+    .then(() => undefined)
+    .finally(() => {
+      csrfPrimePromise = null;
+    });
+  csrfPrimePromise = p;
+  return p;
 }
 
 function snakeToCamelKey(key: string): string {
@@ -113,9 +119,9 @@ async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean)
   }
 }
 
-function notifyRefreshFailedAndClearWaiters(): void {
+function notifyRefreshFailedAndClearWaiters(reason: RefreshFailureReason): void {
   refreshSubscribers = [];
-  refreshFailureHandlers.splice(0).forEach((handler) => handler());
+  refreshFailureHandlers.splice(0).forEach((handler) => handler(reason));
   refreshFailureHandlers = [];
 }
 
@@ -152,27 +158,46 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
     if (!isRefreshing) {
       isRefreshing = true;
       try {
-        const restored = await tryRestoreSession({ force: true });
-        const newToken = restored ? getAccessToken() : null;
-        if (restored && newToken !== null && newToken.length > 0) {
-          refreshFailureHandlers = [];
-          onRefreshed(newToken);
-          await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-          response = await fetch(input, fetchInit);
+        const result = await tryRestoreSession({ force: true });
+        if (result.success) {
+          const newToken = getAccessToken();
+          if (newToken !== null && newToken.length > 0) {
+            refreshFailureHandlers = [];
+            onRefreshed(newToken);
+            await reapplyAuthHeadersAfterRefresh(headers, unsafe);
+            response = await fetch(input, fetchInit);
+          } else {
+            notifyRefreshFailedAndClearWaiters("unknown");
+            clearClientState();
+            clearAccessToken();
+            if (typeof window !== "undefined") {
+              window.location.href = `/login?reason=${encodeURIComponent("unknown")}`;
+            }
+            return new Promise<Response>(() => {});
+          }
         } else {
-          notifyRefreshFailedAndClearWaiters();
+          if (result.reason === "network_error") {
+            notifyRefreshFailedAndClearWaiters("network_error");
+            isRefreshing = false;
+            throw new Error("Network connection lost.");
+          }
+          notifyRefreshFailedAndClearWaiters(result.reason);
+          clearClientState();
           clearAccessToken();
           if (typeof window !== "undefined") {
-            window.location.href = "/login";
+            window.location.href = `/login?reason=${encodeURIComponent(result.reason)}`;
           }
+          return new Promise<Response>(() => {});
         }
       } finally {
         isRefreshing = false;
       }
     } else {
       return new Promise<Response>((resolve, reject) => {
-        refreshFailureHandlers.push(() => {
-          reject(new Error("セッションの更新に失敗しました。再度ログインしてください。"));
+        refreshFailureHandlers.push((reason) => {
+          if (reason === "network_error") {
+            reject(new Error(`セッション更新失敗: ${reason}`));
+          }
         });
         addRefreshSubscriber((_newToken) => {
           void (async () => {

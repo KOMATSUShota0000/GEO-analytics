@@ -60,7 +60,6 @@ class JwtAuthenticationFilterTest {
 
     @AfterEach
     void tearDown() {
-        TenantContextHolder.clear();
         SecurityContextHolder.clearContext();
     }
 

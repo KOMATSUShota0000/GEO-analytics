@@ -4,7 +4,9 @@ import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import java.lang.ScopedValue;
 import java.util.UUID;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -36,9 +38,13 @@ public class AuthService {
         OrganizationUser user = organizationUserRepository
                 .findByEmailAndDeletedAtIsNull(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
-        TenantContextHolder.set(user.getOrganizationId(), null);
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+        TenantContext loginScope = new TenantContext(user.getOrganizationId(), null, null);
+        ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
+                .run(
+                        () ->
+                                authenticationManager.authenticate(
+                                        new UsernamePasswordAuthenticationToken(
+                                                request.getEmail(), request.getPassword())));
         UUID sessionId = sessionManagementService.createNewSession(user.getId());
         String accessToken = tokenService.generateAccessToken(user, sessionId);
         String refreshToken = tokenService.generateRefreshToken(user, sessionId);

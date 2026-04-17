@@ -1,4 +1,6 @@
 import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import type { RefreshFailureReason, RefreshResult } from "../types/auth";
+import { toRefreshFailureReason } from "../types/auth";
 
 export const ACCESS_TOKEN_STORAGE_KEY = "geo_analytics.access_token";
 export const TENANT_STORAGE_KEY = "geo_analytics.tenant_id";
@@ -87,37 +89,75 @@ export type TryRestoreSessionOptions = {
   force?: boolean;
 };
 
-/**
- * When access token is absent but refresh cookie may exist, obtain a new access token.
- * @returns true if an access token is now available
- */
-export async function tryRestoreSession(options?: TryRestoreSessionOptions): Promise<boolean> {
-  if (!options?.force && getAccessToken()) {
-    return true;
+let restorePromise: Promise<RefreshResult> | null = null;
+
+async function parseFailureReason(res: Response): Promise<RefreshFailureReason> {
+  try {
+    const body: unknown = await res.json();
+    if (typeof body === "object" && body !== null) {
+      return toRefreshFailureReason((body as Record<string, unknown>).reason);
+    }
+  } catch {
+    // Nginx/proxy HTML error pages, empty body, or malformed JSON
   }
-  const res = await fetch("/api/auth/refresh", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
-    },
-  });
+  return "unknown";
+}
+
+async function doRestore(): Promise<RefreshResult> {
+  let res: Response;
+  try {
+    res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+      },
+    });
+  } catch {
+    return { success: false, reason: "network_error" };
+  }
+  if (res.status === 503) {
+    return { success: false, reason: "maintenance" };
+  }
+  if (res.status === 426) {
+    return { success: false, reason: "version_mismatch" };
+  }
   if (!res.ok) {
-    return false;
+    const reason = await parseFailureReason(res);
+    return { success: false, reason };
   }
   let body: unknown;
   try {
     body = await res.json();
   } catch {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   if (typeof body !== "object" || body === null) {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   const token = (body as Record<string, unknown>).accessToken;
   if (typeof token !== "string" || token.length === 0) {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   setAccessToken(token);
-  return true;
+  return { success: true };
+}
+
+/**
+ * When access token is absent but refresh cookie may exist, obtain a new access token.
+ * Single-flight: concurrent callers share the same in-flight promise.
+ */
+export async function tryRestoreSession(options?: TryRestoreSessionOptions): Promise<RefreshResult> {
+  if (!options?.force && getAccessToken()) {
+    return { success: true };
+  }
+  if (restorePromise !== null) {
+    return restorePromise;
+  }
+  restorePromise = doRestore();
+  try {
+    return await restorePromise;
+  } finally {
+    restorePromise = null;
+  }
 }

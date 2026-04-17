@@ -67,7 +67,9 @@ frontend/src/pages/PricingPage.tsx
 frontend/src/pages/ProjectSettingsPage.tsx
 frontend/src/pages/ReportPrintPage.tsx
 frontend/src/types/analysis.ts
+frontend/src/types/auth.ts
 frontend/src/types/keyword.ts
+frontend/src/utils/authMessages.ts
 frontend/src/utils/somTierUtils.ts
 frontend/src/vite-env.d.ts
 frontend/tailwind.config.js
@@ -94,7 +96,11 @@ This section contains the contents of the repository's files.
     <title>Geo Analytics</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-boot-skeleton">
+        <div class="app-boot-spinner"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
@@ -153,13 +159,13 @@ export default {
 
 <file path="frontend/src/api/apiFetch.ts">
 import { clearAccessToken, getAccessToken, tryRestoreSession } from "../auth/authSession";
+import { clearClientState } from "../auth/logout";
+import type { RefreshFailureReason } from "../types/auth";
 import { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
 
-/** Single-flight refresh: only one `/api/auth/refresh` at a time; others wait for the new token. */
 let isRefreshing = false;
 let refreshSubscribers: ((accessToken: string) => void)[] = [];
-/** Paired with concurrent 401 waiters: invoked if refresh fails so Promises do not hang. */
-let refreshFailureHandlers: Array<() => void> = [];
+let refreshFailureHandlers: Array<(reason: RefreshFailureReason) => void> = [];
 
 function onRefreshed(accessToken: string): void {
   refreshSubscribers.forEach((callback) => callback(accessToken));
@@ -267,9 +273,9 @@ async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean)
   }
 }
 
-function notifyRefreshFailedAndClearWaiters(): void {
+function notifyRefreshFailedAndClearWaiters(reason: RefreshFailureReason): void {
   refreshSubscribers = [];
-  refreshFailureHandlers.splice(0).forEach((handler) => handler());
+  refreshFailureHandlers.splice(0).forEach((handler) => handler(reason));
   refreshFailureHandlers = [];
 }
 
@@ -306,18 +312,28 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
     if (!isRefreshing) {
       isRefreshing = true;
       try {
-        const restored = await tryRestoreSession({ force: true });
-        const newToken = restored ? getAccessToken() : null;
-        if (restored && newToken !== null && newToken.length > 0) {
-          refreshFailureHandlers = [];
-          onRefreshed(newToken);
-          await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-          response = await fetch(input, fetchInit);
+        const result = await tryRestoreSession({ force: true });
+        if (result.success) {
+          const newToken = getAccessToken();
+          if (newToken !== null && newToken.length > 0) {
+            refreshFailureHandlers = [];
+            onRefreshed(newToken);
+            await reapplyAuthHeadersAfterRefresh(headers, unsafe);
+            response = await fetch(input, fetchInit);
+          } else {
+            notifyRefreshFailedAndClearWaiters("unknown");
+            clearClientState();
+            clearAccessToken();
+            if (typeof window !== "undefined") {
+              window.location.href = `/login?reason=${encodeURIComponent("unknown")}`;
+            }
+          }
         } else {
-          notifyRefreshFailedAndClearWaiters();
+          notifyRefreshFailedAndClearWaiters(result.reason);
+          clearClientState();
           clearAccessToken();
           if (typeof window !== "undefined") {
-            window.location.href = "/login";
+            window.location.href = `/login?reason=${encodeURIComponent(result.reason)}`;
           }
         }
       } finally {
@@ -325,8 +341,8 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
       }
     } else {
       return new Promise<Response>((resolve, reject) => {
-        refreshFailureHandlers.push(() => {
-          reject(new Error("セッションの更新に失敗しました。再度ログインしてください。"));
+        refreshFailureHandlers.push((reason) => {
+          reject(new Error(`セッション更新失敗: ${reason}`));
         });
         addRefreshSubscriber((_newToken) => {
           void (async () => {
@@ -470,6 +486,8 @@ export default function App(): JSX.Element {
 
 <file path="frontend/src/auth/authSession.ts">
 import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import type { RefreshFailureReason, RefreshResult } from "../types/auth";
+import { toRefreshFailureReason } from "../types/auth";
 
 export const ACCESS_TOKEN_STORAGE_KEY = "geo_analytics.access_token";
 export const TENANT_STORAGE_KEY = "geo_analytics.tenant_id";
@@ -558,39 +576,77 @@ export type TryRestoreSessionOptions = {
   force?: boolean;
 };
 
-/**
- * When access token is absent but refresh cookie may exist, obtain a new access token.
- * @returns true if an access token is now available
- */
-export async function tryRestoreSession(options?: TryRestoreSessionOptions): Promise<boolean> {
-  if (!options?.force && getAccessToken()) {
-    return true;
+let restorePromise: Promise<RefreshResult> | null = null;
+
+async function parseFailureReason(res: Response): Promise<RefreshFailureReason> {
+  try {
+    const body: unknown = await res.json();
+    if (typeof body === "object" && body !== null) {
+      return toRefreshFailureReason((body as Record<string, unknown>).reason);
+    }
+  } catch {
+    // Nginx/proxy HTML error pages, empty body, or malformed JSON
   }
-  const res = await fetch("/api/auth/refresh", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
-    },
-  });
+  return "unknown";
+}
+
+async function doRestore(): Promise<RefreshResult> {
+  let res: Response;
+  try {
+    res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+      },
+    });
+  } catch {
+    return { success: false, reason: "network_error" };
+  }
+  if (res.status === 503) {
+    return { success: false, reason: "maintenance" };
+  }
+  if (res.status === 426) {
+    return { success: false, reason: "version_mismatch" };
+  }
   if (!res.ok) {
-    return false;
+    const reason = await parseFailureReason(res);
+    return { success: false, reason };
   }
   let body: unknown;
   try {
     body = await res.json();
   } catch {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   if (typeof body !== "object" || body === null) {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   const token = (body as Record<string, unknown>).accessToken;
   if (typeof token !== "string" || token.length === 0) {
-    return false;
+    return { success: false, reason: "unknown" };
   }
   setAccessToken(token);
-  return true;
+  return { success: true };
+}
+
+/**
+ * When access token is absent but refresh cookie may exist, obtain a new access token.
+ * Single-flight: concurrent callers share the same in-flight promise.
+ */
+export async function tryRestoreSession(options?: TryRestoreSessionOptions): Promise<RefreshResult> {
+  if (!options?.force && getAccessToken()) {
+    return { success: true };
+  }
+  if (restorePromise !== null) {
+    return restorePromise;
+  }
+  restorePromise = doRestore();
+  try {
+    return await restorePromise;
+  } finally {
+    restorePromise = null;
+  }
 }
 </file>
 
@@ -601,6 +657,23 @@ import { clearAccessToken } from "./authSession";
 export function logout(): void {
   clearAccessToken();
   resetCsrfPrime();
+}
+
+export function clearClientState(): void {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.clear();
+    }
+  } catch {
+    // noop
+  }
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.clear();
+    }
+  } catch {
+    // noop
+  }
 }
 </file>
 
@@ -618,38 +691,43 @@ export default function RequireAuthLayout(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (
+      typeof window !== "undefined" &&
+      window.location.search.includes("internal_token")
+    ) {
+      if (!getAccessToken()) {
+        const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
+        const injected = w.__PDF_AUTH_TOKEN__;
+        if (typeof injected === "string" && injected.trim().length > 0) {
+          setAccessToken(injected.trim());
+        }
+      }
+      if (!cancelled) {
+        setState("authed");
+      }
+      return;
+    }
+
+    const existing = getAccessToken();
+    if (existing !== null && existing.length > 0) {
+      if (!cancelled) {
+        setState("authed");
+      }
+      return;
+    }
+
     (async () => {
-      if (
-        typeof window !== "undefined" &&
-        window.location.search.includes("internal_token")
-      ) {
-        if (!getAccessToken()) {
-          const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
-          const injected = w.__PDF_AUTH_TOKEN__;
-          if (typeof injected === "string" && injected.trim().length > 0) {
-            setAccessToken(injected.trim());
-          }
-        }
-        if (!cancelled) {
-          setState("authed");
-        }
-        return;
-      }
-      if (getAccessToken()) {
-        if (!cancelled) {
-          setState("authed");
-        }
-        return;
-      }
       await tryRestoreSession();
       if (!cancelled) {
         setState(getAccessToken() ? "authed" : "anon");
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   if (state === "loading") {
     return (
@@ -3202,23 +3280,27 @@ import {
   Button,
   Container,
   CssBaseline,
+  Snackbar,
   Stack,
   TextField,
   ThemeProvider,
   Typography,
   createTheme,
 } from "@mui/material";
-import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { resetCsrfPrime } from "../api/apiFetch";
 import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
 import { getAccessToken, setAccessToken } from "../auth/authSession";
+import { toRefreshFailureReason } from "../types/auth";
+import { getRefreshFailureMessage } from "../utils/authMessages";
 
 const theme = createTheme();
 
 export default function LoginPage(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const fromPath =
     (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
 
@@ -3226,6 +3308,18 @@ export default function LoginPage(): JSX.Element {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const rawReason = searchParams.get("reason");
+    if (rawReason === null) {
+      return;
+    }
+    const reason = toRefreshFailureReason(rawReason);
+    setToastMessage(getRefreshFailureMessage(reason));
+    navigate(location.pathname, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (getAccessToken()) {
     return <Navigate to={fromPath} replace />;
@@ -3307,6 +3401,21 @@ export default function LoginPage(): JSX.Element {
           </Stack>
         </Box>
       </Container>
+      <Snackbar
+        open={toastMessage !== null}
+        autoHideDuration={6000}
+        onClose={() => setToastMessage(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          severity="warning"
+          variant="filled"
+          onClose={() => setToastMessage(null)}
+          sx={{ width: "100%" }}
+        >
+          {toastMessage}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 }
@@ -4856,6 +4965,42 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
 }
 </file>
 
+<file path="frontend/src/types/auth.ts">
+export type RefreshFailureReason =
+  | "token_expired"
+  | "session_revoked"
+  | "account_disabled"
+  | "credentials_revoked"
+  | "tenant_suspended"
+  | "maintenance"
+  | "version_mismatch"
+  | "network_error"
+  | "unknown";
+
+export type RefreshResult =
+  | { success: true }
+  | { success: false; reason: RefreshFailureReason };
+
+const KNOWN_REASONS: ReadonlySet<string> = new Set<RefreshFailureReason>([
+  "token_expired",
+  "session_revoked",
+  "account_disabled",
+  "credentials_revoked",
+  "tenant_suspended",
+  "maintenance",
+  "version_mismatch",
+  "network_error",
+  "unknown",
+]);
+
+export function toRefreshFailureReason(value: unknown): RefreshFailureReason {
+  if (typeof value === "string" && KNOWN_REASONS.has(value)) {
+    return value as RefreshFailureReason;
+  }
+  return "unknown";
+}
+</file>
+
 <file path="frontend/src/types/keyword.ts">
 export type KeywordSuggestionRequest = {
   url: string;
@@ -4867,6 +5012,38 @@ export type KeywordSuggestionResponse = { categories: KeywordCategory[] };
 export type SelectedKeywordPayload = { text: string; category_name: string };
 export type KeywordRegistrationRequestPayload = { project_id: string; keywords: SelectedKeywordPayload[] };
 export type KeywordRegistrationResult = { registeredCount: number; skippedCount: number };
+</file>
+
+<file path="frontend/src/utils/authMessages.ts">
+import type { RefreshFailureReason } from "../types/auth";
+
+export function getRefreshFailureMessage(reason: RefreshFailureReason): string {
+  switch (reason) {
+    case "token_expired":
+      return "セッションの有効期限が切れました。再度ログインしてください。";
+    case "session_revoked":
+      return "セキュリティ保護のため、別端末でのログインを検知しログアウトしました。再度ログインしてください。";
+    case "account_disabled":
+      return "アカウントが無効化されました。管理者にお問い合わせください。";
+    case "credentials_revoked":
+      return "パスワードが変更されたため、再ログインが必要です。";
+    case "tenant_suspended":
+      return "ご利用中の組織が一時停止されています。管理者にお問い合わせください。";
+    case "maintenance":
+      return "現在メンテナンス中です。しばらくしてから再度お試しください。";
+    case "version_mismatch":
+      return "アプリの更新が必要です。ページを再読み込みしてください。";
+    case "network_error":
+      return "ネットワーク接続を確認してください。";
+    case "unknown":
+      return "セッションに問題が発生しました。再度ログインしてください。";
+    default: {
+      const _exhaustive: never = reason;
+      void _exhaustive;
+      return "セッションに問題が発生しました。再度ログインしてください。";
+    }
+  }
+}
 </file>
 
 <file path="frontend/src/utils/somTierUtils.ts">
@@ -5013,7 +5190,7 @@ import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
-  const apiTarget = env.VITE_API_PROXY_TARGET || "http://localhost:8080";
+  const apiTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8080";
   return {
     define: {
       global: "window",
@@ -5044,11 +5221,11 @@ export default defineConfig(({ mode }) => {
   "name": "geo-analytics-project",
   "version": "1.0.0",
   "scripts": {
-    "dev": "npm run dev:safe",
+    "dev": "npm run dev:fast",
     "predev:safe": "npx kill-port 8080",
-    "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd test && .\\mvnw.cmd spring-boot:run\"",
+    "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd clean test && .\\mvnw.cmd spring-boot:run\"",
     "predev:fast": "npx kill-port 8080",
-    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd spring-boot:run\""
+    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \".\\mvnw.cmd clean spring-boot:run -DskipTests\""
   },
   "devDependencies": {
     "concurrently": "^x.x.x"

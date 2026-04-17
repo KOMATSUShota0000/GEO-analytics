@@ -10,7 +10,7 @@ import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -91,7 +91,7 @@ public final class EntityResolutionService {
     private ResolutionResult persistPending(String left, String right, String ha, String hb) {
         try {
             var row = new UnresolvedEntityQueueEntity();
-            var tid = TenantContext.getTenantId();
+            var tid = TenantPlanScope.getTenantId();
             row.setWorkspaceId(
                     tid != null && !tid.isBlank() ? UUID.fromString(tid) : DefaultTenantIds.WORKSPACE_ID);
             row.setLeftLabel(left);

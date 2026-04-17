@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.ScopedValue;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.core.Ordered;
@@ -27,7 +28,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
-                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher("/api/public/**"));
 
     private final WorkspacePlanResolver workspacePlanResolver;
 
@@ -60,17 +62,22 @@ public class TenantContextFilter extends OncePerRequestFilter {
             return;
         }
         var info = workspacePlanResolver.resolveWorkspaceInfo(tenantUuid);
-        TenantContextHolder.set(info.organizationId(), tenantUuid);
+        TenantContext outer = new TenantContext(info.organizationId(), tenantUuid, null);
         try {
-            TenantContext.executeWithTenantAndPlan(tenantUuid, info.plan(), () -> {
-                try {
-                    filterChain.doFilter(request, response);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                } catch (ServletException e) {
-                    throw new IllegalStateException(e);
-                }
-            });
+            ScopedValue.where(TenantContextHolder.CONTEXT, outer)
+                    .run(
+                            () -> TenantPlanScope.executeWithTenantAndPlan(
+                                    tenantUuid,
+                                    info.plan(),
+                                    () -> {
+                                        try {
+                                            filterChain.doFilter(request, response);
+                                        } catch (IOException e) {
+                                            throw new UncheckedIOException(e);
+                                        } catch (ServletException e) {
+                                            throw new IllegalStateException(e);
+                                        }
+                                    }));
         } catch (UncheckedIOException e) {
             throw e.getCause();
         } catch (IllegalStateException e) {
@@ -78,8 +85,6 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
-        } finally {
-            TenantContextHolder.clear();
         }
     }
 

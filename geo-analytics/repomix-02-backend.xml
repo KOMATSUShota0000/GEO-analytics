@@ -228,6 +228,8 @@ src/main/java/com/geo/analytics/infrastructure/persistence/JacksonJsonbOperation
 src/main/java/com/geo/analytics/infrastructure/persistence/JsonbOperations.java
 src/main/java/com/geo/analytics/infrastructure/persistence/JsonbSerializationException.java
 src/main/java/com/geo/analytics/infrastructure/persistence/RlsConnectionInterceptor.java
+src/main/java/com/geo/analytics/infrastructure/ratelimit/ClientIpResolver.java
+src/main/java/com/geo/analytics/infrastructure/ratelimit/PublicApiRateLimitFilter.java
 src/main/java/com/geo/analytics/infrastructure/ratelimit/RateLimitFilter.java
 src/main/java/com/geo/analytics/infrastructure/ratelimit/SerpApiGlobalRequestGate.java
 src/main/java/com/geo/analytics/infrastructure/repository/AuditHistoryRepository.java
@@ -262,6 +264,7 @@ src/main/java/com/geo/analytics/web/controller/CsrfController.java
 src/main/java/com/geo/analytics/web/controller/JobController.java
 src/main/java/com/geo/analytics/web/controller/KeywordController.java
 src/main/java/com/geo/analytics/web/controller/ProjectAnalyticsController.java
+src/main/java/com/geo/analytics/web/controller/PublicApiController.java
 src/main/java/com/geo/analytics/web/controller/SyncVerificationController.java
 src/main/java/com/geo/analytics/web/controller/VerificationController.java
 src/main/java/com/geo/analytics/web/controller/WorkspaceController.java
@@ -1906,6 +1909,7 @@ public class AsyncPdfReportService {
                 Files.write(targetPath, pdfBytes);
                 String absolutePath = targetPath.toAbsolutePath().normalize().toString();
                 batchPersistence.markPdfCompleted(jobId, absolutePath);
+                broadcastPdfStatus(jobId);
             } catch (TimeoutException timeoutException) {
                 log.error("PDF generation wall-clock timeout jobId={} seconds={}", jobId, PDF_RENDER_WALL_SECONDS, timeoutException);
                 markPdfFailedAndPublishSafely(jobId);
@@ -1944,25 +1948,19 @@ public class AsyncPdfReportService {
         } catch (Exception publishException) {
             log.error("PDF failure state update failed jobId={}", jobId, publishException);
         }
-        batchPersistence.findJobByIdOptional(jobId).ifPresent(job -> {
-            if (PdfJobStatusValues.GENERATING.equals(job.getPdfStatus())) {
+        broadcastPdfStatus(jobId);
+    }
+
+    private void broadcastPdfStatus(UUID jobId) {
+        try {
+            batchPersistence.findJobByIdOptional(jobId).ifPresent(job -> {
                 var rollup = strategyInsightService.rollupJob(batchPersistence.findResultsByJobId(jobId));
-                var base = JobStompStatusPayload.from(job, rollup);
-                var payload = new JobStompStatusPayload(
-                    base.jobId(),
-                    base.jobStatus(),
-                    base.brandName(),
-                    "PDF generation failed",
-                    PdfJobStatusValues.FAILED,
-                    null,
-                    base.createdAt(),
-                    base.updatedAt(),
-                    base.diagnosticMessage(),
-                    base.recommendedActions(),
-                    base.jobMedianModifiedZ());
+                var payload = JobStompStatusPayload.from(job, rollup);
                 simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobId, payload);
-            }
-        });
+            });
+        } catch (Exception e) {
+            log.warn("PDF status broadcast failed jobId={}", jobId, e);
+        }
     }
     private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
         try {
@@ -3968,7 +3966,8 @@ public class JobPersistenceService {
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
                 applyCompetitorScores(auditHistoryEntity, competitorScoreRows);
-                auditHistoryRepository.save(auditHistoryEntity);
+                forceSetTenantId(auditHistoryEntity, workspaceId);
+                auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
                 queryEntity.setProcessed(true);
@@ -4054,7 +4053,8 @@ public class JobPersistenceService {
         jobEntity.setCreateIdempotencyKey(idempotencyKey);
         jobEntity.setBrandColor(brandColor != null && !brandColor.isBlank() ? brandColor : "#4F46E5");
         jobEntity.setLogoUrl(logoUrl);
-        return jobRepository.save(jobEntity);
+        forceSetTenantId(jobEntity, workspaceId);
+        return jobRepository.saveAndFlush(jobEntity);
     }
     @Transactional
     public void registerQueriesAndTransitionToFileUploaded(UUID jobId, List<String> queryTexts, SubscriptionPlan subscriptionPlan) {
@@ -4086,7 +4086,8 @@ public class JobPersistenceService {
                 queryEntity.setJobId(jobId);
                 queryEntity.setWorkspaceId(jobEntity.getWorkspaceId());
                 queryEntity.setQueryText(queryText);
-                queryRepository.save(queryEntity);
+                forceSetTenantId(queryEntity, jobEntity.getWorkspaceId());
+                queryRepository.saveAndFlush(queryEntity);
             });
             jobEntity.setAppliedPlan(subscriptionPlan);
             jobEntity.setPlanLimitsSnapshot(jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(subscriptionPlan)));
@@ -4270,6 +4271,31 @@ public class JobPersistenceService {
         return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findProJobsAwaitingGapBatchCreation(
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
+    }
+
+    private void forceSetTenantId(Object entity, UUID tenantId) {
+        if (entity == null || tenantId == null) return;
+        Class<?> clazz = entity.getClass();
+        while (clazz != null) {
+            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
+                for (java.lang.annotation.Annotation ann : field.getAnnotations()) {
+                    if (ann.annotationType().getSimpleName().equals("TenantId")) {
+                        field.setAccessible(true);
+                        try {
+                            if (field.getType().equals(String.class)) {
+                                field.set(entity, tenantId.toString());
+                            } else {
+                                field.set(entity, tenantId);
+                            }
+                            return;
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException("Failed to force set TenantId", e);
+                        }
+                    }
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
     }
 }
 </file>
@@ -5544,6 +5570,31 @@ public class ProjectManagementService {
         this.projectRepository = projectRepository;
     }
 
+    private void forceSetTenantId(Object entity, UUID tenantId) {
+        if (entity == null || tenantId == null) return;
+        Class<?> clazz = entity.getClass();
+        while (clazz != null) {
+            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
+                for (java.lang.annotation.Annotation ann : field.getAnnotations()) {
+                    if (ann.annotationType().getSimpleName().equals("TenantId")) {
+                        field.setAccessible(true);
+                        try {
+                            if (field.getType().equals(String.class)) {
+                                field.set(entity, tenantId.toString());
+                            } else {
+                                field.set(entity, tenantId);
+                            }
+                            return;
+                        } catch (IllegalAccessException e) {
+                            throw new RuntimeException("Failed to force set TenantId", e);
+                        }
+                    }
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+    }
+
     @Transactional
     public ProjectEntity getOrCreateDefaultProject(String brandName) {
         Objects.requireNonNull(brandName, "brandName");
@@ -5564,7 +5615,8 @@ public class ProjectManagementService {
                 projectEntity.setName(brandName);
                 projectEntity.setTargetUrl("");
                 projectEntity.setCompetitorUrls(new ArrayList<>());
-                return projectRepository.save(projectEntity);
+                forceSetTenantId(projectEntity, workspaceId);
+                return projectRepository.saveAndFlush(projectEntity);
             });
         });
     }
@@ -15287,6 +15339,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
+                        .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/webauthn/**", "/login/webauthn", "/login", "/error", "/ws/**").permitAll()
                         .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
@@ -15297,7 +15351,8 @@ public class SecurityConfig {
                         .ignoringRequestMatchers(
                                 PathPatternRequestMatcher.withDefaults().matcher("/ws/**"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
-                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh")))
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
+                                PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
                 .httpBasic(basic -> basic.authenticationEntryPoint(unauthorizedEntryPoint))
                 .formLogin(Customizer.withDefaults())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -15306,7 +15361,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*", "https://app.geo-analytics.jp"));
+        config.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*", "https://app.geo-analytics.jp", "https://www.geo-analytics.jp"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
@@ -16374,6 +16429,109 @@ public class RlsConnectionInterceptor {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/ratelimit/ClientIpResolver.java">
+package com.geo.analytics.infrastructure.ratelimit;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ClientIpResolver {
+
+    public String resolve(HttpServletRequest request) {
+        return request.getRemoteAddr();
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/ratelimit/PublicApiRateLimitFilter.java">
+package com.geo.analytics.infrastructure.ratelimit;
+
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.BucketConfiguration;
+import io.github.bucket4j.ConsumptionProbe;
+import io.github.bucket4j.distributed.proxy.ProxyManager;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 15)
+public class PublicApiRateLimitFilter extends OncePerRequestFilter {
+
+    private static final String BUCKET_KEY_PREFIX = "pub:";
+
+    private final ProxyManager<String> proxyManager;
+    private final ClientIpResolver clientIpResolver;
+    private final long capacity;
+    private final long refillMinutes;
+
+    public PublicApiRateLimitFilter(
+            @Qualifier("rateLimitProxyManager") ProxyManager<String> proxyManager,
+            ClientIpResolver clientIpResolver,
+            @Value("${app.rate-limit.public-api.capacity:10}") long capacity,
+            @Value("${app.rate-limit.public-api.refill-minutes:1}") long refillMinutes) {
+        this.proxyManager = proxyManager;
+        this.clientIpResolver = clientIpResolver;
+        this.capacity = capacity;
+        this.refillMinutes = refillMinutes;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String p = stripContextPath(request);
+        return !p.startsWith("/api/public/");
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        String clientIp = clientIpResolver.resolve(request);
+        String bucketKey = BUCKET_KEY_PREFIX + clientIp;
+
+        BucketConfiguration configuration = BucketConfiguration.builder()
+                .addLimit(Bandwidth.builder()
+                        .capacity(capacity)
+                        .refillIntervally(capacity, Duration.ofMinutes(refillMinutes))
+                        .build())
+                .build();
+
+        ConsumptionProbe probe = proxyManager.builder()
+                .build(bucketKey, () -> configuration)
+                .tryConsumeAndReturnRemaining(1L);
+
+        if (!probe.isConsumed()) {
+            long retryAfterSeconds = (probe.getNanosToWaitForRefill() + 999_999_999L) / 1_000_000_000L;
+            response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
+            response.sendError(HttpStatus.TOO_MANY_REQUESTS.value(), "Rate limit exceeded");
+            return;
+        }
+
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
+        filterChain.doFilter(request, response);
+    }
+
+    private static String stripContextPath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String ctx = request.getContextPath();
+        if (ctx != null && !ctx.isEmpty() && uri.startsWith(ctx)) {
+            return uri.substring(ctx.length());
+        }
+        return uri;
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/ratelimit/RateLimitFilter.java">
 package com.geo.analytics.infrastructure.ratelimit;
 
@@ -16403,7 +16561,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
-                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher("/api/public/**"));
 
     private final RateLimiterService rateLimiterService;
 
@@ -16844,6 +17003,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.OPTIONS, "/**"),
+                    PATHS.matcher(HttpMethod.GET, "/api/v1/jobs/*/stream"),
+                    PATHS.matcher("/api/public/**"),
                     PATHS.matcher("/webauthn/**"),
                     PATHS.matcher("/login/webauthn/**"),
                     PATHS.matcher("/login"),
@@ -16868,29 +17029,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return SKIP_MATCHERS.stream().anyMatch(m -> m.matches(request));
     }
 
-    private String extractToken(HttpServletRequest request) {
-        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            String bearer = header.substring(7).trim();
-            if (!bearer.isEmpty()) {
-                return bearer;
-            }
-        }
-        String path = request.getRequestURI();
-        if (path != null && path.contains("/api/v1/jobs/") && path.endsWith("/stream")) {
-            String queryToken = request.getParameter("token");
-            if (queryToken != null && !queryToken.isBlank()) {
-                return queryToken.trim();
-            }
-        }
-        return null;
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String token = extractToken(request);
-        if (token == null) {
+        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        String token = header.substring(7).trim();
+        if (token.isEmpty()) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -17362,7 +17510,8 @@ public class TenantContextFilter extends OncePerRequestFilter {
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
-                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher("/api/public/**"));
 
     private final WorkspacePlanResolver workspacePlanResolver;
 
@@ -17486,9 +17635,11 @@ import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17527,35 +17678,54 @@ public class AuthController {
     }
 
     @PostMapping("/auth/refresh")
-    public ResponseEntity<LoginResponse> refresh(HttpServletRequest request) {
+    public ResponseEntity<?> refresh(HttpServletRequest request) {
         String raw = readCookie(request, RefreshTokenCookieFactory.REFRESH_TOKEN_COOKIE_NAME);
         if (raw == null || raw.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return unauthorizedWithReason("token_expired");
         }
         final TokenService.ParsedRefreshToken parsed;
         try {
             parsed = tokenService.parseRefreshToken(raw);
         } catch (JwtTokenException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return unauthorizedWithReason("token_expired");
         }
         TenantContextHolder.set(parsed.organizationId(), null);
         try {
+            // TODO: [Phase X] 組織エンティティに suspended フラグを追加し、ここで判定する
+            boolean isTenantSuspended = false;
+            if (isTenantSuspended) {
+                return unauthorizedWithReason("tenant_suspended");
+            }
+
             if (userSessionRepository
                     .findBySessionId(parsed.sessionId())
                     .filter(s -> s.getDeletedAt() == null)
                     .isEmpty()) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+                return unauthorizedWithReason("session_revoked");
             }
             Optional<OrganizationUser> userOpt =
                     organizationUserRepository.findById(parsed.userId()).filter(u -> u.getDeletedAt() == null);
             if (userOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+                return unauthorizedWithReason("account_disabled");
             }
+
+            // TODO: [Phase X] TokenService から iat を取得し、ユーザーの passwordChangedAt と比較する
+            boolean isCredentialsRevoked = false;
+            if (isCredentialsRevoked) {
+                return unauthorizedWithReason("credentials_revoked");
+            }
+
             String accessToken = tokenService.generateAccessToken(userOpt.get(), parsed.sessionId());
             return ResponseEntity.ok(new LoginResponse(accessToken));
         } finally {
             TenantContextHolder.clear();
         }
+    }
+
+    private static ResponseEntity<?> unauthorizedWithReason(String reason) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("reason", reason));
     }
 
     private static String readCookie(HttpServletRequest request, String name) {
@@ -18015,6 +18185,26 @@ public class ProjectAnalyticsController {
             @PathVariable UUID projectId,
             @Valid @RequestBody ProjectSettingsPatchRequest projectSettingsPatchRequest) {
         return ResponseEntity.ok(projectSettingsService.patch(projectId, projectSettingsPatchRequest));
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/controller/PublicApiController.java">
+package com.geo.analytics.web.controller;
+
+import java.util.Map;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/public/v1")
+public class PublicApiController {
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        return ResponseEntity.ok(Map.of("status", "ok"));
     }
 }
 </file>
@@ -18940,6 +19130,10 @@ spring:
     show-sql: false
     open-in-view: false
 
+server:
+  address: 127.0.0.1
+  port: 8080
+
 logging:
   level:
     com.geo.analytics: DEBUG
@@ -19027,8 +19221,11 @@ spring:
 
 server:
   shutdown: graceful
+  forward-headers-strategy: native
   tomcat:
     connection-timeout: 180s
+    remoteip:
+      internal-proxies: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]\\.\\d{1,3}\\.\\d{1,3}|172\\.2\\d\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]\\.\\d{1,3}\\.\\d{1,3}"
 
 app:
   security:
@@ -19060,6 +19257,10 @@ app:
     default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
     default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
     max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
+  rate-limit:
+    public-api:
+      capacity: 10
+      refill-minutes: 1
   notifications:
     mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"
 </file>

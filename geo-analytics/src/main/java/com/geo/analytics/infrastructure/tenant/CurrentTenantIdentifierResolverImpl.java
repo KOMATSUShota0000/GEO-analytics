@@ -8,7 +8,7 @@ import java.util.Map;
 public class CurrentTenantIdentifierResolverImpl implements CurrentTenantIdentifierResolver<String>, HibernatePropertiesCustomizer {
     @Override
     public String resolveCurrentTenantIdentifier() {
-        String t = TenantContext.getTenantId();
+        String t = TenantPlanScope.getTenantId();
         if (t == null || t.isBlank()) {
             return DefaultTenantIds.WORKSPACE_ID.toString();
         }

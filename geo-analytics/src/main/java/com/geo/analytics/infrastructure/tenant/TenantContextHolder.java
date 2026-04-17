@@ -1,37 +1,51 @@
 package com.geo.analytics.infrastructure.tenant;
 
+import java.lang.ScopedValue;
 import java.util.Optional;
 import java.util.UUID;
 
 public final class TenantContextHolder {
 
-    private static final ThreadLocal<Context> HOLDER = new ThreadLocal<>();
+    public static final ScopedValue<TenantContext> CONTEXT = ScopedValue.newInstance();
 
     private TenantContextHolder() {}
 
-    private record Context(UUID organizationId, UUID tenantId) {}
+    public static boolean isBound() {
+        return CONTEXT.isBound();
+    }
 
-    public static void set(UUID organizationId, UUID tenantId) {
-        HOLDER.set(new Context(organizationId, tenantId));
+    public static TenantContext requireContext() {
+        if (!CONTEXT.isBound()) {
+            throw new IllegalStateException("TenantContext is not bound in this scope");
+        }
+        return CONTEXT.get();
+    }
+
+    public static Optional<TenantContext> current() {
+        return CONTEXT.isBound() ? Optional.of(CONTEXT.get()) : Optional.empty();
     }
 
     public static Optional<UUID> getOrganizationId() {
-        Context c = HOLDER.get();
-        if (c == null || c.organizationId == null) {
+        if (!CONTEXT.isBound()) {
             return Optional.empty();
         }
-        return Optional.of(c.organizationId);
+        UUID id = CONTEXT.get().organizationId();
+        return id == null ? Optional.empty() : Optional.of(id);
     }
 
     public static Optional<UUID> getTenantId() {
-        Context c = HOLDER.get();
-        if (c == null || c.tenantId == null) {
+        if (!CONTEXT.isBound()) {
             return Optional.empty();
         }
-        return Optional.of(c.tenantId);
+        UUID id = CONTEXT.get().tenantId();
+        return id == null ? Optional.empty() : Optional.of(id);
     }
 
-    public static void clear() {
-        HOLDER.remove();
+    public static Optional<UUID> getUserId() {
+        if (!CONTEXT.isBound()) {
+            return Optional.empty();
+        }
+        UUID id = CONTEXT.get().userId();
+        return id == null ? Optional.empty() : Optional.of(id);
     }
 }

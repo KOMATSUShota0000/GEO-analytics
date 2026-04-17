@@ -10,7 +10,7 @@ import com.geo.analytics.domain.enums.PreferredEngine;
 import com.geo.analytics.infrastructure.repository.ProjectKeywordRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,11 +38,11 @@ public class KeywordRoutingService {
             throw new IllegalArgumentException("projectId mismatch");
         }
         UUID projectId = keywordRegistrationRequest.projectId();
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> {
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId)
                 .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
             UUID workspaceId = projectEntity.getWorkspaceId();
-            return TenantContext.executeWithTenant(workspaceId, () -> persistKeywords(projectEntity, keywordRegistrationRequest.keywords()));
+            return TenantPlanScope.executeWithTenant(workspaceId, () -> persistKeywords(projectEntity, keywordRegistrationRequest.keywords()));
         });
     }
 

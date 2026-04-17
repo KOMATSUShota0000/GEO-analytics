@@ -8,6 +8,8 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import java.lang.ScopedValue;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,12 +48,8 @@ public class DataSeeder implements CommandLineRunner {
     public void run(String... args) {
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
-        TenantContextHolder.set(orgId, wid);
-        try {
-            TenantContext.executeWithTenant(wid, () -> self.seedData(orgId, wid));
-        } finally {
-            TenantContextHolder.clear();
-        }
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, wid, null))
+                .run(() -> TenantPlanScope.executeWithTenant(wid, () -> self.seedData(orgId, wid)));
     }
 
     @Transactional

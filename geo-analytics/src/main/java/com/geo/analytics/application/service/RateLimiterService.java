@@ -1,6 +1,6 @@
 package com.geo.analytics.application.service;
 import com.geo.analytics.domain.enums.PricingPlan;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
@@ -15,7 +15,7 @@ public class RateLimiterService {
         this.proxyManager = Objects.requireNonNull(rateLimitProxyManager);
     }
     public boolean tryAcquire(PricingPlan plan) {
-        String tenantId = TenantContext.getTenantId();
+        String tenantId = TenantPlanScope.getTenantId();
         if (tenantId == null || tenantId.isBlank()) {
             return false;
         }

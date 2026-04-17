@@ -4,23 +4,27 @@ import {
   Button,
   Container,
   CssBaseline,
+  Snackbar,
   Stack,
   TextField,
   ThemeProvider,
   Typography,
   createTheme,
 } from "@mui/material";
-import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { resetCsrfPrime } from "../api/apiFetch";
 import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
 import { getAccessToken, setAccessToken } from "../auth/authSession";
+import { toRefreshFailureReason } from "../types/auth";
+import { getRefreshFailureMessage } from "../utils/authMessages";
 
 const theme = createTheme();
 
 export default function LoginPage(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const fromPath =
     (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
 
@@ -28,6 +32,18 @@ export default function LoginPage(): JSX.Element {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const rawReason = searchParams.get("reason");
+    if (rawReason === null) {
+      return;
+    }
+    const reason = toRefreshFailureReason(rawReason);
+    setToastMessage(getRefreshFailureMessage(reason));
+    navigate(location.pathname, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (getAccessToken()) {
     return <Navigate to={fromPath} replace />;
@@ -109,6 +125,21 @@ export default function LoginPage(): JSX.Element {
           </Stack>
         </Box>
       </Container>
+      <Snackbar
+        open={toastMessage !== null}
+        autoHideDuration={6000}
+        onClose={() => setToastMessage(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          severity="warning"
+          variant="filled"
+          onClose={() => setToastMessage(null)}
+          sx={{ width: "100%" }}
+        >
+          {toastMessage}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 }

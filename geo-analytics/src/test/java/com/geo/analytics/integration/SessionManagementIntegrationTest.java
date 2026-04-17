@@ -6,9 +6,10 @@ import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import java.lang.ScopedValue;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,20 +32,23 @@ class SessionManagementIntegrationTest extends PostgresTestBase {
     @MockitoBean
     private SyncVerificationService syncVerificationService;
 
-    @AfterEach
-    void tearDownTenantContext() {
-        TenantContextHolder.clear();
-    }
-
     @Test
     void whenCreateNewSessionTwice_thenOnlyLatestSessionRemains() {
-        TenantContextHolder.set(ORG_A, null);
-        UUID first = sessionManagementService.createNewSession(USER_A_ADMIN);
-        UUID second = sessionManagementService.createNewSession(USER_A_ADMIN);
-        assertThat(sessionManagementService.countActiveSessionsForUser(USER_A_ADMIN)).isEqualTo(1);
-        assertThat(sessionManagementService.findActiveSessionBySessionId(first)).isEmpty();
-        assertThat(sessionManagementService.findActiveSessionBySessionId(second)).isPresent();
-        assertThat(sessionManagementService.findActiveSessionBySessionId(second).orElseThrow().getSessionId())
-                .isEqualTo(second);
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+                .run(
+                        () -> {
+                            UUID first = sessionManagementService.createNewSession(USER_A_ADMIN);
+                            UUID second = sessionManagementService.createNewSession(USER_A_ADMIN);
+                            assertThat(sessionManagementService.countActiveSessionsForUser(USER_A_ADMIN))
+                                    .isEqualTo(1);
+                            assertThat(sessionManagementService.findActiveSessionBySessionId(first)).isEmpty();
+                            assertThat(sessionManagementService.findActiveSessionBySessionId(second)).isPresent();
+                            assertThat(
+                                            sessionManagementService
+                                                    .findActiveSessionBySessionId(second)
+                                                    .orElseThrow()
+                                                    .getSessionId())
+                                    .isEqualTo(second);
+                        });
     }
 }

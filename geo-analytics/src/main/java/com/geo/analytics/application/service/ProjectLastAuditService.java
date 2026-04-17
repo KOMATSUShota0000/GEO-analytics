@@ -1,7 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -16,7 +16,7 @@ public class ProjectLastAuditService {
     }
 
     public void markLastAudit(UUID projectId, UUID workspaceId) {
-        TenantContext.executeWithTenant(workspaceId, () -> {
+        TenantPlanScope.executeWithTenant(workspaceId, () -> {
             projectRepository.updateLastAuditAt(
                 projectId,
                 LocalDateTime.now(ZoneId.of("Asia/Tokyo"))

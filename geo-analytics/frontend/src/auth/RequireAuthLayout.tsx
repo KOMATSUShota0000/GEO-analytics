@@ -11,38 +11,43 @@ export default function RequireAuthLayout(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (
+      typeof window !== "undefined" &&
+      window.location.search.includes("internal_token")
+    ) {
+      if (!getAccessToken()) {
+        const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
+        const injected = w.__PDF_AUTH_TOKEN__;
+        if (typeof injected === "string" && injected.trim().length > 0) {
+          setAccessToken(injected.trim());
+        }
+      }
+      if (!cancelled) {
+        setState("authed");
+      }
+      return;
+    }
+
+    const existing = getAccessToken();
+    if (existing !== null && existing.length > 0) {
+      if (!cancelled) {
+        setState("authed");
+      }
+      return;
+    }
+
     (async () => {
-      if (
-        typeof window !== "undefined" &&
-        window.location.search.includes("internal_token")
-      ) {
-        if (!getAccessToken()) {
-          const w = window as unknown as { __PDF_AUTH_TOKEN__?: string };
-          const injected = w.__PDF_AUTH_TOKEN__;
-          if (typeof injected === "string" && injected.trim().length > 0) {
-            setAccessToken(injected.trim());
-          }
-        }
-        if (!cancelled) {
-          setState("authed");
-        }
-        return;
-      }
-      if (getAccessToken()) {
-        if (!cancelled) {
-          setState("authed");
-        }
-        return;
-      }
       await tryRestoreSession();
       if (!cancelled) {
         setState(getAccessToken() ? "authed" : "anon");
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   if (state === "loading") {
     return (

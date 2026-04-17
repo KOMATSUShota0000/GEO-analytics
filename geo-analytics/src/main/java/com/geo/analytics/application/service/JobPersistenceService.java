@@ -21,6 +21,7 @@ import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.lang.ScopedValue;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -105,40 +107,40 @@ public class JobPersistenceService {
     }
     public JobEntity findJobById(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
+        return TenantPlanScope.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId)));
     }
     public Optional<JobEntity> findJobByIdOptional(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> jobRepository.findById(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> jobRepository.findById(jobId));
     }
     public List<JobEntity> findJobsByStatus(JobStatus jobStatus) {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> jobRepository.findByJobStatus(jobStatus));
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID, () -> jobRepository.findByJobStatus(jobStatus));
     }
     public List<QueryEntity> findUnprocessedQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobIdAndProcessedFalse(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findByJobIdAndProcessedFalse(jobId));
     }
     public List<QueryEntity> findQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findByJobId(jobId));
     }
 
     public long countQueriesByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.countByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.countByJobId(jobId));
     }
     public Optional<QueryEntity> findQueryById(UUID queryId) {
         UUID tenantId = readWorkspaceIdForQuery(queryId);
-        return TenantContext.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
     }
     public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
+        return TenantPlanScope.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
     }
     public JobAnalysisAggregate findJobAnalysisAggregate(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             ProjectEntity projectEntity = null;
@@ -169,7 +171,7 @@ public class JobPersistenceService {
             List<CompetitorScoreRow> competitorScoreRows,
             String modelInsightsJson) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             UUID workspaceId = jobEntity.getWorkspaceId() != null ? jobEntity.getWorkspaceId() : DefaultTenantIds.WORKSPACE_ID;
@@ -259,7 +261,7 @@ public class JobPersistenceService {
             List<String> recommendedActions,
             String calculationVersion) {
         UUID tenantId = readWorkspaceIdForAudit(auditHistoryId);
-        TenantContext.executeWithTenant(tenantId, () -> auditHistoryRepository.findById(auditHistoryId).ifPresent(entity -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> auditHistoryRepository.findById(auditHistoryId).ifPresent(entity -> {
             entity.setDiagnosticMessage(diagnosticMessage);
             entity.setRecommendedActions(new ArrayList<>(recommendedActions));
             entity.setCalculationVersion(calculationVersion);
@@ -276,29 +278,37 @@ public class JobPersistenceService {
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
                 if (existing.isPresent()) {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
-            TenantContextHolder.set(orgId, workspaceId);
-            try {
-                var created = self.saveJobInNewTransaction(
-                        normalizedBrandName, workspaceId, projectEntity.getId(),
-                        idempotencyKey, projectEntity.getBrandColor(), projectEntity.getLogoUrl());
-                return new JobCreateOutcome(created, true);
-            } catch (DataIntegrityViolationException exception) {
-                if (idempotencyKey == null) {
-                    throw exception;
-                }
-                return jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey)
-                    .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
-                    .orElseThrow(() -> exception);
-            } finally {
-                TenantContextHolder.clear();
-            }
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+                    .call(
+                            () -> {
+                                try {
+                                    var created =
+                                            self.saveJobInNewTransaction(
+                                                    normalizedBrandName,
+                                                    workspaceId,
+                                                    projectEntity.getId(),
+                                                    idempotencyKey,
+                                                    projectEntity.getBrandColor(),
+                                                    projectEntity.getLogoUrl());
+                                    return new JobCreateOutcome(created, true);
+                                } catch (DataIntegrityViolationException exception) {
+                                    if (idempotencyKey == null) {
+                                        throw exception;
+                                    }
+                                    return jobRepository
+                                            .findByTenantIdAndCreateIdempotencyKey(
+                                                    workspaceId.toString(), idempotencyKey)
+                                            .map(jobEntity -> new JobCreateOutcome(jobEntity, false))
+                                            .orElseThrow(() -> exception);
+                                }
+                            });
         });
     }
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -333,7 +343,7 @@ public class JobPersistenceService {
                         ? null
                         : queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (jobEntity.getJobStatus() != JobStatus.CREATED) {
@@ -358,7 +368,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatus(UUID jobId, JobStatus newJobStatus, String errorMessage) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(newJobStatus);
@@ -369,7 +379,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(JobStatus.RUNNING);
@@ -380,7 +390,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStatusToSubmittedWithGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(JobStatus.SUBMITTED);
@@ -391,7 +401,7 @@ public class JobPersistenceService {
     @Transactional
     public PdfGenerationStartResult tryMarkPdfGeneratingAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (auditHistoryRepository.findByJobId(jobId).isEmpty()) {
@@ -409,7 +419,7 @@ public class JobPersistenceService {
     @Transactional
     public JobEntity markPdfCompletedAndPublish(UUID jobId, String absolutePath) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
@@ -433,7 +443,7 @@ public class JobPersistenceService {
     @Transactional
     public JobEntity markPdfFailedAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
@@ -458,7 +468,7 @@ public class JobPersistenceService {
     public void markPdfFailedBestEffort(UUID jobId) {
         try {
             UUID tenantId = readWorkspaceIdForJob(jobId);
-            TenantContext.executeWithTenant(tenantId, () -> {
+            TenantPlanScope.executeWithTenant(tenantId, () -> {
                 jobRepository.findById(jobId).ifPresent(jobEntity -> {
                     jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
                     jobEntity.setPdfFilePath(null);
@@ -472,7 +482,7 @@ public class JobPersistenceService {
     @Transactional
     public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobDiagnosticMessage(diagnosticMessage);
@@ -484,7 +494,7 @@ public class JobPersistenceService {
     @Transactional
     public Optional<UUID> claimGapBatchIdempotencyKeyForUpdate(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantContext.executeWithTenant(tenantId, () -> {
+        return TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             SubscriptionPlan applied = jobEntity.getAppliedPlan();
@@ -505,7 +515,7 @@ public class JobPersistenceService {
     @Transactional
     public void saveGapAnalysisGeminiJobName(UUID jobId, String geminiJobName) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setGapAnalysisGeminiJobName(geminiJobName);
@@ -515,7 +525,7 @@ public class JobPersistenceService {
     @Transactional
     public void markGapAnalysisCompleted(UUID jobId, boolean completed) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setGapAnalysisCompleted(completed);
@@ -523,11 +533,11 @@ public class JobPersistenceService {
         });
     }
     public List<JobEntity> findJobsPendingGapAnalysisOutput() {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findByGapAnalysisGeminiJobNameIsNotNullAndGapAnalysisCompletedIsFalse());
     }
     public List<JobEntity> findProJobsAwaitingGapBatchCreation() {
-        return TenantContext.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
+        return TenantPlanScope.executeWithTenant(DefaultTenantIds.WORKSPACE_ID,
             () -> jobRepository.findProJobsAwaitingGapBatchCreation(
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
     }

@@ -8,7 +8,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.AnalyticsSummaryResponse;
 import com.geo.analytics.web.dto.CompetitorSharePoint;
 import com.geo.analytics.web.dto.TrendDataPoint;
@@ -51,7 +51,7 @@ public class AnalyticsAggregationService {
             return Optional.empty();
         }
         UUID workspaceId = UUID.fromString(rows.get(0));
-        return Optional.of(TenantContext.executeWithTenant(workspaceId, () -> buildSummary(projectId)));
+        return Optional.of(TenantPlanScope.executeWithTenant(workspaceId, () -> buildSummary(projectId)));
     }
     private AnalyticsSummaryResponse buildSummary(UUID projectId) {
         List<AuditHistoryEntity> histories = auditHistoryRepository.findByProject_IdOrderByAuditDateAsc(projectId);

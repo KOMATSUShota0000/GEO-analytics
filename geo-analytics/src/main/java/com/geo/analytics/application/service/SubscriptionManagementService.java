@@ -2,7 +2,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -28,7 +28,7 @@ public class SubscriptionManagementService {
     public void changePlan(UUID tenantId, SubscriptionPlan newPlan) {
         Objects.requireNonNull(tenantId);
         Objects.requireNonNull(newPlan);
-        TenantContext.executeWithTenant(tenantId, () -> {
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
             var workspace = workspaceRepository.findById(tenantId)
                     .orElseThrow(() -> new EntityNotFoundException("workspace not found"));
             workspace.setSubscriptionPlan(newPlan);

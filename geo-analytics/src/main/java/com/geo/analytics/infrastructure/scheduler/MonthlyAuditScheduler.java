@@ -4,7 +4,7 @@ import com.geo.analytics.application.service.MonthlyAuditJobLauncher;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -22,7 +22,7 @@ public class MonthlyAuditScheduler {
 
     @Scheduled(cron = "0 0 2 1 * *", zone = "Asia/Tokyo")
     public void triggerMonthlyAudits() {
-        List<ProjectEntity> projectEntities = TenantContext.executeWithTenant(
+        List<ProjectEntity> projectEntities = TenantPlanScope.executeWithTenant(
             DefaultTenantIds.WORKSPACE_ID,
             () -> projectRepository.findByAutoAuditEnabledIsTrue());
         ThreadLocalRandom threadLocalRandom = ThreadLocalRandom.current();

@@ -7,11 +7,12 @@ import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
+import java.lang.ScopedValue;
 import java.time.Duration;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -41,26 +42,25 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
     @MockitoBean
     private SyncVerificationService syncVerificationService;
 
-    @AfterEach
-    void tearDownTenantContext() {
-        TenantContextHolder.clear();
-    }
-
     @Test
     @Transactional
     void afterCommitAsyncListenerEvictsUserSessionsCache() {
-        TenantContextHolder.set(ORG_A, null);
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+                .run(
+                        () -> {
+                            UUID firstSessionId = sessionManagementService.createNewSession(USER_A_ADMIN);
+                            userSessionsCache.put(USER_A_ADMIN, firstSessionId);
 
-        UUID firstSessionId = sessionManagementService.createNewSession(USER_A_ADMIN);
-        userSessionsCache.put(USER_A_ADMIN, firstSessionId);
+                            sessionManagementService.createNewSession(USER_A_ADMIN);
 
-        sessionManagementService.createNewSession(USER_A_ADMIN);
+                            TestTransaction.flagForCommit();
+                            TestTransaction.end();
 
-        TestTransaction.flagForCommit();
-        TestTransaction.end();
-
-        await().atMost(Duration.ofSeconds(10))
-                .pollInterval(Duration.ofMillis(50))
-                .untilAsserted(() -> assertThat(userSessionsCache.getIfPresent(USER_A_ADMIN)).isNull());
+                            await().atMost(Duration.ofSeconds(10))
+                                    .pollInterval(Duration.ofMillis(50))
+                                    .untilAsserted(
+                                            () -> assertThat(userSessionsCache.getIfPresent(USER_A_ADMIN))
+                                                    .isNull());
+                        });
     }
 }

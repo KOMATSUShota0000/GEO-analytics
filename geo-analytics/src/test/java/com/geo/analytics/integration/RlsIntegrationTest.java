@@ -5,12 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.integration.support.RlsTenantQueryFacade;
+import java.lang.ScopedValue;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,11 +36,6 @@ class RlsIntegrationTest extends PostgresTestBase {
     @MockitoBean
     private SyncVerificationService syncVerificationService;
 
-    @AfterEach
-    void tearDownTenantContext() {
-        TenantContextHolder.clear();
-    }
-
     @Test
     void whenNoTenantContext_thenRlsHidesAllTenantRows() {
         List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
@@ -48,18 +44,24 @@ class RlsIntegrationTest extends PostgresTestBase {
 
     @Test
     void whenOrgAContext_thenOnlyOrgATenantsVisible() {
-        TenantContextHolder.set(ORG_A, null);
-        List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
-        assertThat(rows).hasSize(1);
-        assertThat(toUuid(rows.get(0)[0])).isEqualTo(TENANT_A);
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+                .run(
+                        () -> {
+                            List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
+                            assertThat(rows).hasSize(1);
+                            assertThat(toUuid(rows.get(0)[0])).isEqualTo(TENANT_A);
+                        });
     }
 
     @Test
     void whenOrgBContext_thenOnlyOrgBTenantsVisible() {
-        TenantContextHolder.set(ORG_B, null);
-        List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
-        assertThat(rows).hasSize(1);
-        assertThat(toUuid(rows.get(0)[0])).isEqualTo(TENANT_B);
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_B, null, null))
+                .run(
+                        () -> {
+                            List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
+                            assertThat(rows).hasSize(1);
+                            assertThat(toUuid(rows.get(0)[0])).isEqualTo(TENANT_B);
+                        });
     }
 
     private static UUID toUuid(Object value) {

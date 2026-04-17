@@ -16,11 +16,13 @@ import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.OrgTenantKey;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import java.io.IOException;
+import java.lang.ScopedValue;
 import java.time.Duration;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -117,7 +119,6 @@ class SecurityConcurrencyTest {
     void setUp() {
         transactionTemplate = new TransactionTemplate(platformTransactionManager);
         SecurityContextHolder.clearContext();
-        TenantContextHolder.clear();
         userSessionsCache.invalidateAll();
         orgTenantAffiliationCache.invalidateAll();
 
@@ -149,7 +150,6 @@ class SecurityConcurrencyTest {
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
-        TenantContextHolder.clear();
     }
 
     @Test
@@ -252,24 +252,28 @@ class SecurityConcurrencyTest {
                 final UUID expectedOrg = UUID.randomUUID();
                 futures.add(
                         executor.submit(
-                                () -> {
-                                    try {
-                                        TenantContextHolder.set(expectedOrg, null);
-                                        if (TenantContextHolder.getOrganizationId().isEmpty()
-                                                || !expectedOrg.equals(
-                                                        TenantContextHolder.getOrganizationId().get())) {
-                                            violations.add("mismatch");
-                                        }
-                                        Thread.yield();
-                                        if (TenantContextHolder.getOrganizationId().isEmpty()
-                                                || !expectedOrg.equals(
-                                                        TenantContextHolder.getOrganizationId().get())) {
-                                            violations.add("mismatch-after-yield");
-                                        }
-                                    } finally {
-                                        TenantContextHolder.clear();
-                                    }
-                                }));
+                                () ->
+                                        ScopedValue.where(
+                                                        TenantContextHolder.CONTEXT,
+                                                        new TenantContext(expectedOrg, null, null))
+                                                .run(
+                                                        () -> {
+                                                            if (TenantContextHolder.getOrganizationId().isEmpty()
+                                                                    || !expectedOrg.equals(
+                                                                            TenantContextHolder
+                                                                                    .getOrganizationId()
+                                                                                    .get())) {
+                                                                violations.add("mismatch");
+                                                            }
+                                                            Thread.yield();
+                                                            if (TenantContextHolder.getOrganizationId().isEmpty()
+                                                                    || !expectedOrg.equals(
+                                                                            TenantContextHolder
+                                                                                    .getOrganizationId()
+                                                                                    .get())) {
+                                                                violations.add("mismatch-after-yield");
+                                                            }
+                                                        })));
             }
             for (Future<?> f : futures) {
                 f.get();
@@ -291,14 +295,14 @@ class SecurityConcurrencyTest {
             for (int i = 0; i < n; i++) {
                 futures.add(
                         executor.submit(
-                                () -> {
-                                    TenantContextHolder.set(ORG_ID, null);
-                                    try {
-                                        return tenantAccessEvaluator.canAccessTenant(auth, TENANT_ID);
-                                    } finally {
-                                        TenantContextHolder.clear();
-                                    }
-                                }));
+                                () ->
+                                        ScopedValue.where(
+                                                        TenantContextHolder.CONTEXT,
+                                                        new TenantContext(ORG_ID, null, null))
+                                                .call(
+                                                        () ->
+                                                                tenantAccessEvaluator.canAccessTenant(
+                                                                        auth, TENANT_ID))));
             }
             for (Future<Boolean> f : futures) {
                 assertThat(f.get()).isTrue();

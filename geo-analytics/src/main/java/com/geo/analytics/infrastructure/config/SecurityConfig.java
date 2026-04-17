@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
+                        .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/webauthn/**", "/login/webauthn", "/login", "/error", "/ws/**").permitAll()
                         .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
@@ -61,7 +62,8 @@ public class SecurityConfig {
                         .ignoringRequestMatchers(
                                 PathPatternRequestMatcher.withDefaults().matcher("/ws/**"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
-                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh")))
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
+                                PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
                 .httpBasic(basic -> basic.authenticationEntryPoint(unauthorizedEntryPoint))
                 .formLogin(Customizer.withDefaults())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -70,7 +72,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*", "https://app.geo-analytics.jp"));
+        config.setAllowedOriginPatterns(List.of("http://localhost:*", "http://127.0.0.1:*", "https://app.geo-analytics.jp", "https://www.geo-analytics.jp"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

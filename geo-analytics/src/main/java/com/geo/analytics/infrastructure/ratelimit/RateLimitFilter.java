@@ -26,7 +26,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
-                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"));
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher("/api/public/**"));
 
     private final RateLimiterService rateLimiterService;
 

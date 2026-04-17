@@ -1,6 +1,7 @@
 package com.geo.analytics.infrastructure.security;
 
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -8,6 +9,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.ScopedValue;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,6 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.OPTIONS, "/**"),
                     PATHS.matcher(HttpMethod.GET, "/api/v1/jobs/*/stream"),
+                    PATHS.matcher("/api/public/**"),
                     PATHS.matcher("/webauthn/**"),
                     PATHS.matcher("/login/webauthn/**"),
                     PATHS.matcher("/login"),
@@ -76,36 +80,51 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return;
         }
+        TenantContext jwtContext =
+                new TenantContext(parsed.organizationId(), null, parsed.userId());
         try {
-            TenantContextHolder.set(parsed.organizationId(), null);
+            ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
+                    .run(
+                            () -> {
+                                UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
+                                if (cachedSessionId != null) {
+                                    if (!cachedSessionId.equals(parsed.sessionId())) {
+                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        return;
+                                    }
+                                } else {
+                                    if (userSessionRepository
+                                            .findBySessionId(parsed.sessionId())
+                                            .filter(s -> s.getDeletedAt() == null)
+                                            .filter(s -> s.getUserId().equals(parsed.userId()))
+                                            .isEmpty()) {
+                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        return;
+                                    }
+                                    userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                }
 
-            UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
-            if (cachedSessionId != null) {
-                if (!cachedSessionId.equals(parsed.sessionId())) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return;
-                }
-            } else {
-                if (userSessionRepository
-                        .findBySessionId(parsed.sessionId())
-                        .filter(s -> s.getDeletedAt() == null)
-                        .filter(s -> s.getUserId().equals(parsed.userId()))
-                        .isEmpty()) {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    return;
-                }
-                userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                UsernamePasswordAuthenticationToken authentication =
+                                        new UsernamePasswordAuthenticationToken(
+                                                parsed.userId().toString(),
+                                                null,
+                                                List.of(new SimpleGrantedAuthority("ROLE_" + parsed.role())));
+                                SecurityContextHolder.getContext().setAuthentication(authentication);
+                                try {
+                                    filterChain.doFilter(request, response);
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                } catch (ServletException e) {
+                                    throw new IllegalStateException(e);
+                                }
+                            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        } catch (IllegalStateException e) {
+            if (e.getCause() instanceof ServletException se) {
+                throw se;
             }
-
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            parsed.userId().toString(),
-                            null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + parsed.role())));
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            filterChain.doFilter(request, response);
-        } finally {
-            TenantContextHolder.clear();
+            throw e;
         }
     }
 }

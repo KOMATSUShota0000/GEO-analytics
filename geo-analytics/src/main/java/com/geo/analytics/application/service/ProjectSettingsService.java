@@ -2,7 +2,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.ProjectSettingsPatchRequest;
 import com.geo.analytics.web.dto.ProjectSettingsResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -27,7 +27,7 @@ public class ProjectSettingsService {
 
     public Optional<ProjectSettingsResponse> getSettings(UUID projectId) {
         return readWorkspaceId(projectId)
-            .flatMap(workspaceId -> TenantContext.executeWithTenant(
+            .flatMap(workspaceId -> TenantPlanScope.executeWithTenant(
                 workspaceId,
                 () -> projectRepository.findById(projectId).map(this::toResponse)));
     }
@@ -36,7 +36,7 @@ public class ProjectSettingsService {
     public ProjectSettingsResponse patch(UUID projectId, ProjectSettingsPatchRequest projectSettingsPatchRequest) {
         UUID workspaceId = readWorkspaceId(projectId)
             .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             ProjectEntity projectEntity = projectRepository.findById(projectId)
                 .orElseThrow(() -> new EntityNotFoundException("Project not found: " + projectId));
             if (projectSettingsPatchRequest.autoAuditEnabled() != null) {

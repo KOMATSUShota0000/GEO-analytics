@@ -4,7 +4,7 @@ import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
@@ -51,14 +51,14 @@ public class PlanBasedQuotaManager {
     }
 
     public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
                 .map(WorkspaceEntity::getSubscriptionPlan)
                 .filter(Objects::nonNull)
                 .orElse(SubscriptionPlan.STANDARD));
     }
 
     private BucketConfiguration configurationForWorkspace(UUID workspaceId) {
-        return TenantContext.executeWithTenant(workspaceId, () -> {
+        return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             var plan = workspaceRepository.findById(workspaceId)
                     .map(WorkspaceEntity::getSubscriptionPlan)
                     .filter(Objects::nonNull)
