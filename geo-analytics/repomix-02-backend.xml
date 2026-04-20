@@ -144,10 +144,19 @@ src/main/java/com/geo/analytics/domain/enums/PricingPlan.java
 src/main/java/com/geo/analytics/domain/enums/RagDomainRuleKind.java
 src/main/java/com/geo/analytics/domain/enums/SubscriptionPlan.java
 src/main/java/com/geo/analytics/domain/event/ProjectAuditCompletedEvent.java
+src/main/java/com/geo/analytics/domain/exception/AccountDisabledException.java
 src/main/java/com/geo/analytics/domain/exception/AiAnalysisTimeoutException.java
+src/main/java/com/geo/analytics/domain/exception/CredentialsRevokedException.java
+src/main/java/com/geo/analytics/domain/exception/ForbiddenApiException.java
 src/main/java/com/geo/analytics/domain/exception/InsufficientQuotaException.java
 src/main/java/com/geo/analytics/domain/exception/RateLimitExceededException.java
+src/main/java/com/geo/analytics/domain/exception/SessionRevokedException.java
+src/main/java/com/geo/analytics/domain/exception/SystemMaintenanceException.java
+src/main/java/com/geo/analytics/domain/exception/TenantSuspendedException.java
 src/main/java/com/geo/analytics/domain/exception/ThresholdExceededException.java
+src/main/java/com/geo/analytics/domain/exception/TokenExpiredException.java
+src/main/java/com/geo/analytics/domain/exception/UnauthenticatedApiException.java
+src/main/java/com/geo/analytics/domain/exception/VersionMismatchException.java
 src/main/java/com/geo/analytics/domain/lock/DistributedLockManager.java
 src/main/java/com/geo/analytics/domain/matching/DoubleMetaphoneCharEngine.java
 src/main/java/com/geo/analytics/domain/matching/EntityResolutionService.java
@@ -225,6 +234,7 @@ src/main/java/com/geo/analytics/infrastructure/crawler/PlaywrightPdfAdapter.java
 src/main/java/com/geo/analytics/infrastructure/crawler/PlaywrightWebCrawlerAdapter.java
 src/main/java/com/geo/analytics/infrastructure/crawler/TieredCrawlCache.java
 src/main/java/com/geo/analytics/infrastructure/datasource/TenantAwareDataSourceProxy.java
+src/main/java/com/geo/analytics/infrastructure/datasource/TenantAwareProxiedConnection.java
 src/main/java/com/geo/analytics/infrastructure/lock/AdvisoryLockKeyHasher.java
 src/main/java/com/geo/analytics/infrastructure/lock/LocalDistributedLockManager.java
 src/main/java/com/geo/analytics/infrastructure/lock/PostgresDistributedLockManager.java
@@ -250,12 +260,15 @@ src/main/java/com/geo/analytics/infrastructure/repository/UnresolvedEntityQueueR
 src/main/java/com/geo/analytics/infrastructure/repository/UserSessionRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/WorkspaceRepository.java
 src/main/java/com/geo/analytics/infrastructure/scheduler/MonthlyAuditScheduler.java
+src/main/java/com/geo/analytics/infrastructure/security/CustomAccessDeniedHandler.java
+src/main/java/com/geo/analytics/infrastructure/security/CustomAuthenticationEntryPoint.java
 src/main/java/com/geo/analytics/infrastructure/security/ExpiredJwtTokenException.java
 src/main/java/com/geo/analytics/infrastructure/security/InvalidJwtTokenException.java
 src/main/java/com/geo/analytics/infrastructure/security/JpaUserDetailsService.java
 src/main/java/com/geo/analytics/infrastructure/security/JwtAuthenticationFilter.java
 src/main/java/com/geo/analytics/infrastructure/security/JwtTokenException.java
 src/main/java/com/geo/analytics/infrastructure/security/RefreshTokenCookieFactory.java
+src/main/java/com/geo/analytics/infrastructure/security/SecurityExceptionResponseHandler.java
 src/main/java/com/geo/analytics/infrastructure/security/TenantAccessEvaluator.java
 src/main/java/com/geo/analytics/infrastructure/security/TokenService.java
 src/main/java/com/geo/analytics/infrastructure/tenant/ContextPropagator.java
@@ -279,10 +292,10 @@ src/main/java/com/geo/analytics/web/controller/WorkspaceController.java
 src/main/java/com/geo/analytics/web/controller/WorkspaceSubscriptionController.java
 src/main/java/com/geo/analytics/web/dto/AddQueriesRequest.java
 src/main/java/com/geo/analytics/web/dto/AnalyticsSummaryResponse.java
+src/main/java/com/geo/analytics/web/dto/ApiErrorResponse.java
 src/main/java/com/geo/analytics/web/dto/ChangeSubscriptionRequest.java
 src/main/java/com/geo/analytics/web/dto/CompetitorSharePoint.java
 src/main/java/com/geo/analytics/web/dto/CreateJobRequest.java
-src/main/java/com/geo/analytics/web/dto/ErrorResponse.java
 src/main/java/com/geo/analytics/web/dto/JobAnalysisDetailResponse.java
 src/main/java/com/geo/analytics/web/dto/JobProjectResponse.java
 src/main/java/com/geo/analytics/web/dto/JobStatusResponse.java
@@ -309,6 +322,7 @@ src/main/resources/db/manual/V20260330_audit_negative_alert.sql
 src/main/resources/db/manual/V20260331_job_strategy_gap_batch.sql
 src/main/resources/db/manual/V20260407_job_plan_limits_snapshot.sql
 src/main/resources/db/migration/V1__init_schema.sql
+src/main/resources/db/migration/V101__add_rls_bypass_to_sessions.sql
 src/main/resources/db/migration/V2__organization_users_role_varchar.sql
 src/main/resources/db/migration/V3__setup_roles_and_grants.sql
 src/main/resources/db/migration/V4__auth_select_policy.sql
@@ -1198,9 +1212,18 @@ public record VerificationResponse(
 <file path="src/main/java/com/geo/analytics/application/event/UserSessionEvictedEvent.java">
 package com.geo.analytics.application.event;
 
+import java.util.List;
 import java.util.UUID;
 
-public record UserSessionEvictedEvent(UUID userId, UUID organizationId) {}
+/**
+ * @param revokedSessionIds 論理削除されたセッション ID。キャッシュ無効化などに使う（空可）。
+ */
+public record UserSessionEvictedEvent(UUID userId, UUID organizationId, List<UUID> revokedSessionIds) {
+
+    public UserSessionEvictedEvent {
+        revokedSessionIds = List.copyOf(revokedSessionIds);
+    }
+}
 </file>
 
 <file path="src/main/java/com/geo/analytics/application/listener/UserSessionCacheEvictionListener.java">
@@ -1219,11 +1242,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @Component
 public class UserSessionCacheEvictionListener {
 
-    private final Cache<UUID, UUID> userSessionsCache;
+    private final Cache<UUID, Boolean> userSessionsCache;
     private final Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache;
 
     public UserSessionCacheEvictionListener(
-            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache,
+            @Qualifier("userSessionsCache") Cache<UUID, Boolean> userSessionsCache,
             @Qualifier("orgTenantAffiliationCache") Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache) {
         this.userSessionsCache = userSessionsCache;
         this.orgTenantAffiliationCache = orgTenantAffiliationCache;
@@ -1232,7 +1255,7 @@ public class UserSessionCacheEvictionListener {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onUserSessionEvicted(UserSessionEvictedEvent event) {
-        userSessionsCache.invalidate(event.userId());
+        event.revokedSessionIds().forEach(userSessionsCache::invalidate);
         UUID targetOrgId = event.organizationId();
         orgTenantAffiliationCache
                 .asMap()
@@ -2171,6 +2194,10 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.domain.entity.OrganizationUser;
+import com.geo.analytics.domain.exception.AccountDisabledException;
+import com.geo.analytics.domain.exception.CredentialsRevokedException;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.TenantSuspendedException;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
@@ -2181,6 +2208,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
@@ -2208,16 +2236,48 @@ public class AuthService {
                 .findByEmailAndDeletedAtIsNull(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
         TenantContext loginScope = new TenantContext(user.getOrganizationId(), null, null);
-        ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
-                .run(
-                        () ->
-                                authenticationManager.authenticate(
-                                        new UsernamePasswordAuthenticationToken(
-                                                request.getEmail(), request.getPassword())));
-        UUID sessionId = sessionManagementService.createNewSession(user.getId());
-        String accessToken = tokenService.generateAccessToken(user, sessionId);
-        String refreshToken = tokenService.generateRefreshToken(user, sessionId);
-        return new AuthTokenPair(accessToken, refreshToken);
+        return ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
+                .call(
+                        () -> {
+                            authenticationManager.authenticate(
+                                    new UsernamePasswordAuthenticationToken(
+                                            request.getEmail(), request.getPassword()));
+                            UUID sessionId = sessionManagementService.createNewSession(user.getId());
+                            String accessToken = tokenService.generateAccessToken(user, sessionId);
+                            String refreshToken = tokenService.generateRefreshToken(user, sessionId);
+                            return new AuthTokenPair(accessToken, refreshToken);
+                        });
+    }
+
+    /**
+     * リフレッシュ時のセッション検証とユーザー再読込を単一トランザクションにまとめる。
+     * コントローラ経由のリポジトリ直接呼び出しはトランザクション境界が付かず RLS インターセプタに Naked Query として検知される。
+     */
+    @Transactional(readOnly = true)
+    public String issueAccessTokenAfterRefresh(TokenService.ParsedRefreshToken parsed) {
+        // TODO: [Phase X] 組織エンティティに suspended フラグを追加し、ここで判定する
+        boolean isTenantSuspended = false;
+        if (isTenantSuspended) {
+            throw new TenantSuspendedException();
+        }
+
+        if (sessionManagementService.findActiveSessionBySessionId(parsed.sessionId()).isEmpty()) {
+            throw new SessionRevokedException();
+        }
+
+        OrganizationUser activeUser =
+                organizationUserRepository
+                        .findById(parsed.userId())
+                        .filter(u -> u.getDeletedAt() == null)
+                        .orElseThrow(() -> new AccountDisabledException());
+
+        // TODO: [Phase X] TokenService から iat を取得し、ユーザーの passwordChangedAt と比較する
+        boolean isCredentialsRevoked = false;
+        if (isCredentialsRevoked) {
+            throw new CredentialsRevokedException();
+        }
+
+        return tokenService.generateAccessToken(activeUser, parsed.sessionId());
     }
 }
 </file>
@@ -2234,6 +2294,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -2249,6 +2310,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * ジョブ／監査などバッチ系テーブルへの JDBC アクセス。{@code batchTransactionManager} 上のトランザクションで実行される。
+ *
+ * <p>{@link GlobalAccess} を型に付与し、{@code @Scheduled} や非同期コールバックなどテナント未束縛の経路からの DB アクセスを
+ * {@link com.geo.analytics.infrastructure.persistence.RlsConnectionInterceptor} が拒否しないようにする。
+ * HTTP 等で {@link com.geo.analytics.infrastructure.tenant.TenantContextHolder} が束縛されている場合は、従来どおり RLS 用セッション変数が設定される。
+ */
+@GlobalAccess
 @Service
 @Transactional("batchTransactionManager")
 public class BatchPersistenceService {
@@ -4034,11 +4103,20 @@ public class JobPersistenceService {
             auditHistoryRepository.save(entity);
         }));
     }
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    /**
+     * ジョブ作成は書き込みを伴うため {@code readOnly = false} を明示する。
+     * {@link Propagation#NOT_SUPPORTED} はトランザクションを停止させるため、RLS 防衛線（トランザクション必須）と両立しない。
+     */
+    @Transactional(readOnly = false)
     public JobEntity createJob(String brandName) {
         return createJobWithIdempotency(brandName, null).jobEntity();
     }
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+
+    /**
+     * プロジェクト解決・冪等検索・{@link #saveJobInNewTransaction} までを同一トランザクション境界で包む。
+     * 内側の {@code REQUIRES_NEW} はコミット境界として維持し、外側で冪等再試行の読み取りを行う。
+     */
+    @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
@@ -5543,6 +5621,7 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.UUID;
@@ -5555,6 +5634,11 @@ public class ProjectLastAuditService {
         this.projectRepository = projectRepository;
     }
 
+    /**
+     * {@link com.geo.analytics.application.service.ProjectAuditEventListener} の {@code @Async} から呼ばれるため、
+     * ここで明示的にトランザクションを開始する（リスナー本体に {@code @Transactional} を置いても非同期プロキシの都合で期待どおりにならないことがある）。
+     */
+    @Transactional(readOnly = false)
     public void markLastAudit(UUID projectId, UUID workspaceId) {
         TenantPlanScope.executeWithTenant(workspaceId, () -> {
             projectRepository.updateLastAuditAt(
@@ -5913,12 +5997,15 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.event.UserSessionEvictedEvent;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.entity.UserSession;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -5926,37 +6013,51 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 認証直後や PDF レンダリング用 JWT など、ワークスペース未確定の経路から呼ばれ得るセッション操作。
+ * {@link GlobalAccess} は「テナント未束縛でもよい」ことを明示するためメソッドに限定し、
+ * 通常リクエストでは {@link com.geo.analytics.infrastructure.tenant.TenantContextHolder} が束縛されていれば RLS 用セッション変数は従来どおり設定される。
+ * {@code user_sessions} のシステム操作は {@link com.geo.analytics.infrastructure.persistence.RlsConnectionInterceptor} が
+ * 付与する {@code app.rls_bypass} により DB 側で許可される。
+ */
 @Service
 public class SessionManagementService {
 
     private final OrganizationUserRepository organizationUserRepository;
     private final UserSessionRepository userSessionRepository;
     private final ApplicationEventPublisher eventPublisher;
-    private final Cache<UUID, UUID> userSessionsCache;
+    private final Cache<UUID, Boolean> userSessionsCache;
 
     public SessionManagementService(
             OrganizationUserRepository organizationUserRepository,
             UserSessionRepository userSessionRepository,
             ApplicationEventPublisher eventPublisher,
-            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache) {
+            @Qualifier("userSessionsCache") Cache<UUID, Boolean> userSessionsCache) {
         this.organizationUserRepository = organizationUserRepository;
         this.userSessionRepository = userSessionRepository;
         this.eventPublisher = eventPublisher;
         this.userSessionsCache = userSessionsCache;
     }
 
+    @GlobalAccess
     @Transactional
     public UUID createNewSession(UUID userId) {
         OrganizationUser user = organizationUserRepository
                 .findById(userId)
                 .filter(u -> u.getDeletedAt() == null)
                 .orElseThrow(() -> new EntityNotFoundException("OrganizationUser not found"));
-        userSessionRepository.deleteAllByUserId(userId);
-        userSessionRepository.flush();
-        eventPublisher.publishEvent(new UserSessionEvictedEvent(userId, user.getOrganizationId()));
+        UUID organizationId = Objects.requireNonNull(user.getOrganizationId(), "organizationId");
+        List<UUID> revokedSessionIds = userSessionRepository.findActiveSessionIdsByUserId(userId);
+        if (!revokedSessionIds.isEmpty()) {
+            userSessionRepository.softDeleteAllActiveByUserId(userId, Instant.now());
+            userSessionRepository.flush();
+        }
+        revokedSessionIds.forEach(userSessionsCache::invalidate);
+        eventPublisher.publishEvent(
+                new UserSessionEvictedEvent(userId, organizationId, revokedSessionIds));
         UUID sessionId = UUID.randomUUID();
         UserSession row = new UserSession();
-        row.setOrganizationId(user.getOrganizationId());
+        row.setOrganizationId(organizationId);
         row.setUserId(user.getId());
         row.setSessionId(sessionId);
         row.setExpiresAt(Instant.now().plus(30, ChronoUnit.DAYS));
@@ -5965,9 +6066,10 @@ public class SessionManagementService {
     }
 
     /**
-     * Inserts an additional active session row without rotating (deleting) existing sessions.
-     * Updates {@code userSessionsCache} so JWT validation matches the new session id.
+     * 人間の既存セッション行は消さずに PDF ボット用の追加行を挿入する。{@code userSessionsCache} は
+     * {@code sessionId} キーで当該ボット JWT のみを高速検証できるようにする。
      */
+    @GlobalAccess
     @Transactional
     public UUID appendRenderingSession(UUID userId) {
         OrganizationUser user = organizationUserRepository
@@ -5981,18 +6083,20 @@ public class SessionManagementService {
         row.setSessionId(sessionId);
         row.setExpiresAt(Instant.now().plus(30, ChronoUnit.DAYS));
         userSessionRepository.save(row);
-        userSessionsCache.put(userId, sessionId);
+        userSessionsCache.put(sessionId, Boolean.TRUE);
         return sessionId;
     }
 
+    @GlobalAccess
     @Transactional(readOnly = true)
     public long countActiveSessionsForUser(UUID userId) {
-        return userSessionRepository.countByUserId(userId);
+        return userSessionRepository.countByUserIdAndDeletedAtIsNull(userId);
     }
 
+    @GlobalAccess
     @Transactional(readOnly = true)
     public Optional<UserSession> findActiveSessionBySessionId(UUID sessionId) {
-        return userSessionRepository.findBySessionId(sessionId);
+        return userSessionRepository.findBySessionId(sessionId).filter(s -> s.getDeletedAt() == null);
     }
 }
 </file>
@@ -8218,12 +8322,74 @@ public record ProjectAuditCompletedEvent(UUID projectId, UUID jobId, UUID worksp
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/exception/AccountDisabledException.java">
+package com.geo.analytics.domain.exception;
+
+/** アカウントが無効化されている。 */
+public class AccountDisabledException extends RuntimeException {
+
+    public AccountDisabledException() {
+        super("このアカウントは利用できません。");
+    }
+
+    public AccountDisabledException(String message) {
+        super(message);
+    }
+
+    public AccountDisabledException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/exception/AiAnalysisTimeoutException.java">
 package com.geo.analytics.domain.exception;
 
 public class AiAnalysisTimeoutException extends RuntimeException {
     public AiAnalysisTimeoutException() {
         super("no successful model responses");
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/CredentialsRevokedException.java">
+package com.geo.analytics.domain.exception;
+
+/** 認証情報（API キー、リフレッシュトークン等）が失効した場合。 */
+public class CredentialsRevokedException extends RuntimeException {
+
+    public CredentialsRevokedException() {
+        super("認証情報が失効しています。再度ログインしてください。");
+    }
+
+    public CredentialsRevokedException(String message) {
+        super(message);
+    }
+
+    public CredentialsRevokedException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/ForbiddenApiException.java">
+package com.geo.analytics.domain.exception;
+
+/**
+ * 認証済みだが当該操作の権限がない場合（Spring Security の {@code AccessDeniedHandler} 等から送出）。
+ */
+public class ForbiddenApiException extends RuntimeException {
+
+    public ForbiddenApiException() {
+        super("この操作を行う権限がありません。");
+    }
+
+    public ForbiddenApiException(String message) {
+        super(message);
+    }
+
+    public ForbiddenApiException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
 </file>
@@ -8282,6 +8448,66 @@ public class RateLimitExceededException extends RuntimeException {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/exception/SessionRevokedException.java">
+package com.geo.analytics.domain.exception;
+
+/** サーバー側でセッションが失効・失効扱いとされた場合。 */
+public class SessionRevokedException extends RuntimeException {
+
+    public SessionRevokedException() {
+        super("セッションが無効化されています。再度ログインしてください。");
+    }
+
+    public SessionRevokedException(String message) {
+        super(message);
+    }
+
+    public SessionRevokedException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/SystemMaintenanceException.java">
+package com.geo.analytics.domain.exception;
+
+/** メンテナンスモード等によりサービスが利用できない。 */
+public class SystemMaintenanceException extends RuntimeException {
+
+    public SystemMaintenanceException() {
+        super("現在メンテナンス中です。しばらくしてから再度お試しください。");
+    }
+
+    public SystemMaintenanceException(String message) {
+        super(message);
+    }
+
+    public SystemMaintenanceException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/TenantSuspendedException.java">
+package com.geo.analytics.domain.exception;
+
+/** テナントの利用が一時停止されている。 */
+public class TenantSuspendedException extends RuntimeException {
+
+    public TenantSuspendedException() {
+        super("組織の利用が一時停止されています。管理者にお問い合わせください。");
+    }
+
+    public TenantSuspendedException(String message) {
+        super(message);
+    }
+
+    public TenantSuspendedException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/exception/ThresholdExceededException.java">
 package com.geo.analytics.domain.exception;
 
@@ -8294,6 +8520,68 @@ public class ThresholdExceededException extends RuntimeException {
 
     public int getThreshold() {
         return threshold;
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/TokenExpiredException.java">
+package com.geo.analytics.domain.exception;
+
+/** アクセストークン（またはセッション相当）の有効期限切れ。 */
+public class TokenExpiredException extends RuntimeException {
+
+    public TokenExpiredException() {
+        super("アクセストークンの有効期限が切れています。");
+    }
+
+    public TokenExpiredException(String message) {
+        super(message);
+    }
+
+    public TokenExpiredException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/UnauthenticatedApiException.java">
+package com.geo.analytics.domain.exception;
+
+/**
+ * 認証情報がなく保護リソースにアクセスした場合（Spring Security の {@code AuthenticationEntryPoint} 等から送出）。
+ */
+public class UnauthenticatedApiException extends RuntimeException {
+
+    public UnauthenticatedApiException() {
+        super("認証が必要です。");
+    }
+
+    public UnauthenticatedApiException(String message) {
+        super(message);
+    }
+
+    public UnauthenticatedApiException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/VersionMismatchException.java">
+package com.geo.analytics.domain.exception;
+
+/** クライアントの API / アプリバージョンがサーバー要件を満たさない。 */
+public class VersionMismatchException extends RuntimeException {
+
+    public VersionMismatchException() {
+        super("クライアントのバージョンが古いか、サーバーと一致しません。アプリを更新してください。");
+    }
+
+    public VersionMismatchException(String message) {
+        super(message);
+    }
+
+    public VersionMismatchException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
 </file>
@@ -15042,8 +15330,9 @@ public class CacheConfig {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
 
+    /** キーは {@code sessionId}。値は有効セッションの印（常に {@code true}）のみを格納する。 */
     @Bean
-    public Cache<UUID, UUID> userSessionsCache() {
+    public Cache<UUID, Boolean> userSessionsCache() {
         return Caffeine.newBuilder().expireAfterWrite(CACHE_TTL).build();
     }
 
@@ -15371,12 +15660,13 @@ public class SchedulerConfig {
 <file path="src/main/java/com/geo/analytics/infrastructure/config/SecurityConfig.java">
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.security.CustomAccessDeniedHandler;
+import com.geo.analytics.infrastructure.security.CustomAuthenticationEntryPoint;
 import com.geo.analytics.infrastructure.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -15386,7 +15676,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -15406,16 +15695,20 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter)
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            CustomAuthenticationEntryPoint authenticationEntryPoint,
+            CustomAccessDeniedHandler accessDeniedHandler)
             throws Exception {
         CookieCsrfTokenRepository tokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         tokenRepository.setCookiePath("/");
         CsrfTokenRequestAttributeHandler requestHandler = new CsrfTokenRequestAttributeHandler();
         requestHandler.setCsrfRequestAttributeName("_csrf");
-        HttpStatusEntryPoint unauthorizedEntryPoint = new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED);
         http
                 .cors(Customizer.withDefaults())
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorizedEntryPoint))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
@@ -15435,7 +15728,7 @@ public class SecurityConfig {
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
                                 PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
-                .httpBasic(basic -> basic.authenticationEntryPoint(unauthorizedEntryPoint))
+                .httpBasic(basic -> basic.authenticationEntryPoint(authenticationEntryPoint))
                 .formLogin(Customizer.withDefaults())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
@@ -16361,13 +16654,8 @@ public class TenantAwareDataSourceProxy extends DelegatingDataSource {
         return wrapConnection(super.getConnection(username, password));
     }
 
-    /**
-     * テナントガード付き {@link Connection} プロキシの識別子。{@link Connection#unwrap(Class)} でこの型のみ追加で公開する。
-     */
-    public interface TenantAwareProxiedConnection extends Connection {}
-
     private Connection wrapConnection(Connection delegate) {
-        ClassLoader cl = delegate.getClass().getClassLoader();
+        ClassLoader cl = TenantAwareDataSourceProxy.class.getClassLoader();
         if (cl == null) {
             cl = Connection.class.getClassLoader();
         }
@@ -16513,6 +16801,20 @@ public class TenantAwareDataSourceProxy extends DelegatingDataSource {
         return iface != null && iface.isInstance(proxy);
     }
 }
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/datasource/TenantAwareProxiedConnection.java">
+package com.geo.analytics.infrastructure.datasource;
+
+import java.sql.Connection;
+
+/**
+ * テナントガード付き {@link Connection} プロキシの識別子。{@link Connection#unwrap(Class)} でこの型のみ追加で公開する。
+ *
+ * <p>JDK の動的プロキシは、マーカー型を外側クラスのネスト型にするとクラスローダー境界（例: JDBC ドライバと Spring DevTools）で
+ * {@code Proxy.newProxyInstance} の可視性検証に失敗することがあるため、トップレベル型として定義する。
+ */
+public interface TenantAwareProxiedConnection extends Connection {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/infrastructure/lock/AdvisoryLockKeyHasher.java">
@@ -16947,7 +17249,10 @@ import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 import java.lang.reflect.Method;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Optional;
 import java.util.UUID;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -16971,6 +17276,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * トランザクション内で RLS 用セッション変数を設定する。{@link Ordered#LOWEST_PRECEDENCE} で
  * {@link org.springframework.transaction.interceptor.TransactionInterceptor} と同じ最終優先度バケットに置き、
  * 通常はインフラ側アドバイザの登録順によりトランザクション開始後に本アドバイスが評価されることを期待する。
+ *
+ * <p>{@link GlobalAccess} かつアクティブなトランザクションがある場合は {@code app.rls_bypass} を
+ * {@code 'on'} にし、マイグレーションで定義されたテーブル（例: {@code user_sessions}）の RLS を
+ * データベース側ポリシーで明示的に緩和する。
  */
 @Aspect
 @Component
@@ -16987,6 +17296,7 @@ public class RlsConnectionInterceptor implements Ordered {
 
     private static final String SET_ORG = "SELECT set_config('app.current_org_id', ?, true)";
     private static final String SET_TENANT = "SELECT set_config('app.current_tenant_id', ?, true)";
+    private static final String SET_RLS_BYPASS = "SELECT set_config('app.rls_bypass', 'on', true)";
     private static final String RESOLVE_ORG = "SELECT organization_id FROM workspaces WHERE id = ? AND deleted_at IS NULL";
 
     private final EntityManager entityManager;
@@ -17043,6 +17353,7 @@ public class RlsConnectionInterceptor implements Ordered {
         Optional<UUID> tenant = TenantContextHolder.getTenantId();
         if (org.isEmpty() && tenant.isEmpty()) {
             if (global) {
+                enableRlsBypassOnConnection();
                 return pjp.proceed();
             }
             throw new SecurityException(
@@ -17052,6 +17363,9 @@ public class RlsConnectionInterceptor implements Ordered {
         UUID resolvedOrg = org.orElseGet(() -> resolveOrgFromWorkspace(tenant.orElse(null)));
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
+            if (global) {
+                applyRlsBypass(connection);
+            }
             if (resolvedOrg != null) {
                 try (PreparedStatement ps = connection.prepareStatement(SET_ORG)) {
                     ps.setString(1, resolvedOrg.toString());
@@ -17066,6 +17380,17 @@ public class RlsConnectionInterceptor implements Ordered {
             }
         });
         return pjp.proceed();
+    }
+
+    private void enableRlsBypassOnConnection() {
+        Session session = entityManager.unwrap(Session.class);
+        session.doWork(RlsConnectionInterceptor::applyRlsBypass);
+    }
+
+    private static void applyRlsBypass(Connection connection) throws SQLException {
+        try (Statement st = connection.createStatement()) {
+            st.execute(SET_RLS_BYPASS);
+        }
     }
 
     private static boolean hasGlobalAccess(ProceedingJoinPoint pjp) {
@@ -17517,6 +17842,9 @@ public interface UnresolvedEntityQueueRepository extends JpaRepository<Unresolve
 package com.geo.analytics.infrastructure.repository;
 
 import com.geo.analytics.domain.entity.UserSession;
+import com.geo.analytics.infrastructure.persistence.GlobalAccess;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17534,6 +17862,19 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
 
     @Transactional(readOnly = true)
     long countByUserId(UUID userId);
+
+    @Transactional(readOnly = true)
+    long countByUserIdAndDeletedAtIsNull(UUID userId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT u.sessionId FROM UserSession u WHERE u.userId = :userId AND u.deletedAt IS NULL")
+    List<UUID> findActiveSessionIdsByUserId(@Param("userId") UUID userId);
+
+    @GlobalAccess
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            "UPDATE UserSession u SET u.deletedAt = :deletedAt WHERE u.userId = :userId AND u.deletedAt IS NULL")
+    int softDeleteAllActiveByUserId(@Param("userId") UUID userId, @Param("deletedAt") Instant deletedAt);
 
     @Transactional(readOnly = true)
     Optional<UserSession> findBySessionId(UUID sessionId);
@@ -17590,6 +17931,80 @@ public class MonthlyAuditScheduler {
                 break;
             }
         }
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/security/CustomAccessDeniedHandler.java">
+package com.geo.analytics.infrastructure.security;
+
+import com.geo.analytics.domain.exception.ForbiddenApiException;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CustomAccessDeniedHandler implements AccessDeniedHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomAccessDeniedHandler.class);
+
+    private final SecurityExceptionResponseHandler securityExceptionResponseHandler;
+
+    public CustomAccessDeniedHandler(SecurityExceptionResponseHandler securityExceptionResponseHandler) {
+        this.securityExceptionResponseHandler = securityExceptionResponseHandler;
+    }
+
+    @Override
+    public void handle(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AccessDeniedException accessDeniedException)
+            throws IOException, ServletException {
+        log.warn("Access denied: {}", accessDeniedException.getMessage());
+        securityExceptionResponseHandler.handle(request, response, new ForbiddenApiException());
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/security/CustomAuthenticationEntryPoint.java">
+package com.geo.analytics.infrastructure.security;
+
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomAuthenticationEntryPoint.class);
+
+    private final SecurityExceptionResponseHandler securityExceptionResponseHandler;
+
+    public CustomAuthenticationEntryPoint(SecurityExceptionResponseHandler securityExceptionResponseHandler) {
+        this.securityExceptionResponseHandler = securityExceptionResponseHandler;
+    }
+
+    @Override
+    public void commence(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException authException)
+            throws IOException, ServletException {
+        log.debug("Authentication required: {}", authException.getMessage());
+        securityExceptionResponseHandler.handle(request, response, new UnauthenticatedApiException());
     }
 }
 </file>
@@ -17661,7 +18076,10 @@ public class JpaUserDetailsService implements UserDetailsService {
 <file path="src/main/java/com/geo/analytics/infrastructure/security/JwtAuthenticationFilter.java">
 package com.geo.analytics.infrastructure.security;
 
-import com.geo.analytics.infrastructure.repository.UserSessionRepository;
+import com.geo.analytics.application.service.SessionManagementService;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
 import com.geo.analytics.infrastructure.tenant.TenantContext;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -17704,16 +18122,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher("/ws/**"));
 
     private final TokenService tokenService;
-    private final UserSessionRepository userSessionRepository;
-    private final Cache<UUID, UUID> userSessionsCache;
+    private final SessionManagementService sessionManagementService;
+    private final Cache<UUID, Boolean> userSessionsCache;
+    private final SecurityExceptionResponseHandler securityExceptionResponseHandler;
 
     public JwtAuthenticationFilter(
             TokenService tokenService,
-            UserSessionRepository userSessionRepository,
-            @Qualifier("userSessionsCache") Cache<UUID, UUID> userSessionsCache) {
+            SessionManagementService sessionManagementService,
+            @Qualifier("userSessionsCache") Cache<UUID, Boolean> userSessionsCache,
+            SecurityExceptionResponseHandler securityExceptionResponseHandler) {
         this.tokenService = tokenService;
-        this.userSessionRepository = userSessionRepository;
+        this.sessionManagementService = sessionManagementService;
         this.userSessionsCache = userSessionsCache;
+        this.securityExceptionResponseHandler = securityExceptionResponseHandler;
     }
 
     @Override
@@ -17738,7 +18159,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             parsed = tokenService.parseAccessToken(token);
         } catch (JwtTokenException e) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            securityExceptionResponseHandler.handle(request, response, mapJwtFailure(e));
             return;
         }
         TenantContext jwtContext =
@@ -17747,22 +18168,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
                     .run(
                             () -> {
-                                UUID cachedSessionId = userSessionsCache.getIfPresent(parsed.userId());
-                                if (cachedSessionId != null) {
-                                    if (!cachedSessionId.equals(parsed.sessionId())) {
-                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                                        return;
-                                    }
-                                } else {
-                                    if (userSessionRepository
-                                            .findBySessionId(parsed.sessionId())
-                                            .filter(s -> s.getDeletedAt() == null)
+                                Boolean cachedValid = userSessionsCache.getIfPresent(parsed.sessionId());
+                                if (!Boolean.TRUE.equals(cachedValid)) {
+                                    if (sessionManagementService
+                                            .findActiveSessionBySessionId(parsed.sessionId())
                                             .filter(s -> s.getUserId().equals(parsed.userId()))
                                             .isEmpty()) {
-                                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                        rejectSessionRevoked(request, response);
                                         return;
                                     }
-                                    userSessionsCache.put(parsed.userId(), parsed.sessionId());
+                                    userSessionsCache.put(parsed.sessionId(), Boolean.TRUE);
                                 }
 
                                 UsernamePasswordAuthenticationToken authentication =
@@ -17786,6 +18201,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 throw se;
             }
             throw e;
+        }
+    }
+
+    private static Exception mapJwtFailure(JwtTokenException e) {
+        if (e instanceof ExpiredJwtTokenException) {
+            return new TokenExpiredException("アクセストークンの有効期限が切れています。", e);
+        }
+        return new UnauthenticatedApiException("アクセストークンが無効です。", e);
+    }
+
+    private void rejectSessionRevoked(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            securityExceptionResponseHandler.handle(request, response, new SessionRevokedException());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 }
@@ -17830,6 +18260,96 @@ public class RefreshTokenCookieFactory {
                 .maxAge(Duration.ofSeconds(jwt.getRefreshTokenExpirationSec()))
                 .sameSite("Strict")
                 .build();
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/security/SecurityExceptionResponseHandler.java">
+package com.geo.analytics.infrastructure.security;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.domain.exception.ForbiddenApiException;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
+import com.geo.analytics.web.dto.ApiErrorResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerExceptionResolver;
+import org.springframework.web.servlet.ModelAndView;
+
+/**
+ * Servlet フィルタや Security の {@code EntryPoint} から {@link GlobalExceptionHandler} と同じ JSON を返すためのブリッジ。
+ *
+ * <p>まず {@link HandlerExceptionResolver}（{@code @RestControllerAdvice} を含む）に委譲し、
+ * ステータスが未設定のときのみ {@link ApiErrorResponse} を直接書き込む。
+ */
+@Component
+public class SecurityExceptionResponseHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(SecurityExceptionResponseHandler.class);
+
+    private final HandlerExceptionResolver handlerExceptionResolver;
+    private final ObjectMapper objectMapper;
+
+    public SecurityExceptionResponseHandler(
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver,
+            ObjectMapper objectMapper) {
+        this.handlerExceptionResolver = handlerExceptionResolver;
+        this.objectMapper = objectMapper;
+    }
+
+    public void handle(HttpServletRequest request, HttpServletResponse response, Exception exception)
+            throws IOException {
+        if (response.isCommitted()) {
+            return;
+        }
+        try {
+            ModelAndView unused = handlerExceptionResolver.resolveException(request, response, null, exception);
+            if (unused != null) {
+                log.trace("HandlerExceptionResolver returned ModelAndView for {}", exception.getClass().getName());
+            }
+        } catch (Exception e) {
+            log.warn("HandlerExceptionResolver failed for {}", exception.getClass().getName(), e);
+        }
+        if (!response.isCommitted() && response.getStatus() < HttpStatus.BAD_REQUEST.value()) {
+            writeFallback(response, exception);
+        }
+    }
+
+    private void writeFallback(HttpServletResponse response, Exception exception) throws IOException {
+        ApiErrorResponse body = toApiError(exception);
+        response.setStatus(statusFor(exception));
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        objectMapper.writeValue(response.getOutputStream(), body);
+        response.flushBuffer();
+    }
+
+    private static int statusFor(Exception exception) {
+        return switch (exception) {
+            case TokenExpiredException _, SessionRevokedException _, UnauthenticatedApiException _ ->
+                    HttpStatus.UNAUTHORIZED.value();
+            case ForbiddenApiException _ -> HttpStatus.FORBIDDEN.value();
+            default -> HttpStatus.INTERNAL_SERVER_ERROR.value();
+        };
+    }
+
+    private static ApiErrorResponse toApiError(Exception exception) {
+        return switch (exception) {
+            case TokenExpiredException e -> ApiErrorResponse.of("token_expired", e.getMessage());
+            case SessionRevokedException e -> ApiErrorResponse.of("session_revoked", e.getMessage());
+            case UnauthenticatedApiException e -> ApiErrorResponse.of("unauthorized", e.getMessage());
+            case ForbiddenApiException e -> ApiErrorResponse.of("forbidden", e.getMessage());
+            default -> ApiErrorResponse.of("unknown", "予期しないエラーが発生しました。");
+        };
     }
 }
 </file>
@@ -18483,9 +19003,7 @@ import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.application.dto.LoginResponse;
 import com.geo.analytics.application.service.AuthService;
 import com.geo.analytics.application.service.AuthService.AuthTokenPair;
-import com.geo.analytics.domain.entity.OrganizationUser;
-import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
-import com.geo.analytics.infrastructure.repository.UserSessionRepository;
+import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.infrastructure.security.JwtTokenException;
 import com.geo.analytics.infrastructure.security.RefreshTokenCookieFactory;
 import com.geo.analytics.infrastructure.security.TokenService;
@@ -18495,11 +19013,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.lang.ScopedValue;
-import java.util.Map;
-import java.util.function.Supplier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18513,20 +19027,14 @@ public class AuthController {
     private final AuthService authService;
     private final RefreshTokenCookieFactory refreshTokenCookieFactory;
     private final TokenService tokenService;
-    private final UserSessionRepository userSessionRepository;
-    private final OrganizationUserRepository organizationUserRepository;
 
     public AuthController(
             AuthService authService,
             RefreshTokenCookieFactory refreshTokenCookieFactory,
-            TokenService tokenService,
-            UserSessionRepository userSessionRepository,
-            OrganizationUserRepository organizationUserRepository) {
+            TokenService tokenService) {
         this.authService = authService;
         this.refreshTokenCookieFactory = refreshTokenCookieFactory;
         this.tokenService = tokenService;
-        this.userSessionRepository = userSessionRepository;
-        this.organizationUserRepository = organizationUserRepository;
     }
 
     @PostMapping("/login")
@@ -18538,55 +19046,23 @@ public class AuthController {
     }
 
     @PostMapping("/auth/refresh")
-    public ResponseEntity<?> refresh(HttpServletRequest request) {
+    public ResponseEntity<LoginResponse> refresh(HttpServletRequest request) {
         String raw = readCookie(request, RefreshTokenCookieFactory.REFRESH_TOKEN_COOKIE_NAME);
         if (raw == null || raw.isBlank()) {
-            return unauthorizedWithReason("token_expired");
+            throw new TokenExpiredException("リフレッシュトークンがありません。");
         }
         final TokenService.ParsedRefreshToken parsed;
         try {
             parsed = tokenService.parseRefreshToken(raw);
         } catch (JwtTokenException e) {
-            return unauthorizedWithReason("token_expired");
+            throw new TokenExpiredException("リフレッシュトークンが無効か期限切れです。", e);
         }
         TenantContext refreshScope = new TenantContext(parsed.organizationId(), null, null);
-        Supplier<ResponseEntity<?>> refresh = () -> {
-            // TODO: [Phase X] 組織エンティティに suspended フラグを追加し、ここで判定する
-            boolean isTenantSuspended = false;
-            if (isTenantSuspended) {
-                return unauthorizedWithReason("tenant_suspended");
-            }
-
-            if (userSessionRepository
-                    .findBySessionId(parsed.sessionId())
-                    .filter(s -> s.getDeletedAt() == null)
-                    .isEmpty()) {
-                return unauthorizedWithReason("session_revoked");
-            }
-            var activeUser = organizationUserRepository
-                    .findById(parsed.userId())
-                    .filter(u -> u.getDeletedAt() == null);
-            if (activeUser.isEmpty()) {
-                return unauthorizedWithReason("account_disabled");
-            }
-
-            // TODO: [Phase X] TokenService から iat を取得し、ユーザーの passwordChangedAt と比較する
-            boolean isCredentialsRevoked = false;
-            if (isCredentialsRevoked) {
-                return unauthorizedWithReason("credentials_revoked");
-            }
-
-            String accessToken = tokenService.generateAccessToken(activeUser.orElseThrow(), parsed.sessionId());
-            return ResponseEntity.ok(new LoginResponse(accessToken));
-        };
-        // JDK 25: ScopedValue.Carrier に get(Supplier) は無く、CallableOp#call が Supplier 実行の正規手段
-        return ScopedValue.where(TenantContextHolder.CONTEXT, refreshScope).call(refresh::get);
-    }
-
-    private static ResponseEntity<?> unauthorizedWithReason(String reason) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("reason", reason));
+        return ScopedValue.where(TenantContextHolder.CONTEXT, refreshScope)
+                .call(
+                        () ->
+                                ResponseEntity.ok(
+                                        new LoginResponse(authService.issueAccessTokenAfterRefresh(parsed))));
     }
 
     private static String readCookie(HttpServletRequest request, String name) {
@@ -19235,6 +19711,33 @@ public record AnalyticsSummaryResponse(
 ) {}
 </file>
 
+<file path="src/main/java/com/geo/analytics/web/dto/ApiErrorResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import java.util.Map;
+
+/**
+ * API エラーの統一 JSON 形式（フロントエンドは {@code error_code} で分岐する）。
+ *
+ * <p>フィールド名は JSON 上で snake_case（{@code error_code}, {@code message}, {@code details}）となる。
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record ApiErrorResponse(String errorCode, String message, Map<String, Object> details) {
+
+    public static ApiErrorResponse of(String errorCode, String message) {
+        return new ApiErrorResponse(errorCode, message, null);
+    }
+
+    public static ApiErrorResponse of(String errorCode, String message, Map<String, Object> details) {
+        return new ApiErrorResponse(errorCode, message, details);
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/web/dto/ChangeSubscriptionRequest.java">
 package com.geo.analytics.web.dto;
 
@@ -19275,17 +19778,6 @@ public record CreateJobRequest(
         brandName = TextWhitespaceNormalizer.normalize(brandName);
     }
 }
-</file>
-
-<file path="src/main/java/com/geo/analytics/web/dto/ErrorResponse.java">
-package com.geo.analytics.web.dto;
-
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
-
-@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public record ErrorResponse(
-        String errorCode, String message, Integer currentLimit, String planName, Long retryAfterSeconds) {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/web/dto/JobAnalysisDetailResponse.java">
@@ -19754,185 +20246,257 @@ public record VerifyStreamEvent(String kind, String text, String queryId) {
 <file path="src/main/java/com/geo/analytics/web/exception/GlobalExceptionHandler.java">
 package com.geo.analytics.web.exception;
 
+import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.exception.CredentialsRevokedException;
+import com.geo.analytics.domain.exception.ForbiddenApiException;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.exception.SessionRevokedException;
+import com.geo.analytics.domain.exception.SystemMaintenanceException;
+import com.geo.analytics.domain.exception.TenantSuspendedException;
 import com.geo.analytics.domain.exception.ThresholdExceededException;
+import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.domain.exception.UnauthenticatedApiException;
+import com.geo.analytics.domain.exception.VersionMismatchException;
+import com.geo.analytics.infrastructure.lock.PostgresDistributedLockManager.LockAcquisitionException;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
-import com.geo.analytics.web.dto.ErrorResponse;
+import com.geo.analytics.web.dto.ApiErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
+import java.sql.SQLTransientConnectionException;
+import java.time.Duration;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.sql.SQLTransientConnectionException;
-
-import java.time.Duration;
-import java.util.Map;
-import java.util.stream.Collectors;
-
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private static final String UNKNOWN_USER_MESSAGE = "予期しないエラーが発生しました。";
+
+    private static ResponseEntity<ApiErrorResponse> json(HttpStatus status, ApiErrorResponse body) {
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(body);
+    }
+
+    private static ResponseEntity<ApiErrorResponse> json(HttpStatus status, HttpHeaders headers, ApiErrorResponse body) {
+        return ResponseEntity.status(status).headers(headers).contentType(MediaType.APPLICATION_JSON).body(body);
+    }
+
+    @ExceptionHandler(TokenExpiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleTokenExpired(TokenExpiredException exception) {
+        logger.warn("Token expired: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("token_expired", exception.getMessage()));
+    }
+
+    @ExceptionHandler(SessionRevokedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSessionRevoked(SessionRevokedException exception) {
+        logger.warn("Session revoked: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("session_revoked", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CredentialsRevokedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCredentialsRevoked(CredentialsRevokedException exception) {
+        logger.warn("Credentials revoked: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("credentials_revoked", exception.getMessage()));
+    }
+
+    @ExceptionHandler(UnauthenticatedApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnauthenticatedApi(UnauthenticatedApiException exception) {
+        logger.debug("Unauthenticated: {}", exception.getMessage());
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("unauthorized", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleForbiddenApi(ForbiddenApiException exception) {
+        logger.warn("Forbidden: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("forbidden", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSpringAccessDenied(AccessDeniedException exception) {
+        logger.warn("Access denied", exception);
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("forbidden", "この操作を行う権限がありません。"));
+    }
+
+    @ExceptionHandler(AccountDisabledException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccountDisabled(AccountDisabledException exception) {
+        logger.warn("Account disabled: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("account_disabled", exception.getMessage()));
+    }
+
+    @ExceptionHandler(TenantSuspendedException.class)
+    public ResponseEntity<ApiErrorResponse> handleTenantSuspended(TenantSuspendedException exception) {
+        logger.warn("Tenant suspended: {}", exception.getMessage());
+        return json(HttpStatus.FORBIDDEN, ApiErrorResponse.of("tenant_suspended", exception.getMessage()));
+    }
+
+    @ExceptionHandler(SystemMaintenanceException.class)
+    public ResponseEntity<ApiErrorResponse> handleSystemMaintenance(SystemMaintenanceException exception) {
+        logger.warn("Maintenance: {}", exception.getMessage());
+        return json(HttpStatus.SERVICE_UNAVAILABLE, ApiErrorResponse.of("maintenance", exception.getMessage()));
+    }
+
+    @ExceptionHandler(VersionMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleVersionMismatch(VersionMismatchException exception) {
+        logger.warn("Version mismatch: {}", exception.getMessage());
+        return json(HttpStatus.UPGRADE_REQUIRED, ApiErrorResponse.of("version_mismatch", exception.getMessage()));
+    }
+
+    @ExceptionHandler(LockAcquisitionException.class)
+    public ResponseEntity<ApiErrorResponse> handleLockAcquisition(LockAcquisitionException exception) {
+        logger.warn("Advisory lock not acquired: {}", exception.getMessage());
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("system_busy", "ただいま混み合っています。しばらくしてから再度お試しください。"));
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<ApiErrorResponse> handleSecurityException(SecurityException exception) {
+        logger.error("Security violation (e.g. RLS)", exception);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiErrorResponse.of("unknown", UNKNOWN_USER_MESSAGE));
+    }
+
     @ExceptionHandler(ThresholdExceededException.class)
-    public ResponseEntity<ErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
-        var threshold = exception.getThreshold();
-        var message =
-                "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
+    public ResponseEntity<ApiErrorResponse> handleThresholdExceeded(ThresholdExceededException exception) {
+        int threshold = exception.getThreshold();
+        String message = "キーワードの上限を超えています。" + threshold + "件以下のキーワード数にしてください";
         logger.warn("Threshold exceeded threshold={}", threshold);
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse("THRESHOLD_EXCEEDED", message, threshold, null, null));
+        return json(
+                HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of(
+                        "threshold_exceeded",
+                        message,
+                        Map.of("threshold", threshold)));
     }
 
     @ExceptionHandler(InsufficientQuotaException.class)
-    public ResponseEntity<ErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
+    public ResponseEntity<ApiErrorResponse> handleInsufficientQuota(InsufficientQuotaException exception) {
         logger.warn("Insufficient quota plan={} limit={}", exception.getPlanName(), exception.getCurrentLimit());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "INSUFFICIENT_QUOTA",
+        return json(
+                HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of(
+                        "insufficient_quota",
                         exception.getMessage(),
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        null));
+                        Map.of(
+                                "current_limit", exception.getCurrentLimit(),
+                                "plan_name", exception.getPlanName())));
     }
 
     @ExceptionHandler(AiAnalysisTimeoutException.class)
-    public ResponseEntity<ProblemDetail> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAiAnalysisTimeout(AiAnalysisTimeoutException exception) {
         logger.warn("AI analysis timeout", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
-        problemDetail.setTitle("AI Analysis Timeout");
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("ai_analysis_timeout", exception.getMessage()));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
-        var nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
-        var wait = Duration.ofNanos(nanos);
-        var retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
-        var hours = wait.toHours();
-        var minutes = wait.minusHours(hours).toMinutes();
-        var message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
+    public ResponseEntity<ApiErrorResponse> handleRateLimitExceeded(RateLimitExceededException exception) {
+        long nanos = Math.max(0L, exception.getProbe().getNanosToWaitForRefill());
+        Duration wait = Duration.ofNanos(nanos);
+        long retryAfterSeconds = nanos <= 0L ? 0L : (nanos + 999_999_999L) / 1_000_000_000L;
+        long hours = wait.toHours();
+        long minutes = wait.minusHours(hours).toMinutes();
+        String message = "解析枠の残高が不足しています。回復まで約" + hours + "時間" + minutes + "分です。";
         logger.warn("Rate limit exceeded plan={}", exception.getPlanName());
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new ErrorResponse(
-                        "RATE_LIMIT_EXCEEDED",
+        return json(
+                HttpStatus.TOO_MANY_REQUESTS,
+                ApiErrorResponse.of(
+                        "rate_limit_exceeded",
                         message,
-                        exception.getCurrentLimit(),
-                        exception.getPlanName(),
-                        retryAfterSeconds));
+                        Map.of(
+                                "current_limit", exception.getCurrentLimit(),
+                                "plan_name", exception.getPlanName(),
+                                "retry_after_seconds", retryAfterSeconds)));
     }
 
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAuthentication(AuthenticationException exception) {
         logger.warn("Authentication failed", exception);
-        ProblemDetail problemDetail =
-                ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Invalid credentials");
-        problemDetail.setTitle("Unauthorized");
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.UNAUTHORIZED,
+                ApiErrorResponse.of("invalid_credentials", "認証に失敗しました。"));
     }
 
     @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<ProblemDetail> handleEntityNotFound(EntityNotFoundException exception) {
+    public ResponseEntity<ApiErrorResponse> handleEntityNotFound(EntityNotFoundException exception) {
         logger.warn("Resource not found", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
-        problemDetail.setTitle("Resource Not Found");
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.NOT_FOUND, ApiErrorResponse.of("not_found", exception.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException exception) {
+    public ResponseEntity<ApiErrorResponse> handleIllegalState(IllegalStateException exception) {
         logger.warn("Invalid state transition", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, exception.getMessage());
-        problemDetail.setTitle("Invalid State Transition");
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.CONFLICT, ApiErrorResponse.of("conflict", exception.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception) {
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException exception) {
         logger.warn("Invalid argument", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, exception.getMessage());
-        problemDetail.setTitle("Invalid Argument");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.BAD_REQUEST, ApiErrorResponse.of("invalid_argument", exception.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ProblemDetail> handleValidationFailure(MethodArgumentNotValidException exception) {
+    public ResponseEntity<ApiErrorResponse> handleValidationFailure(MethodArgumentNotValidException exception) {
         logger.warn("Request validation failed", exception);
-        Map<String, String> fieldValidationErrors = exception.getBindingResult().getFieldErrors().stream()
+        Map<String, String> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(
                         FieldError::getField,
-                        fieldError -> fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
-                        (existingMessage, duplicateMessage) -> existingMessage
-                ));
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Request validation failed");
-        problemDetail.setTitle("Validation Error");
-        problemDetail.setProperty("fieldErrors", fieldValidationErrors);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+                        fieldError ->
+                                fieldError.getDefaultMessage() != null ? fieldError.getDefaultMessage() : "Invalid value",
+                        (existingMessage, duplicateMessage) -> existingMessage));
+        return json(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorResponse.of("validation_failed", "入力内容を確認してください。", Map.of("fields", fieldErrors)));
     }
 
     @ExceptionHandler(HttpMessageNotWritableException.class)
-    public ResponseEntity<Void> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotWritable(HttpMessageNotWritableException exception) {
         logger.debug(exception.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ApiErrorResponse.of("serialization_unavailable", "レスポンスの生成に失敗しました。"));
     }
 
     @ExceptionHandler(JsonbSerializationException.class)
-    public ResponseEntity<ProblemDetail> handleJsonbSerializationFailure(JsonbSerializationException exception) {
+    public ResponseEntity<ApiErrorResponse> handleJsonbSerializationFailure(JsonbSerializationException exception) {
         logger.error("AI response JSON parse failure", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_GATEWAY, "AI response could not be parsed");
-        problemDetail.setTitle("AI Response Parse Failure");
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                HttpStatus.BAD_GATEWAY,
+                ApiErrorResponse.of("ai_response_parse_failure", "AI の応答を解釈できませんでした。"));
     }
 
     @ExceptionHandler({CannotGetJdbcConnectionException.class, SQLTransientConnectionException.class})
-    public ResponseEntity<ProblemDetail> handleConnectionPoolExhausted(Exception exception) {
+    public ResponseEntity<ApiErrorResponse> handleConnectionPoolExhausted(Exception exception) {
         logger.warn("Database connection pool exhausted", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE, "Database connections are currently exhausted. Please retry shortly.");
-        problemDetail.setTitle("Service Unavailable");
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .header(HttpHeaders.RETRY_AFTER, "5")
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.RETRY_AFTER, "5");
+        return json(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                headers,
+                ApiErrorResponse.of(
+                        "database_unavailable",
+                        "データベースへの接続が混み合っています。しばらくしてから再度お試しください。"));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException exception) {
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException exception) {
         HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
         if (status == null) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
@@ -19943,22 +20507,18 @@ public class GlobalExceptionHandler {
         } else {
             logger.warn("Response status exception status={} detail={}", status.value(), detail);
         }
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
-        problemDetail.setTitle(status.getReasonPhrase());
-        return ResponseEntity.status(status)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(
+                status,
+                ApiErrorResponse.of(
+                        "response_status",
+                        detail,
+                        Map.of("http_status", status.value())));
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ProblemDetail> handleUnexpectedException(Exception exception) {
+    public ResponseEntity<ApiErrorResponse> handleUnexpectedException(Exception exception) {
         logger.error("Unhandled exception", exception);
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        problemDetail.setTitle("Internal Server Error");
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(problemDetail);
+        return json(HttpStatus.INTERNAL_SERVER_ERROR, ApiErrorResponse.of("unknown", UNKNOWN_USER_MESSAGE));
     }
 }
 </file>
@@ -19968,6 +20528,8 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+    ignore-migration-patterns: "*:missing"
+    validate-on-migrate: false
     url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
     user: "postgres"
     password: "Koma7851"
@@ -21097,6 +21659,29 @@ CREATE POLICY workspaces_aud_api_worker_policy ON public.workspaces_aud
     );
 </file>
 
+<file path="src/main/resources/db/migration/V101__add_rls_bypass_to_sessions.sql">
+-- システム経路（@GlobalAccess）専用: app.rls_bypass = 'on' のとき user_sessions の RLS を緩和する。
+-- アプリはトランザクションローカルな set_config(..., true) のみでフラグを立て、コミットで消える。
+
+DROP POLICY IF EXISTS user_sessions_api_worker_policy ON public.user_sessions;
+
+CREATE POLICY user_sessions_api_worker_policy ON public.user_sessions
+    FOR ALL TO api_worker
+    USING (
+        (
+            organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            AND deleted_at IS NULL
+        )
+        OR current_setting('app.rls_bypass', true) = 'on'
+    )
+    WITH CHECK (
+        (
+            organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+        )
+        OR current_setting('app.rls_bypass', true) = 'on'
+    );
+</file>
+
 <file path="src/main/resources/db/migration/V2__organization_users_role_varchar.sql">
 ALTER TABLE organization_users
     ALTER COLUMN role DROP DEFAULT;
@@ -21314,7 +21899,7 @@ class CacheConfigTest {
     private ApplicationContext applicationContext;
 
     @Autowired
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
 
     @Autowired
     private Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache;
@@ -21330,12 +21915,11 @@ class CacheConfigTest {
     }
 
     @Test
-    void userSessionsCacheStoresAndRetrievesUuidValues() {
-        UUID userId = UUID.fromString("aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee");
+    void userSessionsCacheStoresAndRetrievesSessionValidity() {
         UUID sessionId = UUID.fromString("11111111-2222-4333-8444-555555555555");
 
-        userSessionsCache.put(userId, sessionId);
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(sessionId);
+        userSessionsCache.put(sessionId, Boolean.TRUE);
+        assertThat(userSessionsCache.getIfPresent(sessionId)).isTrue();
         assertThat(userSessionsCache.getIfPresent(UUID.fromString("99999999-9999-4999-8999-999999999999")))
                 .isNull();
     }
@@ -21355,6 +21939,8 @@ class CacheConfigTest {
 <file path="src/test/java/com/geo/analytics/infrastructure/config/TestSecurityConfig.java">
 package com.geo.analytics.infrastructure.config;
 
+import com.geo.analytics.infrastructure.security.CustomAccessDeniedHandler;
+import com.geo.analytics.infrastructure.security.CustomAuthenticationEntryPoint;
 import com.geo.analytics.infrastructure.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21362,7 +21948,6 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -21370,7 +21955,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
@@ -21386,15 +21970,19 @@ public class TestSecurityConfig {
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
-    SecurityFilterChain testJwtBatchApiChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter)
+    SecurityFilterChain testJwtBatchApiChain(
+            HttpSecurity http,
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            CustomAuthenticationEntryPoint authenticationEntryPoint,
+            CustomAccessDeniedHandler accessDeniedHandler)
             throws Exception {
         http.securityMatcher("/api/test/batch/**")
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable())
-                .exceptionHandling(
-                        ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -21429,8 +22017,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.domain.entity.UserSession;
-import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -21463,10 +22051,13 @@ class JwtAuthenticationFilterTest {
     private TokenService tokenService;
 
     @Mock
-    private UserSessionRepository userSessionRepository;
+    private SessionManagementService sessionManagementService;
 
     @Mock
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
+
+    @Mock
+    private SecurityExceptionResponseHandler securityExceptionResponseHandler;
 
     @Mock
     private FilterChain filterChain;
@@ -21475,7 +22066,8 @@ class JwtAuthenticationFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new JwtAuthenticationFilter(tokenService, userSessionRepository, userSessionsCache);
+        filter = new JwtAuthenticationFilter(
+                tokenService, sessionManagementService, userSessionsCache, securityExceptionResponseHandler);
     }
 
     @AfterEach
@@ -21495,42 +22087,42 @@ class JwtAuthenticationFilterTest {
     @Test
     void cacheHitDoesNotQueryDatabase() throws ServletException, IOException {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
 
         MockHttpServletRequest request = bearerRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, filterChain);
 
-        verify(userSessionRepository, never()).findBySessionId(any());
+        verify(sessionManagementService, never()).findActiveSessionBySessionId(any());
         verify(filterChain).doFilter(request, response);
     }
 
     @Test
     void cacheMissLoadsFromDatabaseAndPopulatesCache() throws ServletException, IOException {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(null);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(null);
 
         UserSession session = new UserSession();
         session.setUserId(USER_ID);
         session.setSessionId(SESSION_ID);
         session.setDeletedAt(null);
-        when(userSessionRepository.findBySessionId(SESSION_ID)).thenReturn(Optional.of(session));
+        when(sessionManagementService.findActiveSessionBySessionId(SESSION_ID)).thenReturn(Optional.of(session));
 
         MockHttpServletRequest request = bearerRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, filterChain);
 
-        verify(userSessionRepository).findBySessionId(SESSION_ID);
-        verify(userSessionsCache).put(eq(USER_ID), eq(SESSION_ID));
+        verify(sessionManagementService).findActiveSessionBySessionId(SESSION_ID);
+        verify(userSessionsCache).put(eq(SESSION_ID), eq(Boolean.TRUE));
         verify(filterChain).doFilter(request, response);
     }
 
     @Test
     void tenantContextClearedAfterFilterChainThrowsServletException() throws Exception {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
         doThrow(new ServletException("boom")).when(filterChain).doFilter(any(), any());
 
         MockHttpServletRequest request = bearerRequest();
@@ -21546,7 +22138,7 @@ class JwtAuthenticationFilterTest {
     @Test
     void tenantContextClearedAfterFilterChainThrowsRuntimeException() throws Exception {
         when(tokenService.parseAccessToken(TOKEN)).thenReturn(PARSED);
-        when(userSessionsCache.getIfPresent(USER_ID)).thenReturn(SESSION_ID);
+        when(userSessionsCache.getIfPresent(SESSION_ID)).thenReturn(Boolean.TRUE);
         doThrow(new IllegalStateException("boom")).when(filterChain).doFilter(any(), any());
 
         MockHttpServletRequest request = bearerRequest();
@@ -21642,6 +22234,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -21701,7 +22294,7 @@ class SecurityConcurrencyTest {
 
     @Autowired
     @Qualifier("userSessionsCache")
-    private Cache<UUID, UUID> userSessionsCache;
+    private Cache<UUID, Boolean> userSessionsCache;
 
     @Autowired
     @Qualifier("orgTenantAffiliationCache")
@@ -21769,7 +22362,7 @@ class SecurityConcurrencyTest {
             throws Exception {
         String initialJwt = tokenService.generateAccessToken(organizationUser, SESSION_INITIAL);
         assertThat(runFilterWithBearer(initialJwt)).isEqualTo(200);
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(SESSION_INITIAL);
+        assertThat(userSessionsCache.getIfPresent(SESSION_INITIAL)).isTrue();
 
         UUID newSessionId =
                 transactionTemplate.execute(status -> sessionManagementService.createNewSession(userId));
@@ -21777,10 +22370,7 @@ class SecurityConcurrencyTest {
 
         await().atMost(15, SECONDS)
                 .pollInterval(Duration.ofMillis(50))
-                .until(() -> {
-                    UUID cached = userSessionsCache.getIfPresent(userId);
-                    return cached == null || cached.equals(newSessionId);
-                });
+                .until(() -> userSessionsCache.getIfPresent(SESSION_INITIAL) == null);
 
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<Integer>> futures = new ArrayList<>();
@@ -21792,8 +22382,7 @@ class SecurityConcurrencyTest {
             }
         }
 
-        assertThat(userSessionsCache.getIfPresent(userId))
-                .isNotEqualTo(SESSION_INITIAL);
+        assertThat(userSessionsCache.getIfPresent(SESSION_INITIAL)).isNull();
 
         String newJwt = tokenService.generateAccessToken(organizationUser, newSessionId);
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -21806,7 +22395,7 @@ class SecurityConcurrencyTest {
             }
         }
 
-        assertThat(userSessionsCache.getIfPresent(userId)).isEqualTo(newSessionId);
+        assertThat(userSessionsCache.getIfPresent(newSessionId)).isTrue();
     }
 
     @Test
@@ -21839,7 +22428,9 @@ class SecurityConcurrencyTest {
 
         try {
             transactionTemplate.executeWithoutResult(
-                    status -> applicationEventPublisher.publishEvent(new UserSessionEvictedEvent(userId, ORG_ID)));
+                    status ->
+                            applicationEventPublisher.publishEvent(
+                                    new UserSessionEvictedEvent(userId, ORG_ID, Collections.emptyList())));
 
             await().atMost(15, SECONDS)
                     .pollInterval(Duration.ofMillis(25))

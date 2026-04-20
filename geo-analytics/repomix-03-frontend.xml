@@ -46,6 +46,7 @@ frontend/index.html
 frontend/package.json
 frontend/postcss.config.js
 frontend/src/api/apiFetch.ts
+frontend/src/api/downloadJobPdf.ts
 frontend/src/api/keywordApi.ts
 frontend/src/api/tenantConstants.ts
 frontend/src/App.tsx
@@ -260,8 +261,18 @@ export async function responseJsonAsCamel(response: Response): Promise<unknown> 
   return parseJsonTextAsCamel(text);
 }
 
-async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean): Promise<void> {
-  const fresh = getAccessToken();
+/**
+ * @param accessTokenOverride リフレッシュ直後の JWT。省略時は {@link getAccessToken}（リトライでは必ず明示すること）。
+ */
+async function reapplyAuthHeadersAfterRefresh(
+  headers: Headers,
+  unsafe: boolean,
+  accessTokenOverride?: string | null,
+): Promise<void> {
+  const fresh =
+    accessTokenOverride !== undefined && accessTokenOverride !== null
+      ? accessTokenOverride
+      : getAccessToken();
   if (fresh !== null && fresh.length > 0) {
     headers.set("Authorization", `Bearer ${fresh}`);
   } else {
@@ -277,6 +288,30 @@ async function reapplyAuthHeadersAfterRefresh(headers: Headers, unsafe: boolean)
       headers.delete("X-XSRF-TOKEN");
     }
   }
+}
+
+/** 同一 Request オブジェクトを二度 fetch するとヘッダ上書きが無視されることがあるため、URL 文字列で再試行する。 */
+function resolveFetchUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.href;
+  }
+  return input.url;
+}
+
+/**
+ * 401 後の再試行用。init の headers と競合しないよう、確定した Bearer を持つ Headers で組み立てる。
+ */
+function buildRetryInit(input: RequestInfo | URL, init: RequestInit, authHeaders: Headers): RequestInit {
+  return {
+    ...init,
+    method: init.method ?? (input instanceof Request ? input.method : undefined),
+    credentials: "include",
+    headers: new Headers(authHeaders),
+    signal: init.signal ?? (input instanceof Request ? input.signal : undefined),
+  };
 }
 
 function notifyRefreshFailedAndClearWaiters(reason: RefreshFailureReason): void {
@@ -324,8 +359,10 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
           if (newToken !== null && newToken.length > 0) {
             refreshFailureHandlers = [];
             onRefreshed(newToken);
-            await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-            response = await fetch(input, fetchInit);
+            await reapplyAuthHeadersAfterRefresh(headers, unsafe, newToken);
+            const retryUrl = resolveFetchUrl(input);
+            const retryInit = buildRetryInit(input, init, headers);
+            response = await fetch(retryUrl, retryInit);
           } else {
             notifyRefreshFailedAndClearWaiters("unknown");
             clearClientState();
@@ -359,11 +396,13 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
             reject(new Error(`セッション更新失敗: ${reason}`));
           }
         });
-        addRefreshSubscriber((_newToken) => {
+        addRefreshSubscriber((newTokenFromRefresh) => {
           void (async () => {
             try {
-              await reapplyAuthHeadersAfterRefresh(headers, unsafe);
-              resolve(await fetch(input, fetchInit));
+              await reapplyAuthHeadersAfterRefresh(headers, unsafe, newTokenFromRefresh);
+              const retryUrl = resolveFetchUrl(input);
+              const retryInit = buildRetryInit(input, init, headers);
+              resolve(await fetch(retryUrl, retryInit));
             } catch (err: unknown) {
               reject(err);
             }
@@ -378,6 +417,77 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
 
 // Re-export for call sites that already import tenant id from apiFetch
 export { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+</file>
+
+<file path="frontend/src/api/downloadJobPdf.ts">
+import { apiFetch } from "./apiFetch";
+import { getAccessToken, tryRestoreSession } from "../auth/authSession";
+
+function parseDownloadFilename(contentDisposition: string | null): string {
+  if (contentDisposition == null || contentDisposition.length === 0) {
+    return "report.pdf";
+  }
+  const utf8 = /filename\*=(?:UTF-8'')?([^;\s]+)/i.exec(contentDisposition);
+  if (utf8) {
+    return decodeURIComponent(utf8[1].trim().replace(/^"+|"+$/g, ""));
+  }
+  const quoted = /filename="([^"]+)"/i.exec(contentDisposition);
+  if (quoted) {
+    return quoted[1];
+  }
+  const plain = /filename=([^;\s]+)/i.exec(contentDisposition);
+  if (plain) {
+    return plain[1].trim().replace(/^"+|"+$/g, "");
+  }
+  return "report.pdf";
+}
+
+/**
+ * ブラウザのナビゲーション（{@code <a href>} / {@code window.open}）では Authorization を付けられないため、
+ * {@link apiFetch} で取得した Blob から一時 URL を切り出してダウンロードする。
+ */
+export async function downloadJobPdfWithAuth(jobId: string): Promise<void> {
+  const id = jobId.trim();
+  if (id.length === 0) {
+    return;
+  }
+
+  const token = getAccessToken();
+  if (token === null || token.length === 0) {
+    await tryRestoreSession({});
+  }
+
+  const path = `/api/v1/jobs/${encodeURIComponent(id)}/pdf/download`;
+  const res = await apiFetch(path, {
+    method: "GET",
+    headers: {
+      Accept: "application/pdf",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`PDF download failed: HTTP ${res.status}${detail ? ` ${detail}` : ""}`);
+  }
+
+  const blob = await res.blob();
+  const filename = parseDownloadFilename(res.headers.get("Content-Disposition"));
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  // 同期直後の revoke はブラウザによってはダウンロードが中断されるため、短い遅延のうえ解放する
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 2_500);
+}
 </file>
 
 <file path="frontend/src/api/keywordApi.ts">
@@ -1989,6 +2099,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 
 <file path="frontend/src/pages/JobAnalysisPage.tsx">
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
+import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -2026,25 +2137,6 @@ type PdfRequestResponse = {
   accepted: boolean;
   message: string | null;
 };
-
-function parseDownloadFilename(contentDisposition: string | null): string {
-  if (contentDisposition == null || contentDisposition.length === 0) {
-    return "report.pdf";
-  }
-  const utf8 = /filename\*=(?:UTF-8'')?([^;\s]+)/i.exec(contentDisposition);
-  if (utf8) {
-    return decodeURIComponent(utf8[1].trim().replace(/^"+|"+$/g, ""));
-  }
-  const quoted = /filename="([^"]+)"/i.exec(contentDisposition);
-  if (quoted) {
-    return quoted[1];
-  }
-  const plain = /filename=([^;\s]+)/i.exec(contentDisposition);
-  if (plain) {
-    return plain[1].trim().replace(/^"+|"+$/g, "");
-  }
-  return "report.pdf";
-}
 
 function isCompletedJobStatus(status: string): boolean {
   return status === "COMPLETED" || status === "SUCCEEDED";
@@ -2381,23 +2473,7 @@ export function JobAnalysisPage(): JSX.Element {
     }
     setPdfDownloadInFlight(true);
     try {
-      const res = await apiFetch(`/api/v1/jobs/${id}/pdf/download`);
-      if (!res.ok) {
-        const t = await res.text();
-        console.error("pdf download failed", res.status, t);
-        return;
-      }
-      const blob = await res.blob();
-      const name = parseDownloadFilename(res.headers.get("Content-Disposition"));
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = name;
-      anchor.style.display = "none";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
+      await downloadJobPdfWithAuth(id);
     } catch (e: unknown) {
       console.error("pdf download error", e);
     } finally {
