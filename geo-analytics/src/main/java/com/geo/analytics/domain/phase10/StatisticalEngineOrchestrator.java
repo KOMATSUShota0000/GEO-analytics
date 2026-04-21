@@ -17,6 +17,10 @@ public final class StatisticalEngineOrchestrator {
     public OrchestrationResult process(int rank, double pib, CliffModelCalculator.Bm25Parameters params,
             double lambda) {
         double slabScore = CliffModelCalculator.slabScore(rank, pib, params);
+        return updateAndCheck(slabScore, lambda);
+    }
+
+    public OrchestrationResult updateAndCheck(double slabScore, double psquareLambda) {
         while (true) {
             CombinedStatisticalState current = stateRef.get();
             if (ZScorePurgeFilter.shouldPurge(current.psSquare(), slabScore)) {
@@ -24,7 +28,7 @@ public final class StatisticalEngineOrchestrator {
             }
             WelfordVarianceState nextWelford = WelfordVarianceUpdater.update(current.welford(), slabScore);
             PSquareQuantileState nextPSquare = PSquareQuantileUpdater.update(current.psSquare(), slabScore,
-                    lambda);
+                    psquareLambda);
             CombinedStatisticalState nextCombined = new CombinedStatisticalState(nextWelford, nextPSquare);
             if (stateRef.compareAndSet(current, nextCombined)) {
                 return new OrchestrationResult(false, slabScore);

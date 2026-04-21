@@ -20,7 +20,7 @@ class ZScorePurgeFilterTest {
     @Test
     void burnInSuppressesPurgeRegardlessOfSlabMagnitude() {
         PSquareQuantileState state =
-                new PSquareQuantileState(9L, 0.0d, 10.0d, 20.0d, 30.0d, 40.0d, 1.0d, 2.0d, 3.0d, 4.0d, 5.0d, 1.0d,
+                new PSquareQuantileState(2L, 0.0d, 10.0d, 20.0d, 30.0d, 40.0d, 1.0d, 2.0d, 3.0d, 4.0d, 5.0d, 1.0d,
                         2.0d, 3.0d, 4.0d, 5.0d);
         assertThat(ZScorePurgeFilter.shouldPurge(state, 1.0e300d)).isFalse();
     }

@@ -8,7 +8,7 @@ public final class ZScorePurgeFilter {
 
     private static final double Z_PRIME_PURGE_THRESHOLD = 3.5d;
 
-    private static final long MIN_COUNT_FOR_PURGE = 10L;
+    private static final long MIN_COUNT_FOR_PURGE = 3L;
 
     private ZScorePurgeFilter() {
     }
