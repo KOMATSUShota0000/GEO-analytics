@@ -16,7 +16,7 @@ import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.UserSessionRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.OrgTenantKey;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -254,7 +254,7 @@ class SecurityConcurrencyTest {
                                 () ->
                                         ScopedValue.where(
                                                         TenantContextHolder.CONTEXT,
-                                                        new TenantContext(expectedOrg, null, null))
+                                                        new TenantIdentity(expectedOrg, null, null))
                                                 .run(
                                                         () -> {
                                                             if (TenantContextHolder.getOrganizationId().isEmpty()
@@ -297,7 +297,7 @@ class SecurityConcurrencyTest {
                                 () ->
                                         ScopedValue.where(
                                                         TenantContextHolder.CONTEXT,
-                                                        new TenantContext(ORG_ID, null, null))
+                                                        new TenantIdentity(ORG_ID, null, null))
                                                 .call(
                                                         () ->
                                                                 tenantAccessEvaluator.canAccessTenant(

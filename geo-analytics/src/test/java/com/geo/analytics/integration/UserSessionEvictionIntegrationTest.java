@@ -7,7 +7,7 @@ import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import java.lang.ScopedValue;
@@ -45,7 +45,7 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
     @Test
     @Transactional
     void afterCommitAsyncListenerEvictsUserSessionsCache() {
-        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(ORG_A, null, null))
                 .run(
                         () -> {
                             UUID firstSessionId = sessionManagementService.createNewSession(USER_A_ADMIN);

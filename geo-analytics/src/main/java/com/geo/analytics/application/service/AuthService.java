@@ -8,7 +8,7 @@ import com.geo.analytics.domain.exception.SessionRevokedException;
 import com.geo.analytics.domain.exception.TenantSuspendedException;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import java.lang.ScopedValue;
 import java.util.UUID;
@@ -43,7 +43,7 @@ public class AuthService {
         OrganizationUser user = organizationUserRepository
                 .findByEmailAndDeletedAtIsNull(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
-        TenantContext loginScope = new TenantContext(user.getOrganizationId(), null, null);
+        TenantIdentity loginScope = new TenantIdentity(user.getOrganizationId(), null, null);
         return ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
                 .call(
                         () -> {

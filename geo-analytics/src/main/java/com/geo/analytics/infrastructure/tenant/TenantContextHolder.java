@@ -6,7 +6,7 @@ import java.util.UUID;
 
 public final class TenantContextHolder {
 
-    public static final ScopedValue<TenantContext> CONTEXT = ScopedValue.newInstance();
+    public static final ScopedValue<TenantIdentity> CONTEXT = ScopedValue.newInstance();
 
     private TenantContextHolder() {}
 
@@ -14,14 +14,14 @@ public final class TenantContextHolder {
         return CONTEXT.isBound();
     }
 
-    public static TenantContext requireContext() {
+    public static TenantIdentity requireContext() {
         if (!CONTEXT.isBound()) {
-            throw new IllegalStateException("TenantContext is not bound in this scope");
+            throw new IllegalStateException("Tenant identity is not bound in this scope");
         }
         return CONTEXT.get();
     }
 
-    public static Optional<TenantContext> current() {
+    public static Optional<TenantIdentity> current() {
         return CONTEXT.isBound() ? Optional.of(CONTEXT.get()) : Optional.empty();
     }
 

@@ -8,7 +8,7 @@ import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.infrastructure.security.JwtTokenException;
 import com.geo.analytics.infrastructure.security.RefreshTokenCookieFactory;
 import com.geo.analytics.infrastructure.security.TokenService;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -58,7 +58,7 @@ public class AuthController {
         } catch (JwtTokenException e) {
             throw new TokenExpiredException("リフレッシュトークンが無効か期限切れです。", e);
         }
-        TenantContext refreshScope = new TenantContext(parsed.organizationId(), null, null);
+        TenantIdentity refreshScope = new TenantIdentity(parsed.organizationId(), null, null);
         return ScopedValue.where(TenantContextHolder.CONTEXT, refreshScope)
                 .call(
                         () ->

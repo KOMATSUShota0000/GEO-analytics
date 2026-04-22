@@ -6,7 +6,7 @@ import com.geo.analytics.domain.enums.OrganizationUserRole;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import java.lang.ScopedValue;
@@ -48,7 +48,7 @@ public class DataSeeder implements CommandLineRunner {
     public void run(String... args) {
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
-        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, wid, null))
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, wid, null))
                 .run(() -> TenantPlanScope.executeWithTenant(wid, () -> self.seedData(orgId, wid)));
     }
 

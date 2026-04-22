@@ -62,7 +62,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
             return;
         }
         var info = workspacePlanResolver.resolveWorkspaceInfo(tenantUuid);
-        TenantContext outer = new TenantContext(info.organizationId(), tenantUuid, null);
+        TenantIdentity outer = new TenantIdentity(info.organizationId(), tenantUuid, null);
         try {
             ScopedValue.where(TenantContextHolder.CONTEXT, outer)
                     .run(

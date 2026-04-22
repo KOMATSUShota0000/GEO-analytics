@@ -4,7 +4,7 @@ import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.domain.exception.SessionRevokedException;
 import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.domain.exception.UnauthenticatedApiException;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.servlet.FilterChain;
@@ -86,8 +86,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             securityExceptionResponseHandler.handle(request, response, mapJwtFailure(e));
             return;
         }
-        TenantContext jwtContext =
-                new TenantContext(parsed.organizationId(), null, parsed.userId());
+        TenantIdentity jwtContext =
+                new TenantIdentity(parsed.organizationId(), null, parsed.userId());
         try {
             ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
                     .run(

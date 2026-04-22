@@ -11,7 +11,7 @@ import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import com.microsoft.playwright.PlaywrightException;
@@ -203,7 +203,7 @@ public class AsyncPdfReportService {
     private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
         try {
             UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, workspaceId, null))
                     .call(
                             () -> {
                                 var userInfo =

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.integration.support.RlsTenantQueryFacade;
 import java.lang.ScopedValue;
@@ -44,7 +44,7 @@ class RlsIntegrationTest extends PostgresTestBase {
 
     @Test
     void whenOrgAContext_thenOnlyOrgATenantsVisible() {
-        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(ORG_A, null, null))
                 .run(
                         () -> {
                             List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();
@@ -55,7 +55,7 @@ class RlsIntegrationTest extends PostgresTestBase {
 
     @Test
     void whenOrgBContext_thenOnlyOrgBTenantsVisible() {
-        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_B, null, null))
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(ORG_B, null, null))
                 .run(
                         () -> {
                             List<Object[]> rows = rlsTenantQueryFacade.selectAllTenants();

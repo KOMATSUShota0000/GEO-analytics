@@ -19,7 +19,7 @@ import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
@@ -294,7 +294,7 @@ public class JobPersistenceService {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(orgId, workspaceId, null))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, workspaceId, null))
                     .call(
                             () -> {
                                 try {

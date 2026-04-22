@@ -26,7 +26,7 @@ public final class ContextPropagator {
      * <p>子スレッド終了時は {@link MDC#getCopyOfContextMap()} で保存した「実行直前」の状態へ復元し、プール再利用時の TraceID 混線を防ぐ。
      */
     public static <T> Supplier<T> wrap(Supplier<T> supplier) {
-        Optional<TenantContext> ctx = TenantContextHolder.current();
+        Optional<TenantIdentity> ctx = TenantContextHolder.current();
         Optional<String> tenantIdStr = TenantPlanScope.currentTenantIdString();
         Optional<SubscriptionPlan> plan = TenantPlanScope.currentSubscriptionPlan();
         SecurityContext captured = copySecurityContext(SecurityContextHolder.getContext());
@@ -61,7 +61,7 @@ public final class ContextPropagator {
     }
 
     private static <T> T runWithCapturedScopes(
-            Optional<TenantContext> ctx,
+            Optional<TenantIdentity> ctx,
             Optional<String> tenantIdStr,
             Optional<SubscriptionPlan> plan,
             Supplier<T> supplier) {
@@ -80,7 +80,7 @@ public final class ContextPropagator {
             work = () -> ScopedValue.where(TenantPlanScope.TENANT_ID, t).call(inner::get);
         }
         if (ctx.isPresent()) {
-            TenantContext c = ctx.get();
+            TenantIdentity c = ctx.get();
             Supplier<T> inner = work;
             work = () -> ScopedValue.where(TenantContextHolder.CONTEXT, c).call(inner::get);
         }

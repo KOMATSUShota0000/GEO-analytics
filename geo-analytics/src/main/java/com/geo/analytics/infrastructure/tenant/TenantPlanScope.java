@@ -43,12 +43,12 @@ public final class TenantPlanScope {
     }
 
     public static void executeWithTenant(UUID tenantId, Runnable runnable) {
-        Optional<TenantContext> cur = TenantContextHolder.current();
-        UUID org = cur.map(TenantContext::organizationId).orElse(null);
-        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        Optional<TenantIdentity> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
+        UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
-            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .run(() -> {
                         SecurityContextHolder.setContext(prevSecurity);
@@ -60,12 +60,12 @@ public final class TenantPlanScope {
     }
 
     public static <T, X extends Throwable> T executeWithTenant(UUID tenantId, Supplier<T> supplier) throws X {
-        Optional<TenantContext> cur = TenantContextHolder.current();
-        UUID org = cur.map(TenantContext::organizationId).orElse(null);
-        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        Optional<TenantIdentity> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
+        UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .call(() -> {
                         SecurityContextHolder.setContext(prevSecurity);
@@ -77,12 +77,12 @@ public final class TenantPlanScope {
     }
 
     public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
-        Optional<TenantContext> cur = TenantContextHolder.current();
-        UUID org = cur.map(TenantContext::organizationId).orElse(null);
-        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        Optional<TenantIdentity> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
+        UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
-            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
                     .run(() -> {
@@ -96,12 +96,12 @@ public final class TenantPlanScope {
 
     public static <T, X extends Throwable> T executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Supplier<T> supplier)
             throws X {
-        Optional<TenantContext> cur = TenantContextHolder.current();
-        UUID org = cur.map(TenantContext::organizationId).orElse(null);
-        UUID uid = cur.map(TenantContext::userId).orElse(null);
+        Optional<TenantIdentity> cur = TenantContextHolder.current();
+        UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
+        UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(org, tenantId, uid))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
                     .call(() -> {

@@ -6,7 +6,7 @@ import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.api.SerpApiAdapter;
-import com.geo.analytics.infrastructure.tenant.TenantContext;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import java.lang.ScopedValue;
 import java.util.UUID;
@@ -34,7 +34,7 @@ class SessionManagementIntegrationTest extends PostgresTestBase {
 
     @Test
     void whenCreateNewSessionTwice_thenOnlyLatestSessionRemains() {
-        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantContext(ORG_A, null, null))
+        ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(ORG_A, null, null))
                 .run(
                         () -> {
                             UUID first = sessionManagementService.createNewSession(USER_A_ADMIN);
