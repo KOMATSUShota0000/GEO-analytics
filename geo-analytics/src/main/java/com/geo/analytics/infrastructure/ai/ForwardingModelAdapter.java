@@ -34,7 +34,8 @@ public final class ForwardingModelAdapter implements ModelTypedAiVerificationPor
                 v.modifiedZScore(),
                 v.calculationVersion(),
                 v.competitorResults(),
-                new LinkedHashMap<>());
+                new LinkedHashMap<>(),
+                v.gbvsNormalizedScore());
     }
 
     @Override

@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -75,7 +76,12 @@ public class AnalyticsAggregationService {
             .sorted(Map.Entry.comparingByKey())
             .map(e -> {
                 List<AuditHistoryEntity> group = e.getValue();
-                double somAvg = group.stream().mapToDouble(AuditHistoryEntity::getSomScore).average().orElse(0d);
+                double somAvg = group.stream()
+                    .map(AuditHistoryEntity::getSomScore)
+                    .filter(Objects::nonNull)
+                    .mapToDouble(Double::doubleValue)
+                    .average()
+                    .orElse(0d);
                 List<Integer> over = group.stream()
                     .map(AuditHistoryEntity::getOverallScore)
                     .filter(v -> v != null)

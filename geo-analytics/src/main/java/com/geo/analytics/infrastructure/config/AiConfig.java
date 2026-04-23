@@ -18,6 +18,7 @@ import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
 import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import com.geo.analytics.infrastructure.ai.StrictSchemaValidator;
+import com.geo.analytics.infrastructure.api.SerpApiAdapter;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
@@ -50,6 +51,7 @@ public class AiConfig {
             .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
+            .timeout(Duration.ofSeconds(300))
             .build();
     }
 
@@ -76,6 +78,7 @@ public class AiConfig {
             .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
+            .timeout(Duration.ofSeconds(300))
             .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.STANDARD))
             .build();
     }
@@ -87,6 +90,7 @@ public class AiConfig {
             .apiKey(appProperties.getAi().getGemini().getApiKey())
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
+            .timeout(Duration.ofSeconds(300))
             .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.PRO))
             .build();
     }
@@ -108,7 +112,8 @@ public class AiConfig {
             DeepSeekAdapter deepSeekAdapter,
             StrictSchemaValidator strictSchemaValidator,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            JobPersistenceService jobPersistenceService) {
+            JobPersistenceService jobPersistenceService,
+            SerpApiAdapter serpApiAdapter) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
@@ -120,7 +125,8 @@ public class AiConfig {
                 deepSeekAdapter,
                 strictSchemaValidator,
                 geoVisibilityCalculatorService,
-                jobPersistenceService);
+                jobPersistenceService,
+                serpApiAdapter);
     }
 
     @Bean

@@ -94,9 +94,9 @@ public class GeminiResultProcessor {
                 double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
                 String ext = consultantOutputData.extractedBrandMention();
                 String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
-                String nlpSource = consultantOutputData.response() != null && !consultantOutputData.response().isBlank()
-                    ? consultantOutputData.response()
-                    : aiResponseText;
+                String nlpSource = consultantOutputData.response() != null
+                    ? consultantOutputData.response().strip()
+                    : "";
                 si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
                 var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
                 List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
@@ -152,7 +152,7 @@ public class GeminiResultProcessor {
                         line.queryId(),
                         queryEntity.getQueryText(),
                         jsonbOperations.serialize(line.consultantOutputData()),
-                        somScore, brand,
+                        somScore, gbvs.scorePercent(), brand,
                         m.rankPosition(), overall,
                         line.resolved(), m.tokenCount(),
                         m.rankPosition(), m.sentimentIntensity(),

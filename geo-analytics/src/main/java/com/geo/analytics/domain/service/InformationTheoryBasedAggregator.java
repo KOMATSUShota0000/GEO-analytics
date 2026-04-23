@@ -9,6 +9,8 @@ import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.lang.StrictMath;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 @Component
 public class InformationTheoryBasedAggregator {
     public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
+    private static final Logger log = LoggerFactory.getLogger(InformationTheoryBasedAggregator.class);
     private static final BigDecimal HUNDRED = new BigDecimal("100.00");
     private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
     private static final Pattern LEGAL_ENTITY = Pattern.compile(
@@ -74,6 +77,12 @@ public class InformationTheoryBasedAggregator {
                 sumAllBrands += clampD(cs / 100.0, 0.0, 1.0);
             }
         }
+        if (sumAllBrands <= RobustAuditMathUtil.EPSILON) {
+            log.info(
+                    "InformationTheoryBasedAggregator: aggregated finalSom forced to 0.0 because sumAllBrands={} <= EPSILON={}",
+                    sumAllBrands,
+                    RobustAuditMathUtil.EPSILON);
+        }
         double finalSom = sumAllBrands > RobustAuditMathUtil.EPSILON
                 ? (sumBrandSignal / sumAllBrands) * 100.0
                 : 0.0;
@@ -111,6 +120,15 @@ public class InformationTheoryBasedAggregator {
                 countMz++;
             }
         }
+        double sumGbvsNorm = 0.0;
+        int gbvsNormCount = 0;
+        for (VerificationResponse v : successes) {
+            if (v.gbvsNormalizedScore() != null) {
+                sumGbvsNorm += v.gbvsNormalizedScore();
+                gbvsNormCount++;
+            }
+        }
+        Double avgGbvsNormalized = gbvsNormCount > 0 ? halfEven2(sumGbvsNorm / gbvsNormCount) : null;
         int avgMr = sumMr / sampleCount;
         int avgRp = sumRp / sampleCount;
         int avgTok = sumTok / sampleCount;
@@ -218,7 +236,8 @@ public class InformationTheoryBasedAggregator {
                 avgMz,
                 AGGREGATION_CALCULATION_VERSION,
                 List.copyOf(merged),
-                insightView);
+                insightView,
+                avgGbvsNormalized);
     }
 
     public String pipeline(String input) {

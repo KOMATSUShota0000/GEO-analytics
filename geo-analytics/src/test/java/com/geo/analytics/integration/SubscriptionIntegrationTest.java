@@ -132,6 +132,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "TEST_CALC_V4",
                 List.of(),
                 "{}",
+                50.0,
                 0));
     }
 
@@ -237,7 +238,8 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 0.0,
                 "pre",
                 List.of(aliasA, aliasB, noise),
-                insights);
+                insights,
+                70.0);
         var request = new VerificationRequest(
                 "茶",
                 "Q",
@@ -298,7 +300,8 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                         0.0,
                         "TEST_CALC_V4",
                         List.of(),
-                        insights);
+                        insights,
+                        50.0);
             }
         }
         var router = new AiVerificationRouter(

@@ -37,8 +37,10 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "raw_response", nullable = false)
     private String rawResponse;
-    @Column(name = "som_score", nullable = false)
+    @Column(name = "som_score")
     private Double somScore;
+    @Column(name = "gbvs_normalized_score", columnDefinition = "NUMERIC")
+    private Double gbvsNormalizedScore;
     @Column(name = "brand_mentioned", nullable = false)
     private Boolean brandMentioned;
     @Column(name = "mention_rank")
@@ -112,6 +114,12 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setSomScore(Double somScore) {
         this.somScore = somScore;
+    }
+    public Double getGbvsNormalizedScore() {
+        return gbvsNormalizedScore;
+    }
+    public void setGbvsNormalizedScore(Double gbvsNormalizedScore) {
+        this.gbvsNormalizedScore = gbvsNormalizedScore;
     }
     public Boolean getBrandMentioned() {
         return brandMentioned;

@@ -10,9 +10,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class GeoVisibilityCalculatorService {
-    public static final String CALCULATION_VERSION = "PHASE9_9_BIGRAM_STUFFING_V1";
+    private static final Logger log = LoggerFactory.getLogger(GeoVisibilityCalculatorService.class);
+
+    /** Must fit DB column varchar(32) on audit_history.calculation_version. */
+    public static final String CALCULATION_VERSION = "V10_NLP_STUFFING_FLOOR";
     public static final double BM25_K1 = 1.2;
     public static final double BM25_B = 0.75;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
@@ -21,6 +26,8 @@ public final class GeoVisibilityCalculatorService {
     private static final double SOURCE_WEIGHT_LOW = 0.3;
     private static final double STUFFING_DENSITY_THRESHOLD = 0.03;
     private static final double STUFFING_PENALTY_K = 400.0;
+    /** Lower bound so stuffing never zeroes {@code brandSignal}; at worst ~50% retention of unpenalized signal. */
+    private static final double STUFFING_PENALTY_FLOOR = 0.5;
 
     private final TokenizerManager tokenizerManager;
 
@@ -292,6 +299,15 @@ public final class GeoVisibilityCalculatorService {
 
     private static double weightedSom(SomRawMetrics metrics, double lAvgJob, double idf) {
         if (!metrics.isSemanticallyMentioned()) {
+            log.info(
+                    "[MATH DEBUG] outcome=not_semantic rank={} f(nounCount)={} tokenCount={} responseTokenLength={} sourceWeight={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
+                    metrics.rankPosition(),
+                    metrics.nounCount(),
+                    metrics.tokenCount(),
+                    metrics.responseTokenLength(),
+                    metrics.sourceWeight(),
+                    metrics.stuffingDensity(),
+                    metrics.sentimentIntensity());
             return 0.0;
         }
         int f = StrictMath.max(0, metrics.nounCount());
@@ -315,15 +331,53 @@ public final class GeoVisibilityCalculatorService {
         double excess = StrictMath.max(0.0, density - STUFFING_DENSITY_THRESHOLD);
         double stuffingPenalty =
                 1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
-        stuffingPenalty = clamp(stuffingPenalty, 0.0, 1.0);
+        stuffingPenalty = clamp(stuffingPenalty, STUFFING_PENALTY_FLOOR, 1.0);
         double brandSignal = presence * sourceWeight * sentiment * bm25 * stuffingPenalty;
         double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
         double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
         double denom = brandSignal + otherSignal;
         if (denom <= RobustAuditMathUtil.EPSILON) {
+            log.info(
+                    "[MATH DEBUG] outcome=zero_denom rank={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} somScore=0.0",
+                    rank,
+                    f,
+                    fTok,
+                    total,
+                    presence,
+                    bm25,
+                    density,
+                    stuffingPenalty,
+                    brandSignal,
+                    otherPresence,
+                    otherSignal,
+                    denom,
+                    idf,
+                    lAvgJob,
+                    sourceWeight,
+                    sentiment);
             return 0.0;
         }
-        return clamp01(brandSignal / denom);
+        double somScore = clamp01(brandSignal / denom);
+        log.info(
+                "[MATH DEBUG] outcome=ok rank={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} somScore={}",
+                rank,
+                f,
+                fTok,
+                total,
+                presence,
+                bm25,
+                density,
+                stuffingPenalty,
+                brandSignal,
+                otherPresence,
+                otherSignal,
+                denom,
+                idf,
+                lAvgJob,
+                sourceWeight,
+                sentiment,
+                somScore);
+        return somScore;
     }
 
     private static double sentimentWeight(double sentimentScore) {

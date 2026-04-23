@@ -74,6 +74,7 @@ public record ResultDetailResponse(
             SubscriptionPlan subscriptionPlan) {
         var plan = subscriptionPlan != null ? subscriptionPlan : SubscriptionPlan.STANDARD;
         var som = auditHistoryEntity.getSomScore();
+        var gbvs = auditHistoryEntity.getGbvsNormalizedScore();
         var stageDef = VisibilityStageMapper.define(
             auditHistoryEntity.getVisibilityStage(),
             auditHistoryEntity.getRankPosition());
@@ -91,7 +92,7 @@ public record ResultDetailResponse(
             auditHistoryEntity.getId(),
             auditHistoryEntity.getQuery(),
             som,
-            som,
+            gbvs,
             auditHistoryEntity.getBrandMentioned(),
             auditHistoryEntity.getMentionRank(),
             auditHistoryEntity.getOverallScore(),

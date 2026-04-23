@@ -90,7 +90,12 @@ public class NotificationService {
 
     private AuditDigest buildDigest(UUID jobId, UUID projectId) {
         List<AuditHistoryEntity> current = auditHistoryRepository.findByJobId(jobId);
-        double currentAvg = current.stream().mapToDouble(AuditHistoryEntity::getSomScore).average().orElse(0d);
+        double currentAvg = current.stream()
+            .map(AuditHistoryEntity::getSomScore)
+            .filter(Objects::nonNull)
+            .mapToDouble(Double::doubleValue)
+            .average()
+            .orElse(0d);
         Optional<JobEntity> prevJob = jobRepository.findByProjectIdOrderByCreatedAtDesc(projectId).stream()
             .filter(j -> JobStatus.COMPLETED.equals(j.getJobStatus()) && !j.getId().equals(jobId))
             .findFirst();
@@ -98,7 +103,12 @@ public class NotificationService {
         Map<String, Double> prevByQuery = new HashMap<>();
         if (prevJob.isPresent()) {
             List<AuditHistoryEntity> prevRows = auditHistoryRepository.findByJobId(prevJob.get().getId());
-            previousAvg = prevRows.stream().mapToDouble(AuditHistoryEntity::getSomScore).average().orElse(0d);
+            previousAvg = prevRows.stream()
+                .map(AuditHistoryEntity::getSomScore)
+                .filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(0d);
             for (AuditHistoryEntity row : prevRows) {
                 prevByQuery.put(row.getQuery(), row.getSomScore());
             }
@@ -107,8 +117,9 @@ public class NotificationService {
         List<VarianceLine> variances = new ArrayList<>();
         for (AuditHistoryEntity row : current) {
             Double p = prevByQuery.get(row.getQuery());
-            double d = p == null ? 0d : row.getSomScore() - p;
-            variances.add(new VarianceLine(row.getQuery(), row.getSomScore(), p, d));
+            Double curSom = row.getSomScore();
+            double d = (p == null || curSom == null) ? 0d : curSom - p;
+            variances.add(new VarianceLine(row.getQuery(), curSom, p, d));
         }
         variances.sort(Comparator.comparing((VarianceLine v) -> Math.abs(v.delta())).reversed());
         List<VarianceLine> top3 = variances.stream().limit(3).toList();
@@ -148,7 +159,7 @@ public class NotificationService {
             top.append(i++).append(". `")
                 .append(escapeSlack(line.keyword()))
                 .append("` 今回 ")
-                .append(round1(line.currentSom()));
+                .append(line.currentSom() != null ? String.valueOf(round1(line.currentSom())) : "—");
             if (line.previousSom() != null) {
                 top.append(" → 前回 ").append(round1(line.previousSom())).append(" （Δ").append(round1(line.delta())).append("）");
             } else {
@@ -198,7 +209,7 @@ public class NotificationService {
             html.append("<li>")
                 .append(HtmlUtils.htmlEscape(line.keyword()))
                 .append(" — 今回 ")
-                .append(line.currentSom());
+                .append(line.currentSom() != null ? line.currentSom() : "—");
             if (line.previousSom() != null) {
                 html.append(" / 前回 ").append(line.previousSom()).append(" / Δ").append(line.delta());
             }
@@ -212,6 +223,6 @@ public class NotificationService {
     private record AuditDigest(double currentAvg, Double previousAvg, Double deltaAvg, List<VarianceLine> top3) {
     }
 
-    private record VarianceLine(String keyword, double currentSom, Double previousSom, double delta) {
+    private record VarianceLine(String keyword, Double currentSom, Double previousSom, double delta) {
     }
 }

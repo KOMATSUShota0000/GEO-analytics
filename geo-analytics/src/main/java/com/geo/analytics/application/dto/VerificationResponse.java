@@ -22,7 +22,8 @@ public record VerificationResponse(
         Double modifiedZScore,
         String calculationVersion,
         List<CompetitorResult> competitorResults,
-        SequencedMap<ModelType, String> modelInsights
+        SequencedMap<ModelType, String> modelInsights,
+        Double gbvsNormalizedScore
 ) {
     public VerificationResponse {
         competitorResults = competitorResults == null ? List.of() : List.copyOf(competitorResults);

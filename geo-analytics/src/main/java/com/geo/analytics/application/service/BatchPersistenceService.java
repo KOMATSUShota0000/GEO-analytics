@@ -72,11 +72,11 @@ public class BatchPersistenceService {
     public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
         return jdbc.query(
                 "SELECT id, tenant_id, job_id, project_id, query, raw_response, "
-                + "som_score, brand_mentioned, mention_rank, overall_score, resolved_entity_label, "
-                + "token_count, rank_position, sentiment_intensity, visibility_stage, "
-                + "calculation_version, negative_alert, modified_z_score, diagnostic_message, "
-                + "recommended_actions, model_insights, audit_date, created_at "
-                + "FROM audit_histories WHERE job_id = ?",
+                        + "som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, resolved_entity_label, "
+                        + "token_count, rank_position, sentiment_intensity, visibility_stage, "
+                        + "calculation_version, negative_alert, modified_z_score, diagnostic_message, "
+                        + "recommended_actions, model_insights, audit_date, created_at "
+                        + "FROM audit_histories WHERE job_id = ?",
                 (rs, rn) -> mapAuditRow(rs), jobId);
     }
 
@@ -163,7 +163,7 @@ public class BatchPersistenceService {
 
     public UUID upsertAuditHistory(UUID jobId, UUID workspaceId, UUID projectId,
                                    UUID queryId, String queryText, String rawResponse,
-                                   double somScore, boolean brandMentioned,
+                                   double somScore, Double gbvsNormalizedScore, boolean brandMentioned,
                                    Integer mentionRank, Integer overallScore,
                                    String resolvedEntityLabel, int tokenCount,
                                    int rankPosition, double sentimentIntensity,
@@ -178,7 +178,7 @@ public class BatchPersistenceService {
             auditId = existingId.get();
             jdbc.update(con -> {
                 PreparedStatement ps = con.prepareStatement(
-                        "UPDATE audit_histories SET raw_response = ?, som_score = ?, brand_mentioned = ?, "
+                        "UPDATE audit_histories SET raw_response = ?, som_score = ?, gbvs_normalized_score = ?, brand_mentioned = ?, "
                         + "mention_rank = ?, overall_score = ?, resolved_entity_label = ?, "
                         + "token_count = ?, rank_position = ?, sentiment_intensity = ?, "
                         + "visibility_stage = ?, calculation_version = ?, negative_alert = ?, "
@@ -186,22 +186,23 @@ public class BatchPersistenceService {
                         + "model_insights = ?, audit_date = ? WHERE id = ?");
                 setJsonb(ps, 1, rawResponse);
                 ps.setDouble(2, somScore);
-                ps.setBoolean(3, brandMentioned);
-                setNullableInt(ps, 4, mentionRank);
-                setNullableInt(ps, 5, overallScore);
-                ps.setString(6, resolvedEntityLabel);
-                ps.setInt(7, tokenCount);
-                ps.setInt(8, rankPosition);
-                ps.setDouble(9, sentimentIntensity);
-                setNullableInt(ps, 10, visibilityStage);
-                ps.setString(11, calculationVersion);
-                ps.setBoolean(12, negativeAlert);
-                ps.setDouble(13, modifiedZScore);
-                ps.setString(14, diagnosticMessage);
-                setJsonb(ps, 15, toJson(recommendedActions));
-                setJsonb(ps, 16, modelInsightsJson);
-                ps.setObject(17, LocalDate.now());
-                ps.setObject(18, auditId);
+                setNullableDouble(ps, 3, gbvsNormalizedScore);
+                ps.setBoolean(4, brandMentioned);
+                setNullableInt(ps, 5, mentionRank);
+                setNullableInt(ps, 6, overallScore);
+                ps.setString(7, resolvedEntityLabel);
+                ps.setInt(8, tokenCount);
+                ps.setInt(9, rankPosition);
+                ps.setDouble(10, sentimentIntensity);
+                setNullableInt(ps, 11, visibilityStage);
+                ps.setString(12, calculationVersion);
+                ps.setBoolean(13, negativeAlert);
+                ps.setDouble(14, modifiedZScore);
+                ps.setString(15, diagnosticMessage);
+                setJsonb(ps, 16, toJson(recommendedActions));
+                setJsonb(ps, 17, modelInsightsJson);
+                ps.setObject(18, LocalDate.now());
+                ps.setObject(19, auditId);
                 return ps;
             });
         } else {
@@ -209,11 +210,11 @@ public class BatchPersistenceService {
             jdbc.update(con -> {
                 PreparedStatement ps = con.prepareStatement(
                         "INSERT INTO audit_histories (id, tenant_id, job_id, project_id, query, "
-                        + "raw_response, som_score, brand_mentioned, mention_rank, overall_score, "
+                        + "raw_response, som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, "
                         + "resolved_entity_label, token_count, rank_position, sentiment_intensity, "
                         + "visibility_stage, calculation_version, negative_alert, modified_z_score, "
                         + "diagnostic_message, recommended_actions, model_insights, audit_date, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
                 ps.setObject(1, auditId);
                 ps.setString(2, workspaceId.toString());
                 ps.setObject(3, jobId);
@@ -221,21 +222,22 @@ public class BatchPersistenceService {
                 ps.setString(5, queryText);
                 setJsonb(ps, 6, rawResponse);
                 ps.setDouble(7, somScore);
-                ps.setBoolean(8, brandMentioned);
-                setNullableInt(ps, 9, mentionRank);
-                setNullableInt(ps, 10, overallScore);
-                ps.setString(11, resolvedEntityLabel);
-                ps.setInt(12, tokenCount);
-                ps.setInt(13, rankPosition);
-                ps.setDouble(14, sentimentIntensity);
-                setNullableInt(ps, 15, visibilityStage);
-                ps.setString(16, calculationVersion);
-                ps.setBoolean(17, negativeAlert);
-                ps.setDouble(18, modifiedZScore);
-                ps.setString(19, diagnosticMessage);
-                setJsonb(ps, 20, toJson(recommendedActions));
-                setJsonb(ps, 21, modelInsightsJson);
-                ps.setObject(22, LocalDate.now());
+                setNullableDouble(ps, 8, gbvsNormalizedScore);
+                ps.setBoolean(9, brandMentioned);
+                setNullableInt(ps, 10, mentionRank);
+                setNullableInt(ps, 11, overallScore);
+                ps.setString(12, resolvedEntityLabel);
+                ps.setInt(13, tokenCount);
+                ps.setInt(14, rankPosition);
+                ps.setDouble(15, sentimentIntensity);
+                setNullableInt(ps, 16, visibilityStage);
+                ps.setString(17, calculationVersion);
+                ps.setBoolean(18, negativeAlert);
+                ps.setDouble(19, modifiedZScore);
+                ps.setString(20, diagnosticMessage);
+                setJsonb(ps, 21, toJson(recommendedActions));
+                setJsonb(ps, 22, modelInsightsJson);
+                ps.setObject(23, LocalDate.now());
                 return ps;
             });
         }
@@ -404,7 +406,10 @@ public class BatchPersistenceService {
         e.setJobId(rs.getObject("job_id", UUID.class));
         e.setQuery(rs.getString("query"));
         e.setRawResponse(rs.getString("raw_response"));
-        e.setSomScore(rs.getDouble("som_score"));
+        double somVal = rs.getDouble("som_score");
+        e.setSomScore(rs.wasNull() ? null : somVal);
+        var gbvsBd = rs.getBigDecimal("gbvs_normalized_score");
+        e.setGbvsNormalizedScore(gbvsBd != null ? gbvsBd.doubleValue() : null);
         e.setBrandMentioned(rs.getBoolean("brand_mentioned"));
         e.setMentionRank((Integer) rs.getObject("mention_rank"));
         e.setOverallScore((Integer) rs.getObject("overall_score"));
@@ -453,6 +458,14 @@ public class BatchPersistenceService {
             ps.setNull(idx, Types.INTEGER);
         } else {
             ps.setInt(idx, val);
+        }
+    }
+
+    private static void setNullableDouble(PreparedStatement ps, int idx, Double val) throws SQLException {
+        if (val == null) {
+            ps.setNull(idx, Types.DOUBLE);
+        } else {
+            ps.setDouble(idx, val);
         }
     }
 

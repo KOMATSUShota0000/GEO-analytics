@@ -18,5 +18,6 @@ public record SyncVerificationResult(
         String calculationVersion,
         List<CompetitorScoreRow> competitorScoreRows,
         String modelInsightsJson,
+        Double gbvsNormalizedScore,
         int analysisTextLength
 ) {}

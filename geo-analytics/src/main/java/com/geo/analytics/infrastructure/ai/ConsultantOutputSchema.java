@@ -16,15 +16,27 @@ public final class ConsultantOutputSchema {
     public static final String BRAND_MENTIONED_SCHEMA_DESCRIPTION =
         "対象ブランドが実質的に言及されているかを示すboolean。判定基準はシステムプロンプトの指示に厳密に従うこと。";
 
+    /** SGE・抽出テキスト・構造化ハンドオフ（文中の明示的なランキング）。 */
+    public static final String RANK_POSITION_SCHEMA_DESC_PLAIN =
+            "Natural-language or AI-answer evidence: 1 if the brand is first in an explicit ranked list in the prose, then 2, 3, …; 0 if there is no such list or the brand is not ranked.";
+
+    /** SerpAPI RAG（検索結果JSONの rank フィールド）。 */
+    public static final String RANK_POSITION_SCHEMA_DESC_SERP =
+            "SERP JSON in the user message: the minimum numeric `rank` among search-result objects whose title or snippet clearly mentions the brand; 0 if no row mentions the brand.";
+
     private ConsultantOutputSchema() {
     }
 
     public static ResponseFormat responseFormat(SubscriptionPlan subscriptionPlan) {
+        return responseFormat(subscriptionPlan, false);
+    }
+
+    public static ResponseFormat responseFormat(SubscriptionPlan subscriptionPlan, boolean serpRagGrounded) {
         return ResponseFormat.builder()
             .type(ResponseFormatType.JSON)
             .jsonSchema(JsonSchema.builder()
                 .name("consultant_output")
-                .rootElement(rootObjectSchema(subscriptionPlan))
+                .rootElement(rootObjectSchema(subscriptionPlan, serpRagGrounded))
                 .build())
             .build();
     }
@@ -106,12 +118,13 @@ public final class ConsultantOutputSchema {
             .build();
     }
 
-    private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan) {
+    private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan, boolean serpRagGrounded) {
+        String rankPositionDesc = serpRagGrounded ? RANK_POSITION_SCHEMA_DESC_SERP : RANK_POSITION_SCHEMA_DESC_PLAIN;
         JsonObjectSchema.Builder builder = JsonObjectSchema.builder()
             .addStringProperty("response")
             .addStringProperty("extracted_brand_mention")
             .addIntegerProperty("token_count")
-            .addIntegerProperty("rank_position")
+            .addIntegerProperty("rank_position", rankPositionDesc)
             .addNumberProperty("sentiment_intensity")
             .addBooleanProperty("brand_mentioned", BRAND_MENTIONED_SCHEMA_DESCRIPTION)
             .addProperty(
@@ -169,7 +182,10 @@ public final class ConsultantOutputSchema {
         properties.put("response", Map.of("type", "STRING"));
         properties.put("extracted_brand_mention", Map.of("type", "STRING"));
         properties.put("token_count", Map.of("type", "INTEGER"));
-        properties.put("rank_position", Map.of("type", "INTEGER"));
+        Map<String, Object> rankPositionProp = new LinkedHashMap<>();
+        rankPositionProp.put("type", "INTEGER");
+        rankPositionProp.put("description", RANK_POSITION_SCHEMA_DESC_PLAIN);
+        properties.put("rank_position", rankPositionProp);
         properties.put("sentiment_intensity", Map.of("type", "NUMBER"));
         Map<String, Object> brandMentionedProp = new LinkedHashMap<>();
         brandMentionedProp.put("type", "BOOLEAN");

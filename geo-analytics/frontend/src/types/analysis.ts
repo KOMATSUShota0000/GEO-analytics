@@ -261,18 +261,6 @@ function pad2(n: number): string {
 function isoDateFromLocal(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
-export const MOCK_TREND_LAST_7_DAYS: TrendData[] = (() => {
-  const out: TrendData[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const phase = (6 - i) / 6;
-    const som = Math.round(38 + phase * 22 + Math.sin(i * 0.7) * 4);
-    const overall = Math.round(41 + phase * 18 + Math.cos(i * 0.5) * 3);
-    out.push({ date: isoDateFromLocal(d), somScore: som, overallScore: overall });
-  }
-  return out;
-})();
 export function aggregateTrendFromResultDetails(rows: ResultDetail[]): TrendData[] {
   if (rows.length === 0) {
     return [];
@@ -358,7 +346,10 @@ export function buildCompetitorShareData(
   competitorNames: [string, string],
   anchorSomScore: number | null,
 ): CompetitorShare[] {
-  const self = anchorSomScore === null ? 46 : Math.max(18, Math.min(82, Math.round(anchorSomScore)));
+  if (anchorSomScore === null || Number.isNaN(anchorSomScore)) {
+    return [];
+  }
+  const self = Math.max(0, Math.min(100, Math.round(anchorSomScore)));
   const rest = 100 - self;
   const v1 = Math.round(rest * 0.52);
   const v2 = rest - v1;
@@ -374,31 +365,23 @@ export function resolveChartTrendData(
   isStreaming: boolean,
 ): TrendData[] {
   const agg = aggregateTrendFromResultDetails(resultRows);
-  if (agg.length >= 2) {
+  if (agg.length > 0) {
     return agg;
   }
-  const live = averageLiveScoresFromParsed(parsedByQueryId);
-  if (live !== null && (isStreaming || agg.length === 1)) {
-    const base = agg.length === 1 ? [...agg] : MOCK_TREND_LAST_7_DAYS.slice(0, -1);
-    const lastDate = isoDateFromLocal(new Date());
-    const lastPoint: TrendData = {
-      date: lastDate,
-      somScore: live.somScore,
-      overallScore: live.overallScore,
-    };
-    if (base.some((p) => p.date === lastDate)) {
-      return base.map((p) =>
-        p.date === lastDate
-          ? { ...p, somScore: lastPoint.somScore, overallScore: lastPoint.overallScore }
-          : p,
-      );
+  if (isStreaming) {
+    const live = averageLiveScoresFromParsed(parsedByQueryId);
+    if (live !== null) {
+      const lastDate = isoDateFromLocal(new Date());
+      return [
+        {
+          date: lastDate,
+          somScore: live.somScore,
+          overallScore: live.overallScore,
+        },
+      ];
     }
-    return [...base, lastPoint].slice(-7);
   }
-  if (agg.length === 1) {
-    return [...MOCK_TREND_LAST_7_DAYS.slice(0, -1), agg[0]!];
-  }
-  return MOCK_TREND_LAST_7_DAYS;
+  return [];
 }
 export function resolveAverageSomScore(
   resultRows: ResultDetail[],

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -6,11 +6,9 @@ import {
   competitorLabelsFromProject,
   formatAuditDate,
   mergeJobAnalysisWithPdfContext,
-  normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
   resolveChartShareData,
   resolveChartTrendData,
-  type AnalyticsSummaryNormalized,
   type JobAnalysisDetail,
   type ResultDetail,
 } from "../types/analysis";
@@ -62,8 +60,6 @@ export default function ReportPrintPage(): JSX.Element {
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
-  const [analyticsSettled, setAnalyticsSettled] = useState(false);
   const [fontsReady, setFontsReady] = useState(false);
   const [logoReady, setLogoReady] = useState(false);
   const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
@@ -83,42 +79,14 @@ export default function ReportPrintPage(): JSX.Element {
     () => competitorLabelsFromProject(data?.project ?? null),
     [data?.project],
   );
-  const chartTrendData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.trend;
-    }
-    return resolveChartTrendData(resultRows, {}, false);
-  }, [apiCharts, resultRows]);
-  const chartShareData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.share;
-    }
-    return resolveChartShareData(brandLabel, competitorPair, resultRows, {}, false);
-  }, [apiCharts, brandLabel, competitorPair, resultRows]);
-
-  const fetchProjectAnalytics = useCallback(async (projectId: string, signal: AbortSignal) => {
-    const pid = projectId.trim();
-    if (pid.length === 0) {
-      return;
-    }
-    try {
-      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`, { signal });
-      if (!res.ok) {
-        if (!signal.aborted) {
-          setApiCharts(undefined);
-        }
-        return;
-      }
-      const body: unknown = await responseJsonAsCamel(res);
-      if (!signal.aborted) {
-        setApiCharts(normalizeAnalyticsSummary(body) ?? undefined);
-      }
-    } catch {
-      if (!signal.aborted) {
-        setApiCharts(undefined);
-      }
-    }
-  }, []);
+  const chartTrendData = useMemo(
+    () => resolveChartTrendData(resultRows, {}, false),
+    [resultRows],
+  );
+  const chartShareData = useMemo(
+    () => resolveChartShareData(brandLabel, competitorPair, resultRows, {}, false),
+    [brandLabel, competitorPair, resultRows],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -178,22 +146,6 @@ export default function ReportPrintPage(): JSX.Element {
   }, [effectiveJobId, tokenOk]);
 
   useEffect(() => {
-    if (!analysisReady || !data?.project?.projectId || !tokenOk) {
-      setAnalyticsSettled(true);
-      setApiCharts(undefined);
-      return;
-    }
-    setAnalyticsSettled(false);
-    const ac = new AbortController();
-    void fetchProjectAnalytics(data.project.projectId, ac.signal).finally(() => {
-      if (!ac.signal.aborted) {
-        setAnalyticsSettled(true);
-      }
-    });
-    return () => ac.abort();
-  }, [analysisReady, data?.project?.projectId, tokenOk, fetchProjectAnalytics]);
-
-  useEffect(() => {
     setFontsReady(false);
     if (!analysisReady) {
       return;
@@ -245,9 +197,9 @@ export default function ReportPrintPage(): JSX.Element {
 
   const isErrorState = loadError != null;
   useEffect(() => {
-    const ok = (analysisReady && analyticsSettled && fontsReady && logoReady) || isErrorState;
+    const ok = (analysisReady && fontsReady && logoReady) || isErrorState;
     setPdfReadyFlag(ok);
-  }, [analysisReady, analyticsSettled, fontsReady, logoReady, isErrorState]);
+  }, [analysisReady, fontsReady, logoReady, isErrorState]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;

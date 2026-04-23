@@ -157,7 +157,7 @@ public class JobPersistenceService {
             UUID queryId,
             String queryText,
             String rawResponse,
-            double somScore,
+            Double somScore,
             boolean brandMentioned,
             Integer mentionRank,
             Integer overallScore,
@@ -167,7 +167,8 @@ public class JobPersistenceService {
             double sentimentIntensity,
             Integer visibilityStage,
             String calculationVersion,
-            double modifiedZScore,
+            Double modifiedZScore,
+            Double gbvsNormalizedScore,
             List<CompetitorScoreRow> competitorScoreRows,
             String modelInsightsJson) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
@@ -178,7 +179,9 @@ public class JobPersistenceService {
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
             var negativeAlert = sentimentIntensity < -0.5;
-            var insight = strategyInsightService.fromModifiedZ(modifiedZScore);
+            var insight = modifiedZScore != null
+                ? strategyInsightService.fromModifiedZ(modifiedZScore)
+                : strategyInsightService.fromVisibilityStage(visibilityStage != null ? visibilityStage : 10);
             var actions = new ArrayList<>(insight.recommendedActions());
             Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
             if (existingOptional.isPresent()) {
@@ -196,6 +199,7 @@ public class JobPersistenceService {
                 existing.setCalculationVersion(calculationVersion);
                 existing.setNegativeAlert(negativeAlert);
                 existing.setModifiedZScore(modifiedZScore);
+                existing.setGbvsNormalizedScore(gbvsNormalizedScore);
                 existing.setDiagnosticMessage(insight.diagnosticMessage());
                 existing.setRecommendedActions(actions);
                 existing.setAuditDate(LocalDate.now());
@@ -222,6 +226,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
                 auditHistoryEntity.setNegativeAlert(negativeAlert);
                 auditHistoryEntity.setModifiedZScore(modifiedZScore);
+                auditHistoryEntity.setGbvsNormalizedScore(gbvsNormalizedScore);
                 auditHistoryEntity.setDiagnosticMessage(insight.diagnosticMessage());
                 auditHistoryEntity.setRecommendedActions(actions);
                 auditHistoryEntity.setAuditDate(LocalDate.now());

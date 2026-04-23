@@ -228,16 +228,46 @@ public class JobQuerySubmissionService {
                 competitorHosts);
         long actual = QuotaCreditCalculator.actualCredits(syncVerificationResult.analysisTextLength(), appliedPlan);
         try {
-            var consultantOutputData = somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-            var somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
+            String rawJson = syncVerificationResult.rawResponseJson();
+            String serializedConsultant;
+            try {
+                var consultantOutputData = somScoreParser.parseConsultantOutput(rawJson);
+                serializedConsultant = jsonbOperations.serialize(consultantOutputData);
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "Failed to parse consultant output for audit persistence query={} rawResponse={}",
+                        queryEntity.getQueryText(),
+                        rawJson,
+                        ex);
+                serializedConsultant = rawJson;
+            }
+            Double somScore = syncVerificationResult.somScore();
+            Double modifiedZ = syncVerificationResult.modifiedZScore();
+            if (somScore == null || modifiedZ == null) {
+                log.warn(
+                        "Incomplete audit metrics after verification query={} somScoreNull={} modifiedZNull={} rawResponse={}",
+                        queryEntity.getQueryText(),
+                        somScore == null,
+                        modifiedZ == null,
+                        rawJson);
+            }
             var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-            var mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
-            var ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
+            Integer mr = syncVerificationResult.mentionRank();
+            Integer ov = syncVerificationResult.overallScore();
+            Double gbvsNorm = syncVerificationResult.gbvsNormalizedScore();
+            log.info(
+                    "[DB SAVE DEBUG] jobId={} queryId={} queryText={} somScore={} gbvsNormalizedScore={} modifiedZ={}",
+                    jobId,
+                    queryEntity.getId(),
+                    queryEntity.getQueryText(),
+                    somScore,
+                    gbvsNorm,
+                    modifiedZ);
             jobPersistenceService.upsertAuditHistoryForJobQuery(
                     jobId,
                     queryEntity.getId(),
                     queryEntity.getQueryText(),
-                    jsonbOperations.serialize(consultantOutputData),
+                    serializedConsultant,
                     somScore,
                     brand,
                     mr,
@@ -248,7 +278,8 @@ public class JobQuerySubmissionService {
                     syncVerificationResult.sentimentIntensity(),
                     syncVerificationResult.visibilityStage(),
                     syncVerificationResult.calculationVersion(),
-                    syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+                    modifiedZ,
+                    gbvsNorm,
                     syncVerificationResult.competitorScoreRows(),
                     syncVerificationResult.modelInsightsJson());
         } finally {

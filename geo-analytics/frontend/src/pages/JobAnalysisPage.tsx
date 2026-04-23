@@ -10,12 +10,10 @@ import {
   competitorLabelsFromProject,
   formatAuditDate,
   liveMetricsFromParsed,
-  normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
   resolveChartShareData,
   resolveChartTrendData,
-  type AnalyticsSummaryNormalized,
   type JobAnalysisDetail,
   type JobProjectInfo,
   type ResultDetail,
@@ -155,7 +153,6 @@ export function JobAnalysisPage(): JSX.Element {
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
   const [pdfRequestNotice, setPdfRequestNotice] = useState<string | null>(null);
   const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
-  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
   const effectiveJobIdRef = useRef(effectiveJobId);
@@ -183,37 +180,14 @@ export function JobAnalysisPage(): JSX.Element {
     return p;
   }, []);
 
-  const fetchProjectAnalytics = useCallback(async (projectId: string) => {
-    const pid = projectId.trim();
-    if (pid.length === 0) {
-      return;
-    }
-    try {
-      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`);
-      if (!res.ok) {
-        setApiCharts(undefined);
-        return;
-      }
-      const body: unknown = await responseJsonAsCamel(res);
-      const normalized = normalizeAnalyticsSummary(body);
-      setApiCharts(normalized ?? undefined);
-    } catch {
-      setApiCharts(undefined);
-    }
-  }, []);
-
   const handleStreamSettled = useCallback(async () => {
     const id = effectiveJobIdRef.current.trim();
     if (id.length === 0) {
       return;
     }
     await refetchJobFromRest();
-    const latest = await refetchAnalysis(id);
-    const projectId = latest?.project?.projectId?.trim();
-    if (projectId !== undefined && projectId.length > 0) {
-      await fetchProjectAnalytics(projectId);
-    }
-  }, [refetchJobFromRest, refetchAnalysis, fetchProjectAnalytics]);
+    await refetchAnalysis(id);
+  }, [refetchJobFromRest, refetchAnalysis]);
 
   const {
     isStreaming,
@@ -277,24 +251,15 @@ export function JobAnalysisPage(): JSX.Element {
     () => competitorLabelsFromProject(data?.project ?? null),
     [data?.project],
   );
-  const chartTrendData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.trend;
-    }
-    return resolveChartTrendData(resultRows, parsedByQueryId, isStreaming);
-  }, [apiCharts, resultRows, parsedByQueryId, isStreaming]);
-  const chartShareData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.share;
-    }
-    return resolveChartShareData(
-      brandForCharts,
-      competitorPair,
-      resultRows,
-      parsedByQueryId,
-      isStreaming,
-    );
-  }, [apiCharts, brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming]);
+  const chartTrendData = useMemo(
+    () => resolveChartTrendData(resultRows, parsedByQueryId, isStreaming),
+    [resultRows, parsedByQueryId, isStreaming],
+  );
+  const chartShareData = useMemo(
+    () =>
+      resolveChartShareData(brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming),
+    [brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming],
+  );
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
   const displaySomForTier = useMemo(() => {
@@ -322,7 +287,8 @@ export function JobAnalysisPage(): JSX.Element {
   const showTierBlock = useMemo(() => {
     return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
   }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
-  const isProPlanUi = apiCharts?.subscriptionPlan === "PRO";
+  /** Subscription plan is not included on job analysis API; default false (conservative upsell in TierDiagnosisCard). */
+  const isProPlanUi = false;
   const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
   const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
 
@@ -396,18 +362,6 @@ export function JobAnalysisPage(): JSX.Element {
     setPdfDownloadInFlight(false);
     setPdfRequestNotice(null);
   }, [effectiveJobId]);
-
-  useEffect(() => {
-    setApiCharts(undefined);
-  }, [effectiveJobId]);
-
-  useEffect(() => {
-    const pid = data?.project?.projectId?.trim();
-    if (pid === undefined || pid.length === 0) {
-      return;
-    }
-    void fetchProjectAnalytics(pid);
-  }, [data?.project?.projectId, fetchProjectAnalytics]);
 
   useEffect(() => {
     const pdfStatus = jobStatus?.pdfStatus;

@@ -12,6 +12,8 @@ import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -19,6 +21,7 @@ import java.util.Objects;
 import java.util.UUID;
 @Service
 public class JobSyncTestService {
+    private static final Logger log = LoggerFactory.getLogger(JobSyncTestService.class);
     private final JobPersistenceService jobPersistenceService;
     private final SyncVerificationService syncVerificationService;
     private final SomScoreParser somScoreParser;
@@ -59,17 +62,37 @@ public class JobSyncTestService {
             null,
             jobEntity.getBrandName(),
             competitorHosts);
-        ConsultantOutputData consultantOutputData =
-            somScoreParser.parseConsultantOutput(syncVerificationResult.rawResponseJson());
-        double somScore = syncVerificationResult.somScore() != null ? syncVerificationResult.somScore() : 0.0;
+        String rawJson = syncVerificationResult.rawResponseJson();
+        String serializedConsultant;
+        try {
+            ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(rawJson);
+            serializedConsultant = jsonbOperations.serialize(consultantOutputData);
+        } catch (RuntimeException ex) {
+            log.warn(
+                "Failed to parse consultant output for audit persistence query={} rawResponse={}",
+                queryEntity.getQueryText(),
+                rawJson,
+                ex);
+            serializedConsultant = rawJson;
+        }
+        Double somScore = syncVerificationResult.somScore();
+        Double modifiedZ = syncVerificationResult.modifiedZScore();
+        if (somScore == null || modifiedZ == null) {
+            log.warn(
+                "Incomplete audit metrics after verification query={} somScoreNull={} modifiedZNull={} rawResponse={}",
+                queryEntity.getQueryText(),
+                somScore == null,
+                modifiedZ == null,
+                rawJson);
+        }
         boolean brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-        Integer mr = syncVerificationResult.mentionRank() != null ? syncVerificationResult.mentionRank() : 0;
-        Integer ov = syncVerificationResult.overallScore() != null ? syncVerificationResult.overallScore() : 0;
+        Integer mr = syncVerificationResult.mentionRank();
+        Integer ov = syncVerificationResult.overallScore();
         jobPersistenceService.upsertAuditHistoryForJobQuery(
             jobId,
             queryEntity.getId(),
             queryEntity.getQueryText(),
-            jsonbOperations.serialize(consultantOutputData),
+            serializedConsultant,
             somScore,
             brand,
             mr,
@@ -80,7 +103,8 @@ public class JobSyncTestService {
             syncVerificationResult.sentimentIntensity(),
             syncVerificationResult.visibilityStage(),
             syncVerificationResult.calculationVersion(),
-            syncVerificationResult.modifiedZScore() != null ? syncVerificationResult.modifiedZScore() : 0.0,
+            modifiedZ,
+            syncVerificationResult.gbvsNormalizedScore(),
             syncVerificationResult.competitorScoreRows(),
             syncVerificationResult.modelInsightsJson());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);

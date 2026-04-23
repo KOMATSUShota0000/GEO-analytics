@@ -147,6 +147,7 @@ public class SyncVerificationService {
                 verificationResponse.calculationVersion(),
                 rows,
                 insightsJson,
+                verificationResponse.gbvsNormalizedScore(),
                 analysisTextLength);
     }
 
