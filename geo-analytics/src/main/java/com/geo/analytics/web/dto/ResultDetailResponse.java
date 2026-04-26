@@ -22,7 +22,7 @@ public record ResultDetailResponse(
     Integer mentionRank,
     Integer overallScore,
     Integer tokenCount,
-    Integer rankPosition,
+    Integer aiCitationPosition,
     Double sentimentIntensity,
     String resolvedEntityLabel,
     Integer visibilityStage,
@@ -49,7 +49,7 @@ public record ResultDetailResponse(
                 newMentionRank,
                 overallScore,
                 tokenCount,
-                rankPosition,
+                aiCitationPosition,
                 sentimentIntensity,
                 resolvedEntityLabel,
                 visibilityStage,
@@ -77,7 +77,7 @@ public record ResultDetailResponse(
         var gbvs = auditHistoryEntity.getGbvsNormalizedScore();
         var stageDef = VisibilityStageMapper.define(
             auditHistoryEntity.getVisibilityStage(),
-            auditHistoryEntity.getRankPosition());
+            auditHistoryEntity.getAiCitationPosition());
         var insight = strategyInsightService.resolveForAudit(auditHistoryEntity);
         var mz = auditHistoryEntity.getModifiedZScore() != null
             ? auditHistoryEntity.getModifiedZScore()
@@ -97,7 +97,7 @@ public record ResultDetailResponse(
             auditHistoryEntity.getMentionRank(),
             auditHistoryEntity.getOverallScore(),
             auditHistoryEntity.getTokenCount() != null ? auditHistoryEntity.getTokenCount() : 0,
-            auditHistoryEntity.getRankPosition() != null ? auditHistoryEntity.getRankPosition() : 0,
+            auditHistoryEntity.getAiCitationPosition(),
             auditHistoryEntity.getSentimentIntensity() != null ? auditHistoryEntity.getSentimentIntensity() : 0.0,
             auditHistoryEntity.getResolvedEntityLabel(),
             auditHistoryEntity.getVisibilityStage(),

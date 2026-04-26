@@ -8,15 +8,17 @@ public final class VisibilityStageMapper {
 
     public record StageDefinition(int stage, String bandLabel, String narrative, double progressRate) {}
 
+    private static final double[] CITATION_BOUNDARIES = {1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144};
+
     public static StageDefinition define(Integer visibilityStage) {
         return define(visibilityStage, null);
     }
 
-    public static StageDefinition define(Integer visibilityStage, Integer rankPosition) {
+    public static StageDefinition define(Integer visibilityStage, Integer aiCitationPosition) {
         var s = visibilityStage == null ? 10 : visibilityStage;
         s = StrictMath.max(1, StrictMath.min(10, s));
         var t = 11 - s;
-        var progress = progressRate(t, rankPosition);
+        var progress = progressRate(t, aiCitationPosition);
         if (t <= 2) {
             return new StageDefinition(
                 s,
@@ -52,18 +54,27 @@ public final class VisibilityStageMapper {
             progress);
     }
 
-    private static double progressRate(int stage, Integer rankPosition) {
-        if (rankPosition == null || rankPosition <= 0) {
+    private static double progressRate(int stage, Integer aiCitationPosition) {
+        if (aiCitationPosition == null || aiCitationPosition <= 0) {
             return 0.0;
         }
-        double r = rankPosition;
-        double currentBoundary = currentBoundary(stage);
-        double nextBoundary = nextBoundary(stage);
-        double denominator = StrictMath.log(nextBoundary) - StrictMath.log(currentBoundary);
+        double rD = aiCitationPosition;
+        double lo = CITATION_BOUNDARIES[10 - stage];
+        double hi = CITATION_BOUNDARIES[11 - stage];
+        if (lo <= 0.0 || hi <= 0.0 || lo >= hi) {
+            return 0.0;
+        }
+        if (rD < lo) {
+            return 1.0;
+        }
+        if (rD > hi) {
+            return 0.0;
+        }
+        double denominator = StrictMath.log(hi) - StrictMath.log(lo);
         if (StrictMath.abs(denominator) < RobustAuditMathUtil.EPSILON) {
             return 0.0;
         }
-        double numerator = StrictMath.log(nextBoundary) - StrictMath.log(r);
+        double numerator = StrictMath.log(hi) - StrictMath.log(rD);
         double p = numerator / denominator;
         if (p < 0.0) {
             return 0.0;
@@ -72,35 +83,5 @@ public final class VisibilityStageMapper {
             return 1.0;
         }
         return p;
-    }
-
-    private static double currentBoundary(int stage) {
-        return switch (stage) {
-            case 10 -> 1.0;
-            case 9 -> 2.0;
-            case 8 -> 3.0;
-            case 7 -> 5.0;
-            case 6 -> 10.0;
-            case 5 -> 20.0;
-            case 4 -> 30.0;
-            case 3 -> 50.0;
-            case 2 -> 80.0;
-            default -> 120.0;
-        };
-    }
-
-    private static double nextBoundary(int stage) {
-        return switch (stage) {
-            case 10 -> 2.0;
-            case 9 -> 3.0;
-            case 8 -> 5.0;
-            case 7 -> 10.0;
-            case 6 -> 20.0;
-            case 5 -> 30.0;
-            case 4 -> 50.0;
-            case 3 -> 80.0;
-            case 2 -> 120.0;
-            default -> 200.0;
-        };
     }
 }

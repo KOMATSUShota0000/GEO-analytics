@@ -163,7 +163,7 @@ public class JobPersistenceService {
             Integer overallScore,
             String resolvedEntityLabel,
             int tokenCount,
-            int rankPosition,
+            Integer aiCitationPosition,
             double sentimentIntensity,
             Integer visibilityStage,
             String calculationVersion,
@@ -193,7 +193,7 @@ public class JobPersistenceService {
                 existing.setOverallScore(overallScore);
                 existing.setResolvedEntityLabel(resolvedEntityLabel);
                 existing.setTokenCount(tokenCount);
-                existing.setRankPosition(rankPosition);
+                existing.setAiCitationPosition(aiCitationPosition);
                 existing.setSentimentIntensity(sentimentIntensity);
                 existing.setVisibilityStage(visibilityStage);
                 existing.setCalculationVersion(calculationVersion);
@@ -220,7 +220,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setOverallScore(overallScore);
                 auditHistoryEntity.setResolvedEntityLabel(resolvedEntityLabel);
                 auditHistoryEntity.setTokenCount(tokenCount);
-                auditHistoryEntity.setRankPosition(rankPosition);
+                auditHistoryEntity.setAiCitationPosition(aiCitationPosition);
                 auditHistoryEntity.setSentimentIntensity(sentimentIntensity);
                 auditHistoryEntity.setVisibilityStage(visibilityStage);
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
@@ -252,7 +252,7 @@ public class JobPersistenceService {
             entity.setAuditHistory(audit);
             entity.setCompetitorName(row.competitorName());
             entity.setSomScore(row.somScore());
-            entity.setRankPosition(row.rankPosition());
+            entity.setAiCitationPosition(row.aiCitationPosition());
             entity.setVisibilityStage(row.visibilityStage());
             entity.setMatchStatus(row.matchStatus());
             entity.setNounCount(row.nounCount());

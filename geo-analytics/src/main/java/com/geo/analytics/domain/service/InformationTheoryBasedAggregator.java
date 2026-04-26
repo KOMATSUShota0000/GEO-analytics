@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 
 @Component
 public class InformationTheoryBasedAggregator {
-    public static final String AGGREGATION_CALCULATION_VERSION = "TEST_CALC_V4";
+    public static final String AGGREGATION_CALCULATION_VERSION = "V11_GEO_PURE";
     private static final Logger log = LoggerFactory.getLogger(InformationTheoryBasedAggregator.class);
     private static final BigDecimal HUNDRED = new BigDecimal("100.00");
     private static final BigDecimal TARGET_TOTAL_PCT = new BigDecimal("100.00");
@@ -89,7 +89,8 @@ public class InformationTheoryBasedAggregator {
         finalSom = halfEven2(clampD(finalSom, 0.0, 100.0));
         boolean brand = successes.stream().anyMatch(v -> Boolean.TRUE.equals(v.brandMentioned()));
         int sumMr = 0;
-        int sumRp = 0;
+        long sumRp = 0L;
+        int mentionedQueryCount = 0;
         int sumTok = 0;
         int sumOv = 0;
         int sumVs = 0;
@@ -102,7 +103,11 @@ public class InformationTheoryBasedAggregator {
             if (mr != null) {
                 sumMr += mr;
             }
-            sumRp += v.rankPosition();
+            Integer rp = v.aiCitationPosition();
+            if (rp != null) {
+                sumRp += rp;
+                mentionedQueryCount++;
+            }
             sumTok += v.tokenCount();
             Integer ov = v.overallScore();
             if (ov != null) {
@@ -130,7 +135,9 @@ public class InformationTheoryBasedAggregator {
         }
         Double avgGbvsNormalized = gbvsNormCount > 0 ? halfEven2(sumGbvsNorm / gbvsNormCount) : null;
         int avgMr = sumMr / sampleCount;
-        int avgRp = sumRp / sampleCount;
+        Integer avgAiCitationPosition = mentionedQueryCount > 0
+                ? roundHalfUpToInt((double) sumRp / mentionedQueryCount)
+                : null;
         int avgTok = sumTok / sampleCount;
         int avgOv = sumOv / sampleCount;
         double avgSi = sumSi / (double) sampleCount;
@@ -215,7 +222,7 @@ public class InformationTheoryBasedAggregator {
                     nounAgg));
         }
         merged.sort(Comparator.comparing(
-                (CompetitorResult cr) -> cr.rankPosition() != null ? cr.rankPosition() : Integer.MAX_VALUE,
+                (CompetitorResult cr) -> cr.aiCitationPosition() != null ? cr.aiCitationPosition() : Integer.MAX_VALUE,
                 Comparator.naturalOrder())
                 .thenComparing(
                         (CompetitorResult cr) -> cr.somScore() != null ? cr.somScore() : 0.0,
@@ -229,7 +236,7 @@ public class InformationTheoryBasedAggregator {
                 avgMr,
                 avgOv,
                 avgTok,
-                avgRp,
+                avgAiCitationPosition,
                 avgSi,
                 first.resolvedEntityLabel(),
                 avgVs,
@@ -277,6 +284,13 @@ public class InformationTheoryBasedAggregator {
 
     private static double halfEven2(double value) {
         return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
+    }
+
+    private static Integer roundHalfUpToInt(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return null;
+        }
+        return BigDecimal.valueOf(value).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
     private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {

@@ -303,7 +303,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         SomScoreData metrics = somScoreParser.parse(rawAiResponseJson);
         ConsultantOutputData full = somScoreParser.parseConsultantOutput(rawAiResponseJson);
         int tc = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
-        int rp = metrics.rankPosition() != null ? metrics.rankPosition() : 0;
+        Integer rp = metrics.aiCitationPosition();
         double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
         String ext = full.extractedBrandMention();
         String rawName = ext != null && !ext.isBlank() ? ext : verificationRequest.brandName();

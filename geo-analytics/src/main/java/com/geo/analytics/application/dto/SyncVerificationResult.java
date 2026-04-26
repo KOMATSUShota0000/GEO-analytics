@@ -9,7 +9,7 @@ public record SyncVerificationResult(
         Integer mentionRank,
         Integer overallScore,
         int tokenCount,
-        int rankPosition,
+        Integer aiCitationPosition,
         double sentimentIntensity,
         String naturalLanguageResponse,
         String resolvedEntityLabel,

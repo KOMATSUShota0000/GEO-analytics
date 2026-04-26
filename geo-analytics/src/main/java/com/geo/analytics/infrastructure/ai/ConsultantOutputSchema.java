@@ -16,13 +16,13 @@ public final class ConsultantOutputSchema {
     public static final String BRAND_MENTIONED_SCHEMA_DESCRIPTION =
         "対象ブランドがAI生成回答内で実質的に言及・推奨・優先列挙されているかを示すboolean。判定基準はシステムプロンプトのGEO文脈ルールに厳密に従うこと。";
 
-    /** AI Overview / 抽出テキスト / 構造化ハンドオフ（生成回答プローズ内の明示的な優先列挙）。 */
-    public static final String RANK_POSITION_SCHEMA_DESC_PLAIN =
-            "AI-generated answer evidence (GEO): 1 if the brand appears first in an explicit ranked or preference list inside the AI answer prose, then 2, 3, …; 0 if there is no such list or the brand is not listed.";
+    /** AI Overview / 抽出テキスト / 構造化ハンドオフ用の引用優先度プロキシ説明。 */
+    public static final String AI_CITATION_POSITION_SCHEMA_DESC_PLAIN =
+            "GEO citation-priority proxy from AI-generated answer evidence: 1 if the brand appears first in an explicit ranked or preference list inside the AI answer prose, then 2, 3, …; 0 if there is no such list or the brand is not listed. This is not a search ranking — it is a proxy for how prominently the brand would be cited inside an AI Overview style answer.";
 
-    /** AI Overview RAG エビデンス束における引用優先度プロキシ（rank フィールド）。 */
-    public static final String RANK_POSITION_SCHEMA_DESC_SERP =
-            "AI Overview citation evidence JSON in the user message: the minimum numeric `rank` among evidence objects whose title or snippet clearly mentions the brand. `rank` represents citation-priority within this evidence bundle (a GEO proxy for how likely an AI Overview is to cite that source first), not a traditional search ranking. 0 if no row mentions the brand.";
+    /** AI Overview RAG エビデンス束における引用優先度プロキシ。 */
+    public static final String AI_CITATION_POSITION_SCHEMA_DESC_SERP =
+            "GEO citation-priority proxy from the AI Overview citation evidence JSON in the user message: the minimum numeric `rank` among evidence objects whose title or snippet clearly mentions the brand. `rank` represents citation-priority within this evidence bundle (a GEO proxy for how likely an AI Overview is to cite that source first), not a traditional search ranking. 0 if no row mentions the brand.";
 
     private ConsultantOutputSchema() {
     }
@@ -119,12 +119,12 @@ public final class ConsultantOutputSchema {
     }
 
     private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan, boolean serpRagGrounded) {
-        String rankPositionDesc = serpRagGrounded ? RANK_POSITION_SCHEMA_DESC_SERP : RANK_POSITION_SCHEMA_DESC_PLAIN;
+        String aiCitationPositionDesc = serpRagGrounded ? AI_CITATION_POSITION_SCHEMA_DESC_SERP : AI_CITATION_POSITION_SCHEMA_DESC_PLAIN;
         JsonObjectSchema.Builder builder = JsonObjectSchema.builder()
             .addStringProperty("response")
             .addStringProperty("extracted_brand_mention")
             .addIntegerProperty("token_count")
-            .addIntegerProperty("rank_position", rankPositionDesc)
+            .addIntegerProperty("ai_citation_position", aiCitationPositionDesc)
             .addNumberProperty("sentiment_intensity")
             .addBooleanProperty("brand_mentioned", BRAND_MENTIONED_SCHEMA_DESCRIPTION)
             .addProperty(
@@ -139,7 +139,7 @@ public final class ConsultantOutputSchema {
                 "response",
                 "extracted_brand_mention",
                 "token_count",
-                "rank_position",
+                "ai_citation_position",
                 "sentiment_intensity",
                 "brand_mentioned",
                 "prioritizedTasks",
@@ -150,7 +150,7 @@ public final class ConsultantOutputSchema {
                 "response",
                 "extracted_brand_mention",
                 "token_count",
-                "rank_position",
+                "ai_citation_position",
                 "sentiment_intensity",
                 "brand_mentioned",
                 "prioritizedTasks");
@@ -182,10 +182,10 @@ public final class ConsultantOutputSchema {
         properties.put("response", Map.of("type", "STRING"));
         properties.put("extracted_brand_mention", Map.of("type", "STRING"));
         properties.put("token_count", Map.of("type", "INTEGER"));
-        Map<String, Object> rankPositionProp = new LinkedHashMap<>();
-        rankPositionProp.put("type", "INTEGER");
-        rankPositionProp.put("description", RANK_POSITION_SCHEMA_DESC_PLAIN);
-        properties.put("rank_position", rankPositionProp);
+        Map<String, Object> aiCitationPositionProp = new LinkedHashMap<>();
+        aiCitationPositionProp.put("type", "INTEGER");
+        aiCitationPositionProp.put("description", AI_CITATION_POSITION_SCHEMA_DESC_PLAIN);
+        properties.put("ai_citation_position", aiCitationPositionProp);
         properties.put("sentiment_intensity", Map.of("type", "NUMBER"));
         Map<String, Object> brandMentionedProp = new LinkedHashMap<>();
         brandMentionedProp.put("type", "BOOLEAN");
@@ -196,7 +196,7 @@ public final class ConsultantOutputSchema {
             "response",
             "extracted_brand_mention",
             "token_count",
-            "rank_position",
+            "ai_citation_position",
             "sentiment_intensity",
             "brand_mentioned",
             "prioritizedTasks"));

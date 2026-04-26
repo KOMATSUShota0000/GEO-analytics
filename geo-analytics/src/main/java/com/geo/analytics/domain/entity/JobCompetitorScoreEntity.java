@@ -30,8 +30,8 @@ public class JobCompetitorScoreEntity {
     @Column(name = "som_score", nullable = false)
     private Double somScore;
 
-    @Column(name = "rank_position")
-    private Integer rankPosition;
+    @Column(name = "ai_citation_position")
+    private Integer aiCitationPosition;
 
     @Column(name = "visibility_stage")
     private Integer visibilityStage;
@@ -78,12 +78,12 @@ public class JobCompetitorScoreEntity {
         this.somScore = somScore;
     }
 
-    public Integer getRankPosition() {
-        return rankPosition;
+    public Integer getAiCitationPosition() {
+        return aiCitationPosition;
     }
 
-    public void setRankPosition(Integer rankPosition) {
-        this.rankPosition = rankPosition;
+    public void setAiCitationPosition(Integer aiCitationPosition) {
+        this.aiCitationPosition = aiCitationPosition;
     }
 
     public Integer getVisibilityStage() {

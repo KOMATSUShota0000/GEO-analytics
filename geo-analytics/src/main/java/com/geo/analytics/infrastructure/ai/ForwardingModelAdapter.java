@@ -27,7 +27,7 @@ public final class ForwardingModelAdapter implements ModelTypedAiVerificationPor
                 v.mentionRank(),
                 v.overallScore(),
                 v.tokenCount(),
-                v.rankPosition(),
+                v.aiCitationPosition(),
                 v.sentimentIntensity(),
                 v.resolvedEntityLabel(),
                 v.visibilityStage(),

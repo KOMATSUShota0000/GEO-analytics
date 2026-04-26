@@ -99,7 +99,7 @@ public class JobSyncTestService {
             ov,
             syncVerificationResult.resolvedEntityLabel(),
             syncVerificationResult.tokenCount(),
-            syncVerificationResult.rankPosition(),
+            syncVerificationResult.aiCitationPosition(),
             syncVerificationResult.sentimentIntensity(),
             syncVerificationResult.visibilityStage(),
             syncVerificationResult.calculationVersion(),

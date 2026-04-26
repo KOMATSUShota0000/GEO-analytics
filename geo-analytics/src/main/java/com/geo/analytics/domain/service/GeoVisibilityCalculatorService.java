@@ -4,6 +4,7 @@ import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,7 +18,7 @@ public final class GeoVisibilityCalculatorService {
     private static final Logger log = LoggerFactory.getLogger(GeoVisibilityCalculatorService.class);
 
     /** Must fit DB column varchar(32) on audit_history.calculation_version. */
-    public static final String CALCULATION_VERSION = "V10_NLP_STUFFING_FLOOR";
+    public static final String CALCULATION_VERSION = "V11_GEO_PURE";
     public static final double BM25_K1 = 1.2;
     public static final double BM25_B = 0.75;
     private static final int BAYES_SAMPLE_THRESHOLD = 30;
@@ -162,7 +163,7 @@ public final class GeoVisibilityCalculatorService {
         int blendN = StrictMath.max(n, StrictMath.max(1, bayesSampleCardinality));
         int df = 0;
         for (SomRawMetrics r : rows) {
-            if (r.isSemanticallyMentioned() && (r.nounCount() > 0 || r.rankPosition() > 0)) {
+            if (r.isSemanticallyMentioned() && (r.nounCount() > 0 || r.aiCitationPosition() != null)) {
                 df++;
             }
         }
@@ -298,10 +299,11 @@ public final class GeoVisibilityCalculatorService {
     }
 
     private static double weightedSom(SomRawMetrics metrics, double lAvgJob, double idf) {
+        Integer aiPos = metrics.aiCitationPosition();
         if (!metrics.isSemanticallyMentioned()) {
             log.info(
-                    "[MATH DEBUG] outcome=not_semantic rank={} f(nounCount)={} tokenCount={} responseTokenLength={} sourceWeight={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
-                    metrics.rankPosition(),
+                    "[MATH DEBUG] outcome=not_semantic aiPos={} f(nounCount)={} tokenCount={} responseTokenLength={} sourceWeight={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
+                    aiPos,
                     metrics.nounCount(),
                     metrics.tokenCount(),
                     metrics.responseTokenLength(),
@@ -311,15 +313,22 @@ public final class GeoVisibilityCalculatorService {
             return 0.0;
         }
         int f = StrictMath.max(0, metrics.nounCount());
-        int rank = metrics.rankPosition();
         int total = StrictMath.max(0, metrics.responseTokenLength());
-        double presence = (f > 0 || rank > 0) ? 1.0 : 0.0;
+        double presence = (f > 0 || aiPos != null) ? 1.0 : 0.0;
+        if (presence <= 0.0) {
+            log.info(
+                    "[MATH DEBUG] outcome=no_presence aiPos={} f={} total={} somScore=0.0",
+                    aiPos,
+                    f,
+                    total);
+            return 0.0;
+        }
         double sourceWeight = metrics.sourceWeight() > RobustAuditMathUtil.EPSILON
                 ? metrics.sourceWeight()
                 : SOURCE_WEIGHT_LOW;
         double sentiment = sentimentWeight(metrics.sentimentIntensity());
         double fTok = StrictMath.max(0.0, (double) f);
-        if (presence > 0 && fTok < RobustAuditMathUtil.EPSILON && rank > 0) {
+        if (fTok < RobustAuditMathUtil.EPSILON && aiPos != null) {
             fTok = 1.0;
         }
         double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
@@ -332,14 +341,25 @@ public final class GeoVisibilityCalculatorService {
         double stuffingPenalty =
                 1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
         stuffingPenalty = clamp(stuffingPenalty, STUFFING_PENALTY_FLOOR, 1.0);
-        double brandSignal = presence * sourceWeight * sentiment * bm25 * stuffingPenalty;
+        double brandSignalCore = sourceWeight * sentiment * bm25 * stuffingPenalty;
         double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
         double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
+        double textCoreDenom = brandSignalCore + otherSignal;
+        double textCore = textCoreDenom > RobustAuditMathUtil.EPSILON
+                ? clamp01(brandSignalCore / textCoreDenom)
+                : 0.0;
+        int sStar = (aiPos != null && f == 0) ? 10 : stageFromScorePercent(textCore * 100.0);
+        double progressRate = aiPos != null
+                ? VisibilityStageMapper.define(sStar, aiPos).progressRate()
+                : 0.0;
+        double brandSignal = presence * progressRate * brandSignalCore;
         double denom = brandSignal + otherSignal;
         if (denom <= RobustAuditMathUtil.EPSILON) {
             log.info(
-                    "[MATH DEBUG] outcome=zero_denom rank={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} somScore=0.0",
-                    rank,
+                    "[MATH DEBUG] outcome=zero_denom aiPos={} sStar={} p={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignalCore={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} textCore={} somScore=0.0",
+                    aiPos,
+                    sStar,
+                    progressRate,
                     f,
                     fTok,
                     total,
@@ -347,6 +367,7 @@ public final class GeoVisibilityCalculatorService {
                     bm25,
                     density,
                     stuffingPenalty,
+                    brandSignalCore,
                     brandSignal,
                     otherPresence,
                     otherSignal,
@@ -354,13 +375,16 @@ public final class GeoVisibilityCalculatorService {
                     idf,
                     lAvgJob,
                     sourceWeight,
-                    sentiment);
+                    sentiment,
+                    textCore);
             return 0.0;
         }
         double somScore = clamp01(brandSignal / denom);
         log.info(
-                "[MATH DEBUG] outcome=ok rank={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} somScore={}",
-                rank,
+                "[MATH DEBUG] outcome=ok aiPos={} sStar={} p={} f={} fTok={} total={} presence={} bm25={} density={} stuffingPenalty={} brandSignalCore={} brandSignal={} otherPresence={} otherSignal={} denom={} idf={} lAvgJob={} sourceWeight={} sentiment={} textCore={} somScore={}",
+                aiPos,
+                sStar,
+                progressRate,
                 f,
                 fTok,
                 total,
@@ -368,6 +392,7 @@ public final class GeoVisibilityCalculatorService {
                 bm25,
                 density,
                 stuffingPenalty,
+                brandSignalCore,
                 brandSignal,
                 otherPresence,
                 otherSignal,
@@ -376,6 +401,7 @@ public final class GeoVisibilityCalculatorService {
                 lAvgJob,
                 sourceWeight,
                 sentiment,
+                textCore,
                 somScore);
         return somScore;
     }

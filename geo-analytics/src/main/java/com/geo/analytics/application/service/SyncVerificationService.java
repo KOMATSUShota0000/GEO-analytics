@@ -125,7 +125,7 @@ public class SyncVerificationService {
                 .map(cr -> new CompetitorScoreRow(
                         cr.competitorLabel(),
                         cr.somScore() != null ? cr.somScore() : 0.0,
-                        cr.rankPosition(),
+                        cr.aiCitationPosition(),
                         cr.visibilityStage(),
                         cr.matchStatus(),
                         cr.nounCount()))
@@ -138,7 +138,7 @@ public class SyncVerificationService {
                 verificationResponse.mentionRank(),
                 verificationResponse.overallScore(),
                 verificationResponse.tokenCount(),
-                verificationResponse.rankPosition(),
+                verificationResponse.aiCitationPosition(),
                 verificationResponse.sentimentIntensity(),
                 consultantOutputData.response(),
                 verificationResponse.resolvedEntityLabel(),

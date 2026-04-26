@@ -9,7 +9,7 @@ public record ConsultantOutputData(
         @JsonProperty("response") String response,
         @JsonProperty("extracted_brand_mention") String extractedBrandMention,
         @JsonProperty("token_count") Integer tokenCount,
-        @JsonProperty("rank_position") Integer rankPosition,
+        @JsonProperty("ai_citation_position") Integer aiCitationPosition,
         @JsonProperty("sentiment_intensity") Double sentimentIntensity,
         @JsonProperty("brand_mentioned") Boolean brandMentioned,
         @JsonProperty("prioritizedTasks") List<TaskDTO> prioritizedTasks,
@@ -20,6 +20,6 @@ public record ConsultantOutputData(
         competitorComparison = competitorComparison == null ? null : List.copyOf(competitorComparison);
     }
     public SomScoreData toSomScoreData() {
-        return new SomScoreData(tokenCount, rankPosition, sentimentIntensity, brandMentioned);
+        return new SomScoreData(tokenCount, aiCitationPosition, sentimentIntensity, brandMentioned);
     }
 }

@@ -5,7 +5,7 @@ import com.geo.analytics.domain.enums.MatchStatus;
 public record CompetitorScoreRow(
         String competitorName,
         double somScore,
-        Integer rankPosition,
+        Integer aiCitationPosition,
         Integer visibilityStage,
         MatchStatus matchStatus,
         int nounCount) {}

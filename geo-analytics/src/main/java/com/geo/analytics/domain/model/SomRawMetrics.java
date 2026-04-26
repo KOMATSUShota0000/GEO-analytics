@@ -2,7 +2,7 @@ package com.geo.analytics.domain.model;
 
 public record SomRawMetrics(
     int tokenCount,
-    int rankPosition,
+    Integer aiCitationPosition,
     double sentimentIntensity,
     boolean isProAnalysis,
     boolean isSemanticallyMentioned,

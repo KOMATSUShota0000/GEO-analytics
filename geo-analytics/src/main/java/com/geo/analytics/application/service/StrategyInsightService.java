@@ -134,7 +134,7 @@ public final class StrategyInsightService {
         var st = row.getVisibilityStage() != null ? row.getVisibilityStage() : 10;
         var baseline = fromVisibilityStage(st).diagnosticMessage();
         var z = row.getModifiedZScore() != null ? row.getModifiedZScore() : 0.0;
-        var rk = row.getRankPosition() != null ? row.getRankPosition() : 0;
+        Integer rk = row.getAiCitationPosition();
         var noun = row.getTokenCount() != null ? row.getTokenCount() : 0;
         return "あなたはGEO可視性アナリストです。Stage別基本戦略テンプレートと実際のAI回答を統合し、diagnostic_messageは200文字以内の日本語、recommended_actionsは3件の日本語改善案のみをJSONで返せ。\n\nStage別基本戦略テンプレート:\n"
             + baseline
@@ -151,7 +151,7 @@ public final class StrategyInsightService {
             + "\n当該Stage: "
             + st
             + "\n推定GEO可視性ランク: "
-            + rk
+            + (rk != null ? rk.toString() : "(言及なし)")
             + "\nブランド出現回数: "
             + noun
             + "\n\nAI回答抜粋:\n"

@@ -51,8 +51,8 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     private String resolvedEntityLabel;
     @Column(name = "token_count", nullable = false)
     private Integer tokenCount;
-    @Column(name = "rank_position", nullable = false)
-    private Integer rankPosition;
+    @Column(name = "ai_citation_position", nullable = true)
+    private Integer aiCitationPosition;
     @Column(name = "sentiment_intensity", nullable = false)
     private Double sentimentIntensity;
     @Column(name = "visibility_stage")
@@ -151,11 +151,11 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     public void setTokenCount(Integer tokenCount) {
         this.tokenCount = tokenCount;
     }
-    public Integer getRankPosition() {
-        return rankPosition;
+    public Integer getAiCitationPosition() {
+        return aiCitationPosition;
     }
-    public void setRankPosition(Integer rankPosition) {
-        this.rankPosition = rankPosition;
+    public void setAiCitationPosition(Integer aiCitationPosition) {
+        this.aiCitationPosition = aiCitationPosition;
     }
     public Double getSentimentIntensity() {
         return sentimentIntensity;

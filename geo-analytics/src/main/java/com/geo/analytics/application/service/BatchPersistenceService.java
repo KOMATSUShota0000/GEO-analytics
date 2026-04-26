@@ -73,7 +73,7 @@ public class BatchPersistenceService {
         return jdbc.query(
                 "SELECT id, tenant_id, job_id, project_id, query, raw_response, "
                         + "som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, resolved_entity_label, "
-                        + "token_count, rank_position, sentiment_intensity, visibility_stage, "
+                        + "token_count, ai_citation_position, sentiment_intensity, visibility_stage, "
                         + "calculation_version, negative_alert, modified_z_score, diagnostic_message, "
                         + "recommended_actions, model_insights, audit_date, created_at "
                         + "FROM audit_histories WHERE job_id = ?",
@@ -166,7 +166,7 @@ public class BatchPersistenceService {
                                    double somScore, Double gbvsNormalizedScore, boolean brandMentioned,
                                    Integer mentionRank, Integer overallScore,
                                    String resolvedEntityLabel, int tokenCount,
-                                   int rankPosition, double sentimentIntensity,
+                                   Integer aiCitationPosition, double sentimentIntensity,
                                    Integer visibilityStage, String calculationVersion,
                                    double modifiedZScore, boolean negativeAlert,
                                    String diagnosticMessage, List<String> recommendedActions,
@@ -180,7 +180,7 @@ public class BatchPersistenceService {
                 PreparedStatement ps = con.prepareStatement(
                         "UPDATE audit_histories SET raw_response = ?, som_score = ?, gbvs_normalized_score = ?, brand_mentioned = ?, "
                         + "mention_rank = ?, overall_score = ?, resolved_entity_label = ?, "
-                        + "token_count = ?, rank_position = ?, sentiment_intensity = ?, "
+                        + "token_count = ?, ai_citation_position = ?, sentiment_intensity = ?, "
                         + "visibility_stage = ?, calculation_version = ?, negative_alert = ?, "
                         + "modified_z_score = ?, diagnostic_message = ?, recommended_actions = ?, "
                         + "model_insights = ?, audit_date = ? WHERE id = ?");
@@ -192,7 +192,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 6, overallScore);
                 ps.setString(7, resolvedEntityLabel);
                 ps.setInt(8, tokenCount);
-                ps.setInt(9, rankPosition);
+                ps.setObject(9, aiCitationPosition, Types.INTEGER);
                 ps.setDouble(10, sentimentIntensity);
                 setNullableInt(ps, 11, visibilityStage);
                 ps.setString(12, calculationVersion);
@@ -211,7 +211,7 @@ public class BatchPersistenceService {
                 PreparedStatement ps = con.prepareStatement(
                         "INSERT INTO audit_histories (id, tenant_id, job_id, project_id, query, "
                         + "raw_response, som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, "
-                        + "resolved_entity_label, token_count, rank_position, sentiment_intensity, "
+                        + "resolved_entity_label, token_count, ai_citation_position, sentiment_intensity, "
                         + "visibility_stage, calculation_version, negative_alert, modified_z_score, "
                         + "diagnostic_message, recommended_actions, model_insights, audit_date, created_at) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
@@ -228,7 +228,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 11, overallScore);
                 ps.setString(12, resolvedEntityLabel);
                 ps.setInt(13, tokenCount);
-                ps.setInt(14, rankPosition);
+                ps.setObject(14, aiCitationPosition, Types.INTEGER);
                 ps.setDouble(15, sentimentIntensity);
                 setNullableInt(ps, 16, visibilityStage);
                 ps.setString(17, calculationVersion);
@@ -246,10 +246,10 @@ public class BatchPersistenceService {
             for (CompetitorScoreRow row : competitorScoreRows) {
                 jdbc.update(
                         "INSERT INTO job_competitor_scores (id, audit_history_id, competitor_name, "
-                        + "som_score, rank_position, visibility_stage, match_status, noun_count) "
+                        + "som_score, ai_citation_position, visibility_stage, match_status, noun_count) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         UUID.randomUUID(), auditId, row.competitorName(),
-                        row.somScore(), row.rankPosition(), row.visibilityStage(),
+                        row.somScore(), row.aiCitationPosition(), row.visibilityStage(),
                         row.matchStatus() != null ? row.matchStatus().name() : null, row.nounCount());
             }
         }
@@ -415,7 +415,7 @@ public class BatchPersistenceService {
         e.setOverallScore((Integer) rs.getObject("overall_score"));
         e.setResolvedEntityLabel(rs.getString("resolved_entity_label"));
         e.setTokenCount(rs.getInt("token_count"));
-        e.setRankPosition(rs.getInt("rank_position"));
+        e.setAiCitationPosition(rs.getObject("ai_citation_position", Integer.class));
         e.setSentimentIntensity(rs.getDouble("sentiment_intensity"));
         e.setVisibilityStage((Integer) rs.getObject("visibility_stage"));
         e.setCalculationVersion(rs.getString("calculation_version"));

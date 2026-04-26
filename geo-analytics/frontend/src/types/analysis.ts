@@ -437,7 +437,7 @@ export interface ResultDetail {
   mentionRank: number | null;
   overallScore: number | null;
   tokenCount?: number;
-  rankPosition?: number;
+  aiCitationPosition?: number | null;
   sentimentIntensity?: number;
   resolvedEntityLabel?: string | null;
   visibilityStage?: number | null;
@@ -575,7 +575,13 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     ? r.gbvsNormalizedScore
     : undefined;
   const tc = typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined;
-  const rp = typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined;
+  const rpRaw = r.aiCitationPosition;
+  const aiCitationPosition: number | null =
+    rpRaw === null || rpRaw === undefined
+      ? null
+      : typeof rpRaw === "number" && !Number.isNaN(rpRaw)
+        ? rpRaw
+        : null;
   const si =
     typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
       ? r.sentimentIntensity
@@ -610,7 +616,7 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     mentionRank,
     overallScore,
     tokenCount: tc !== undefined && !Number.isNaN(tc) ? tc : undefined,
-    rankPosition: rp !== undefined && !Number.isNaN(rp) ? rp : undefined,
+    aiCitationPosition,
     sentimentIntensity: si !== undefined && !Number.isNaN(si) ? si : undefined,
     resolvedEntityLabel,
     visibilityStage: vs !== undefined && !Number.isNaN(vs) ? vs : null,

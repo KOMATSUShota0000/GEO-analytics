@@ -15,7 +15,7 @@ public record VerificationResponse(
         Integer mentionRank,
         Integer overallScore,
         int tokenCount,
-        int rankPosition,
+        Integer aiCitationPosition,
         double sentimentIntensity,
         String resolvedEntityLabel,
         Integer visibilityStage,

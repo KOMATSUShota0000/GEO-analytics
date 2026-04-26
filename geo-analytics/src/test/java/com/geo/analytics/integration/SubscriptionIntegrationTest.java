@@ -129,7 +129,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "Brand",
                 6,
                 0.0,
-                "TEST_CALC_V4",
+                "V11_GEO_PURE",
                 List.of(),
                 "{}",
                 50.0,
@@ -253,12 +253,12 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 List.of("御茶", "お茶"),
                 null);
         var aggregated = informationTheoryBasedAggregator.aggregate(List.of(modelResponse), request);
-        assertThat(aggregated.calculationVersion()).isEqualTo("TEST_CALC_V4");
+        assertThat(aggregated.calculationVersion()).isEqualTo("V11_GEO_PURE");
         assertThat(aggregated.competitorResults()).hasSize(1);
         var matched = aggregated.competitorResults().getFirst();
         assertThat(matched.competitorLabel()).isEqualTo("お茶");
         assertThat(matched.matchStatus()).isEqualTo(MatchStatus.AUTO_MATCH);
-        assertThat(matched.rankPosition()).isEqualTo(1);
+        assertThat(matched.aiCitationPosition()).isEqualTo(1);
         assertThat(matched.visibilityStage()).isEqualTo(10);
         assertThat(matched.somScore()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(0.05));
         assertThat(aggregated.competitorResults().stream().map(CompetitorResult::competitorLabel))
@@ -298,7 +298,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                         "Brand",
                         6,
                         0.0,
-                        "TEST_CALC_V4",
+                        "V11_GEO_PURE",
                         List.of(),
                         insights,
                         50.0);
