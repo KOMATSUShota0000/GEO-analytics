@@ -514,7 +514,7 @@ export function JobAnalysisPage(): JSX.Element {
                     <th className="px-3 py-2 font-semibold text-slate-700">SoM</th>
                     <th className="px-3 py-2 font-semibold text-slate-700">overall</th>
                     <th className="px-3 py-2 font-semibold text-slate-700">言及</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">順位</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">GEO可視性ランク</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -690,7 +690,7 @@ export function JobAnalysisPage(): JSX.Element {
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
                   <th className="min-w-[12rem] px-4 py-3 font-semibold text-slate-700">戦略診断・推奨</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GEO可視性ランク</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
                 </tr>
               </thead>

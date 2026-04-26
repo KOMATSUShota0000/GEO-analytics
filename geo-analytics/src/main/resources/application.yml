@@ -71,6 +71,7 @@ app:
     deepseek:
       api-key: "${DEEPSEEK_API_KEY:}"
       base-url: "https://api.deepseek.com"
+  # AI Overview (GEO) 計測プロバイダ設定（キー名は維持）
   serpapi:
     api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
   pdf:

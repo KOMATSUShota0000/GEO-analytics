@@ -410,7 +410,7 @@ export default function ReportPrintPage(): JSX.Element {
                               </p>
                               <p className="mt-2 text-xs text-slate-600">
                                 解析日 {formatAuditDate(row.auditDate)} / 言及
-                                {row.brandMentioned ? "あり" : "なし"} / 順位{" "}
+                                {row.brandMentioned ? "あり" : "なし"} / GEO可視性ランク{" "}
                                 {row.mentionRank === null ? "—" : String(row.mentionRank)}
                               </p>
                               {row.diagnosticMessage != null && row.diagnosticMessage.trim().length > 0 ? (

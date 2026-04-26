@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 const MESSAGES = [
   "AIがウェブサイトを調査しています...",
-  "ブランドの露出度を計測中...",
+  "GEO可視性を計測中...",
   "ユーザーのアテンションをシミュレーション中...",
   "SoMスコアを数理モデルで算出しています...",
 ] as const;

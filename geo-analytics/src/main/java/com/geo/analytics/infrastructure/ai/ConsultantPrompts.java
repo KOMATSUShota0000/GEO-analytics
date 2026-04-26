@@ -36,7 +36,7 @@ public final class ConsultantPrompts {
 
 ■ true（上記 false のいずれにも該当しない場合のみ true）
 ・対象ブランド（またはそのシリーズ・モデル・派生製品名）が、説明・評価・推奨・比較・価格・特徴などの対象として文脈に組み込まれている。
-・比較対象・ランキング・おすすめの一員として、ブランドが話の筋に沿って登場している。
+・AI回答内での優先列挙・比較リストの一員として、ブランドが話の筋に沿って登場している。
 """;
 
     private static String formatBrandForPrompt(String evaluatedBrandName) {
@@ -46,13 +46,13 @@ public final class ConsultantPrompts {
         return evaluatedBrandName.replace("%", "%%");
     }
 
-    /** SGE / 抽出テキスト / 構造化ハンドオフ（自然文・JSONを材料とするが順位は文中の明示リスト基準）。 */
+    /** AI Overview / 抽出テキスト / 構造化ハンドオフ（自然文・JSONを材料とするが引用順序は文中の明示リスト基準）。 */
     private static final String GBVS_INTRO_PLAIN =
-            "Based on the provided extracted text, ";
+            "Based on the provided extracted text from an AI-generated answer, ";
 
-    /** SerpAPI RAG: 行ごとに数値 rank を持つ検索結果JSON。 */
+    /** AI Overview RAG: 行ごとに数値 rank を持つ AI 引用エビデンスJSON。 */
     private static final String GBVS_INTRO_SERP =
-            "Based on the 【検索結果データ】 JSON array in the user message (organic search results where each object includes a numeric `rank` field; smaller rank = higher on the SERP), ";
+            "Based on the 【GEO可視性エビデンス（1〜100）】 newline-delimited JSON objects in the user message (AI citation evidence proxying what an AI Overview may cite; each object includes a numeric `rank` field; smaller rank = stronger citation priority within this evidence bundle), ";
 
     private static final String GBVS_TASK_BLOCK =
             """
@@ -63,13 +63,13 @@ public final class ConsultantPrompts {
             "token_count as the total character count of passages that substantively mention or discuss the target brand (0 if none); rank_position: interpret the material as natural-language prose (for example an AI-generated answer). Use 1 if the evaluated brand appears first among brands or named entities in an explicit ranked or numbered preference list stated in that prose, then increment for later positions; use 0 if there is no such list or the brand does not appear in it";
 
     private static final String GBVS_TOKEN_RANK_SERP =
-            "token_count as the total character count of text in titles and snippets within the search-result evidence that substantively mention the target brand (0 if none); rank_position: examine only the structured search-result objects in that JSON. Each object has a numeric field `rank` (1 = top organic position). Output the smallest `rank` among objects whose title or snippet clearly mentions or recommends the evaluated brand. Output 0 only if no object mentions the brand. Do not infer position from narrative order or prior knowledge—use the JSON `rank` field as the only source of organic position";
+            "token_count as the total character count of text in titles and snippets within the AI citation evidence that substantively mention the target brand (0 if none); rank_position: examine only the structured AI citation evidence objects in that JSON. Each object has a numeric field `rank` (1 = highest citation priority within this evidence bundle). Output the smallest `rank` among objects whose title or snippet clearly mentions or recommends the evaluated brand. Output 0 only if no object mentions the brand. Do not infer position from narrative order or prior knowledge—use the JSON `rank` field as the only source of citation-priority position";
 
     private static final String GBVS_CLOSE_PLAIN =
             "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form of the evaluated brand as it appears in your answer text, or an empty string if it does not appear. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations.";
 
     private static final String GBVS_CLOSE_SERP =
-            "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form as it appears in a relevant search-result title or snippet when present; otherwise use the form in your response field, or an empty string if the brand is absent from the evidence. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations.";
+            "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form as it appears in a relevant AI citation evidence title or snippet when present; otherwise use the form in your response field, or an empty string if the brand is absent from the evidence. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations.";
 
     private static String gbvsSystemText(
             SubscriptionPlan subscriptionPlan,
@@ -78,7 +78,7 @@ public final class ConsultantPrompts {
             String tokenRankBlock,
             String closeBlock) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("You are a professional SEO and GEO consultant. ");
+        stringBuilder.append("You are an authority GEO (Generative Engine Optimization) consultant specializing exclusively in winning citations and brand presence inside AI-generated answers (e.g. AI Overviews). You do not optimize traditional search rankings; you optimize how brands are surfaced and recommended by generative engines. ");
         stringBuilder.append(evidenceIntro);
         stringBuilder.append(GBVS_TASK_BLOCK);
         stringBuilder.append(tokenRankBlock);
@@ -112,11 +112,11 @@ public final class ConsultantPrompts {
     }
 
     private static final String SERP_RAG_ANALYST_RULE_JA = """
-        あなたは検索市場の分析官です。**必ず提供された【検索結果データ（1〜100位）】のみを事実として使用し**、事前知識で補完しないでください。各検索結果オブジェクトの **`rank` フィールド** をオーガニック順位の正とし、対象ブランドが明確に言及・推奨されている行のうち **`rank` が最も小さい整数** を `rank_position` に出力してください（いずれの行にも言及がなければ 0）。タイトル・スニペットと `rank` 以外から順位を推測しないでください。それに基づいて指定のJSONフォーマットでスコアを返答してください。
+        あなたはGEO（生成エンジン最適化）専業の分析官です。**必ず提供された【GEO可視性エビデンス（1〜100）】のみを事実として使用し**、事前知識で補完しないでください。各エビデンスオブジェクトの **`rank` フィールド** を当該エビデンス束内における引用優先度の正（AI Overviewが優先的に引用しうる順序のプロキシ）とし、対象ブランドが明確に言及・推奨されている行のうち **`rank` が最も小さい整数** を `rank_position` に出力してください（いずれの行にも言及がなければ 0）。タイトル・スニペットと `rank` 以外から引用順序を推測しないでください。それに基づいて指定のJSONフォーマットでスコアを返答してください。
         """;
 
     /**
-     * SerpAPI 由来のハイブリッド検索結果ブロック付きユーザメッセージ。
+     * AI Overview RAG エビデンスブロック付きユーザメッセージ。
      */
     public static String userTextBrandQueryWithSerpRag(String brandName, String userQuery, String hybridSerpBlock) {
         return """
@@ -125,7 +125,7 @@ public final class ConsultantPrompts {
 
             %s
 
-            Using only the evidence in the 【検索結果データ（1〜100位）】 block above, complete the JSON output required by the system message. Do not invent URLs, ranks, or snippets not present in that block. For rank_position, use only the numeric `rank` field from those JSON objects (minimum rank among rows where the brand appears in title or snippet); do not treat narrative text order as SERP rank.
+            Using only the evidence in the 【GEO可視性エビデンス（1〜100）】 block above, complete the JSON output required by the system message. Do not invent URLs, ranks, or snippets not present in that block. For rank_position, use only the numeric `rank` field from those JSON objects (minimum rank among rows where the brand appears in title or snippet); do not treat narrative text order as citation-priority rank.
             """.formatted(brandName, userQuery, hybridSerpBlock != null ? hybridSerpBlock : "");
     }
 
@@ -138,14 +138,14 @@ public final class ConsultantPrompts {
     public static String buildKeywordSuggestionPrompt(List<String> registeredKeywords) {
         var dedupBlock = formatRegisteredKeywordsBlock(registeredKeywords);
         return """
-            あなたは一流のSEO/GEOコンサルタントです。参照年は2026年とし、Google SGEやAI Overviewsで引用されやすいキーワードのみを提案してください。\
+            あなたは一流のGEO（Generative Engine Optimization：生成AI回答最適化）専業コンサルタントです。参照年は2026年とし、AI Overviewsを始めとする生成AI回答で引用されやすいキーワードのみを提案してください。\
             情報探索系（Informational）への強制ピボット:各カテゴリの過半数以上のキーワードを「〇〇とは」「〇〇の仕組み」「〇〇の意味」「〇〇 解説」「〇〇 方法」「〇〇 手順」「〇〇 違い」「〇〇 比較」「〇〇 とは わかりやすく」など、定義・仕組み・How-to・比較・意味説明の意図が明確な語形へ変換した表現にしてください。単純な指名や短い名詞だけの語は避け、上記パターンを付与した形を優先してください。\
-            シソーラス・季節性展開:略語は必ず展開し、例:スマホ→スマートフォン、DX→デジタルトランスフォーメーション、AI→人工知能、SaaS→クラウドサービス、UI/UX、SEO/GEO、BtoB/B2B。2026年・2026年度を文脈に含む語、春・夏・秋・冬・年度初め・決算期・ボーナス時期・新年度・キャンペーン期など季節・イベントと整合する語を文脈が合う場合に織り込んでください。\
+            シソーラス・季節性展開:略語は必ず展開し、例:スマホ→スマートフォン、DX→デジタルトランスフォーメーション、AI→人工知能、SaaS→クラウドサービス、UI/UX、GEO、BtoB/B2B。2026年・2026年度を文脈に含む語、春・夏・秋・冬・年度初め・決算期・ボーナス時期・新年度・キャンペーン期など季節・イベントと整合する語を文脈が合う場合に織り込んでください。\
             重複排除:以下に列挙する既登録キーワードと同一・表記ゆれ・部分一致で重なる語、および意味が実質同一の語は一切出力に含めないでください。類義・重言も避けてください。\
             既登録キーワード一覧:
             %s
             カテゴリは次の4つのみ厳守し、category_nameはそれぞれ「比較・検討」「悩み・課題解決」「業界・一般」「潜在層」と完全一致させてください。\
-            各カテゴリのキーワードは10〜15件（合計おおよそ40〜60件）に抑え、重複を避け、具体的で検索ボリュームが見込める語句に厳選してください。\
+            各カテゴリのキーワードは10〜15件（合計おおよそ40〜60件）に抑え、重複を避け、具体的で引用インパクト（想定言及・再出現のしやすさ）が見込める語句に厳選してください。\
             説明文やマークダウンは出力せず、指定スキーマのJSONオブジェクトのみを返してください。"""
             .formatted(dedupBlock);
     }

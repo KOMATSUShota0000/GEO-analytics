@@ -16,7 +16,7 @@ public final class StrategyInsightService {
     private static final String MSG_DOMINATOR =
         "【市場の支配者】貴社のGBVSスコアは市場の中央値から+2σ以上という極めて特異な水準に達しています。現在のAIモデル群は、該当トピックに関して貴社を『絶対的な情報源(Absolute Authority)』として認識しており、Generative Engine内でのSoM(モデル占有率)は極めて強固です。現在のオウンドメディア資産と外部からのサイテーション戦略を維持し、次世代モデルの学習データセットにおいても先行優位性を保つための保守戦略へ移行してください。";
     private static final String MSG_STRONG =
-        "【有力な選択肢】貴社のGBVSスコアは市場の平均を優に上回っており(+0.5σ〜)、AIの回答生成において高い確率で上位言及を獲得しています。RBP(順位減衰)スコアの評価をさらに最大化するためには、文脈の専門性をさらに高め、AIが長文の回答における『第一段落』で貴社を引用するような、より権威的な一次情報の構築にフォーカスしてください。";
+        "【有力な選択肢】貴社のGBVSスコアは市場の平均を優に上回っており(+0.5σ〜)、AIの回答生成において高い確率で上位言及を獲得しています。VLP(可視性対数減衰)スコアの評価をさらに最大化するためには、文脈の専門性をさらに高め、AIが長文の回答における『第一段落』で貴社を引用するような、より権威的な一次情報の構築にフォーカスしてください。";
     private static final String MSG_REDOCEAN =
         "【競争の境界線】貴社の可視性は市場の中央値付近(±1σ以内)に密集しており、統計的に最も層の厚いレッドオーシャンに位置しています。AIは貴社の存在を認知してはいるものの、競合他社との有意な差別化要因を抽出できていません。Modified BM25における『密度(Length)』評価を高めるため、自社独自のデータセットやユースケースの公開を強化してください。";
     private static final String MSG_BLINDSPOT =
@@ -150,7 +150,7 @@ public final class StrategyInsightService {
             + String.format(Locale.ROOT, "%.2f", z)
             + "\n当該Stage: "
             + st
-            + "\n言及順位相当: "
+            + "\n推定GEO可視性ランク: "
             + rk
             + "\nブランド出現回数: "
             + noun

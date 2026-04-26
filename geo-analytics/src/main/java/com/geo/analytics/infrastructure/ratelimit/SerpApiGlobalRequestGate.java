@@ -14,7 +14,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Semaphore;
 
 /**
- * Global SerpApi throughput: shared bucket (≈2 req/s) plus in-flight cap to protect carrier threads.
+ * Global throughput limit for AI visibility (AIO) provider calls: shared bucket (≈2 req/s)
+ * plus in-flight cap to protect carrier threads.
  */
 @Component
 public final class SerpApiGlobalRequestGate {

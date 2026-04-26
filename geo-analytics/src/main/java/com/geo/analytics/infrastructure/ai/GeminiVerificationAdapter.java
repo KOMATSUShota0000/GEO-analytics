@@ -120,7 +120,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     true);
             }
             log.warn(
-                    "GBVS verification falling back to prompt without Serp RAG (API key missing or Serp fetch failed) brand=\"{}\" query=\"{}\"",
+                    "GBVS verification falling back to prompt without AI Overview RAG evidence (API key missing or AI visibility fetch failed) brand=\"{}\" query=\"{}\"",
                     verificationRequest.brandName(),
                     verificationRequest.query());
             return new PreparedHandoff(

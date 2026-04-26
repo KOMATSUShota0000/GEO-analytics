@@ -89,12 +89,12 @@ public class KeywordRoutingService {
     private static Routed route(String categoryName) {
         String c = categoryName != null ? categoryName.strip() : "";
         if ("比較・検討".equals(c) || "悩み・課題解決".equals(c)) {
-            return new Routed(AnalysisPriority.HIGH, PreferredEngine.SERP_API);
+            return new Routed(AnalysisPriority.HIGH, PreferredEngine.AI_OVERVIEW);
         }
         if ("業界・一般".equals(c) || "潜在層".equals(c)) {
-            return new Routed(AnalysisPriority.NORMAL, PreferredEngine.GEMINI_BATCH);
+            return new Routed(AnalysisPriority.NORMAL, PreferredEngine.AI_OVERVIEW);
         }
-        return new Routed(AnalysisPriority.NORMAL, PreferredEngine.GEMINI_BATCH);
+        return new Routed(AnalysisPriority.NORMAL, PreferredEngine.AI_OVERVIEW);
     }
 
     private record Routed(AnalysisPriority analysisPriority, PreferredEngine preferredEngine) {

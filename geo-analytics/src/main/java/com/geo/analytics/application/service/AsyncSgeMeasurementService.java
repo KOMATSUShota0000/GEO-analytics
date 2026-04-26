@@ -65,13 +65,13 @@ public class AsyncSgeMeasurementService {
         Objects.requireNonNull(job, "job");
         UUID jobId = job.getId();
         List<QueryEntity> queryList = Objects.requireNonNull(queries, "queries");
-        log.info("SGE measurement started jobId={} queryCount={}", jobId, queryList.size());
+        log.info("AI Overview measurement started jobId={} queryCount={}", jobId, queryList.size());
         try {
             if (serpApiKey.isBlank()) {
-                throw new IllegalStateException("SerpApi API key is not configured");
+                throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
             }
             if (queryList.isEmpty()) {
-                throw new IllegalStateException("No queries for SGE measurement");
+                throw new IllegalStateException("No queries for AI Overview measurement");
             }
             String brandName = job.getBrandName();
             List<StructuredTaskScope.Subtask<SgeMentionResult>> subtasks = new ArrayList<>(queryList.size());
@@ -121,7 +121,7 @@ public class AsyncSgeMeasurementService {
         }
         String trace = ExceptionStackTraceText.of(throwable);
         batchPersistence.updateJobStatus(jobId, JobStatus.FAILED, trace);
-        log.error("SGE measurement failed jobId={}", jobId, throwable);
+        log.error("AI Overview measurement failed jobId={}", jobId, throwable);
         jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobId));
     }
 }

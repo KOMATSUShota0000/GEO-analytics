@@ -6,7 +6,7 @@ public class SerpApiHttpException extends RuntimeException {
 
     public SerpApiHttpException(int statusCode, String statusText, String errorResponseBody, Throwable cause) {
         super(
-            "SerpApi HTTP " + statusCode + " " + statusText + " errorBody=" + errorResponseBody,
+            "AI visibility provider HTTP " + statusCode + " " + statusText + " errorBody=" + errorResponseBody,
             cause);
         this.statusCode = statusCode;
         this.errorResponseBody = errorResponseBody;

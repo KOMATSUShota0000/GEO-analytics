@@ -14,15 +14,15 @@ import java.util.Map;
 
 public final class ConsultantOutputSchema {
     public static final String BRAND_MENTIONED_SCHEMA_DESCRIPTION =
-        "対象ブランドが実質的に言及されているかを示すboolean。判定基準はシステムプロンプトの指示に厳密に従うこと。";
+        "対象ブランドがAI生成回答内で実質的に言及・推奨・優先列挙されているかを示すboolean。判定基準はシステムプロンプトのGEO文脈ルールに厳密に従うこと。";
 
-    /** SGE・抽出テキスト・構造化ハンドオフ（文中の明示的なランキング）。 */
+    /** AI Overview / 抽出テキスト / 構造化ハンドオフ（生成回答プローズ内の明示的な優先列挙）。 */
     public static final String RANK_POSITION_SCHEMA_DESC_PLAIN =
-            "Natural-language or AI-answer evidence: 1 if the brand is first in an explicit ranked list in the prose, then 2, 3, …; 0 if there is no such list or the brand is not ranked.";
+            "AI-generated answer evidence (GEO): 1 if the brand appears first in an explicit ranked or preference list inside the AI answer prose, then 2, 3, …; 0 if there is no such list or the brand is not listed.";
 
-    /** SerpAPI RAG（検索結果JSONの rank フィールド）。 */
+    /** AI Overview RAG エビデンス束における引用優先度プロキシ（rank フィールド）。 */
     public static final String RANK_POSITION_SCHEMA_DESC_SERP =
-            "SERP JSON in the user message: the minimum numeric `rank` among search-result objects whose title or snippet clearly mentions the brand; 0 if no row mentions the brand.";
+            "AI Overview citation evidence JSON in the user message: the minimum numeric `rank` among evidence objects whose title or snippet clearly mentions the brand. `rank` represents citation-priority within this evidence bundle (a GEO proxy for how likely an AI Overview is to cite that source first), not a traditional search ranking. 0 if no row mentions the brand.";
 
     private ConsultantOutputSchema() {
     }

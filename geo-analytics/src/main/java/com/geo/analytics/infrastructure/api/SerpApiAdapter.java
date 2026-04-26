@@ -51,12 +51,12 @@ public class SerpApiAdapter implements SgeMeasurementPort {
      */
     public SerpRagBundle fetchRagSearchData(String brandName, String userKeyword) {
         if (serpApiKey.isBlank()) {
-            log.warn("SerpApi RAG skipped: API key not configured brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
+            log.warn("AI Overview RAG evidence skipped: AI visibility provider API key not configured brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
             return new SerpRagBundle("", false);
         }
         String searchQuery = SerpSearchQueryBuilder.build(brandName, userKeyword);
         if (searchQuery.isBlank()) {
-            log.warn("SerpApi RAG skipped: empty search query brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
+            log.warn("AI Overview RAG evidence skipped: empty search query brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
             return new SerpRagBundle("", false);
         }
         URI uri = buildSerpUri(searchQuery, RAG_MAX_ORGANIC);
@@ -68,7 +68,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
                 .body(String.class);
         } catch (RestClientResponseException restClientResponseException) {
             log.warn(
-                    "SerpApi RAG HTTP error status={} searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI visibility provider HTTP error during AI Overview RAG evidence fetch status={} searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     restClientResponseException.getStatusCode().value(),
                     searchQuery,
                     brandName,
@@ -76,7 +76,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
             return new SerpRagBundle("", false);
         } catch (Exception e) {
             log.warn(
-                    "SerpApi RAG request failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI Overview RAG evidence request failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     userKeyword,
@@ -85,7 +85,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         }
         if (body == null || body.isBlank()) {
             log.warn(
-                    "SerpApi RAG empty body searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI Overview RAG evidence empty body searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     userKeyword);
@@ -95,7 +95,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
             JsonNode root = objectMapper.readTree(body);
             int organicCount = countOrganicResults(root);
             log.info(
-                    "SerpApi RAG retrieved organic_results={} (requested up to {}) searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI Overview RAG retrieved AI visibility evidence (organic_results)={} (requested up to {}) searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     organicCount,
                     RAG_MAX_ORGANIC,
                     searchQuery,
@@ -103,7 +103,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
                     userKeyword);
             if (organicCount == 0) {
                 log.warn(
-                        "SerpApi RAG zero organic_results searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                        "AI Overview RAG zero AI visibility evidence (organic_results) searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                         searchQuery,
                         brandName,
                         userKeyword);
@@ -112,7 +112,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
             return new SerpRagBundle(formatted, true);
         } catch (JsonProcessingException jsonProcessingException) {
             log.warn(
-                    "SerpApi RAG JSON parse failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI Overview RAG JSON parse failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     userKeyword,
@@ -139,12 +139,12 @@ public class SerpApiAdapter implements SgeMeasurementPort {
     @Override
     public SgeMentionResult checkSgeMention(String query, String brandName) {
         if (serpApiKey.isBlank()) {
-            throw new IllegalStateException("SerpApi API key is not configured");
+            throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
         }
         String searchQuery = SerpSearchQueryBuilder.build(brandName, query);
         if (searchQuery.isBlank()) {
-            log.warn("SerpApi skipped empty search query after build brand=\"{}\" userKeyword=\"{}\"", brandName, query);
-            throw new IllegalArgumentException("SerpApi search query must not be blank");
+            log.warn("AI visibility request skipped: empty query after build brand=\"{}\" userKeyword=\"{}\"", brandName, query);
+            throw new IllegalArgumentException("AI visibility query must not be blank");
         }
         URI uri = buildSerpUri(searchQuery, null);
         String body;
@@ -159,7 +159,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
                 errorBody = "";
             }
             log.warn(
-                    "SerpApi HTTP error status={} searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI visibility provider HTTP error status={} searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     restClientResponseException.getStatusCode().value(),
                     searchQuery,
                     brandName,
@@ -172,18 +172,18 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         }
         if (body == null || body.isBlank()) {
             log.warn(
-                    "SerpApi returned empty body searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI visibility provider returned empty body searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     query);
-            throw new IllegalStateException("SerpApi returned empty body");
+            throw new IllegalStateException("AI visibility provider returned empty body");
         }
         JsonNode root;
         try {
             root = objectMapper.readTree(body);
         } catch (JsonProcessingException jsonProcessingException) {
             log.warn(
-                    "SerpApi JSON parse failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI visibility provider JSON parse failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     query,
@@ -192,14 +192,14 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         }
         int organicCount = countOrganicResults(root);
         log.info(
-                "SerpApi found {} organic_results snippets for searchQuery=\"{}\" (brand=\"{}\", userKeyword=\"{}\")",
+                "Measuring AI visibility: found {} AI visibility evidence (organic_results) snippets for searchQuery=\"{}\" (brand=\"{}\", userKeyword=\"{}\")",
                 organicCount,
                 searchQuery,
                 brandName,
                 query);
         if (organicCount == 0) {
             log.warn(
-                    "SerpApi returned zero organic_results (no SERP snippets). searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
+                    "AI visibility provider returned zero AI visibility evidence (organic_results) (no AI Overview snippets). searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
                     searchQuery,
                     brandName,
                     query);
@@ -207,7 +207,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         SerpApiResponse response = objectMapper.convertValue(root, SerpApiResponse.class);
         if (!hasMinimalSerpStructure(response)) {
             log.warn(
-                    "SerpApi response lacks usable blocks (organic/ai_overview/answer_box/related). searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\" organic_results={}",
+                    "AI visibility provider response lacks usable blocks (organic/ai_overview/answer_box/related). searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\" organic_results={}",
                     searchQuery,
                     brandName,
                     query,

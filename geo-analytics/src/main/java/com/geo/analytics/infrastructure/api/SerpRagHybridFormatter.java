@@ -7,7 +7,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.lang.StrictMath;
 
 /**
- * Compresses SerpAPI {@code organic_results} for LLM RAG: ranks 1–20 include snippet; 21–100 title+url only.
+ * Compresses AI visibility provider {@code organic_results} into GEO citation evidence for LLM RAG:
+ * ranks 1–20 include snippet; 21–100 title+url only.
  */
 public final class SerpRagHybridFormatter {
 
@@ -23,14 +24,14 @@ public final class SerpRagHybridFormatter {
      */
     public static String format(JsonNode root) {
         if (root == null || root.isNull()) {
-            return "【検索結果データ（1〜100位）】\n（パース不能: ルートが空）\n";
+            return "【GEO可視性エビデンス（1〜100）】\n（引用エビデンス: パース不能）\n";
         }
         JsonNode organic = root.get("organic_results");
         if (organic == null || !organic.isArray() || organic.isEmpty()) {
-            return "【検索結果データ（1〜100位）】\n（SerpAPI organic_results: 0件）\n";
+            return "【GEO可視性エビデンス（1〜100）】\n（引用エビデンス: 0件）\n";
         }
         StringBuilder sb = new StringBuilder(organic.size() * 120);
-        sb.append("【検索結果データ（1〜100位）】\n");
+        sb.append("【GEO可視性エビデンス（1〜100）】\n");
         int n = StrictMath.min(MAX_ROWS, organic.size());
         for (int i = 0; i < n; i++) {
             JsonNode o = organic.get(i);

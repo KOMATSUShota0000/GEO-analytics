@@ -28,7 +28,7 @@ const COMPETITIVE:SomTierInfo={
   subtitle:"競争力あり",
   accentClass:"bg-indigo-100 text-indigo-800 border-indigo-300",
   ringClass:"text-indigo-500",
-  advice:"主要な選択肢として認知されています。さらなる露出拡大には、独自の調査レポートや専門的な解説記事の公開が有効です。国内のビジネスメディアや業界特化型ニュースサイトにおいて、AIが引用しやすい『権威ある一次情報』としてのノードを増やしましょう。",
+  advice:"主要な選択肢として認知されています。さらなるAI引用の獲得（GEO可視化）には、独自の調査レポートや専門的な解説記事の公開が有効です。国内のビジネスメディアや業界特化型ニュースサイトにおいて、AIが引用しやすい『権威ある一次情報』としてのノードを増やしましょう。",
   minInclusive:16,
   maxInclusive:30,
 };

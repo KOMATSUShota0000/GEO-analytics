@@ -182,6 +182,7 @@ public class AppProperties {
         }
     }
 
+    /** AI Overview / GEO可視性計測向けプロバイダ設定（{@code app.serpapi.*} にバインド）。 */
     public static class Serpapi {
         private String apiKey;
 

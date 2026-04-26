@@ -154,7 +154,7 @@ export function KeywordSuggestionWizard({
           </div>
           <div>
             <h2 className="text-sm font-semibold tracking-tight text-slate-900">AIキーワード提案</h2>
-            <p className="text-xs text-slate-500">サイトとターゲットから、SGE向け候補を生成します</p>
+            <p className="text-xs text-slate-500">サイトとターゲットから、AI Overview（GEO）向けの候補を生成します</p>
           </div>
         </div>
       </div>
