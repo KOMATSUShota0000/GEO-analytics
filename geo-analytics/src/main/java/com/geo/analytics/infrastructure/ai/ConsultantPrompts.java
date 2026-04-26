@@ -50,10 +50,6 @@ public final class ConsultantPrompts {
     private static final String GBVS_INTRO_PLAIN =
             "Based on the provided extracted text from an AI-generated answer, ";
 
-    /** AI Overview RAG: 行ごとに数値 rank を持つ AI 引用エビデンスJSON。 */
-    private static final String GBVS_INTRO_SERP =
-            "Based on the 【GEO可視性エビデンス（1〜100）】 newline-delimited JSON objects in the user message (AI citation evidence proxying what an AI Overview may cite; each object includes a numeric `rank` field; smaller rank = stronger citation priority within this evidence bundle), ";
-
     private static final String GBVS_TASK_BLOCK =
             """
             produce prioritized remediation tasks in rank order S (critical), A (high), B (medium). Each task must use rank S, A, or B only, with a concise title and an HTML description. In all HTML tags, use single quotes (') for attribute values (e.g. class='x') so the output remains valid inside JSON strings. Do not assign subjective scores or overall ratings. Objectively measure and report only three numeric fields: \
@@ -62,14 +58,8 @@ public final class ConsultantPrompts {
     private static final String GBVS_TOKEN_RANK_PLAIN =
             "token_count as the total character count of passages that substantively mention or discuss the target brand (0 if none); ai_citation_position: interpret the material as natural-language prose (for example an AI-generated answer). Use 1 if the evaluated brand appears first among brands or named entities in an explicit ranked or numbered preference list stated in that prose, then increment for later positions; use 0 if there is no such list or the brand does not appear in it";
 
-    private static final String GBVS_TOKEN_RANK_SERP =
-            "token_count as the total character count of text in titles and snippets within the AI citation evidence that substantively mention the target brand (0 if none); ai_citation_position: examine only the structured AI citation evidence objects in that JSON. Each object has a numeric field `rank` (1 = highest citation priority within this evidence bundle). Output the smallest `rank` among objects whose title or snippet clearly mentions or recommends the evaluated brand. Output 0 only if no object mentions the brand. Do not infer position from narrative order or prior knowledge—use the JSON `rank` field as the only source of citation-priority position";
-
     private static final String GBVS_CLOSE_PLAIN =
             "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form of the evaluated brand as it appears in your answer text, or an empty string if it does not appear. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations.";
-
-    private static final String GBVS_CLOSE_SERP =
-            "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form as it appears in a relevant AI citation evidence title or snippet when present; otherwise use the form in your response field, or an empty string if the brand is absent from the evidence. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations.";
 
     private static String gbvsSystemText(
             SubscriptionPlan subscriptionPlan,
@@ -109,30 +99,6 @@ public final class ConsultantPrompts {
             User query: %s
             Assess brand visibility for this query with the information given.
             """.formatted(brandName, userQuery);
-    }
-
-    private static final String SERP_RAG_ANALYST_RULE_JA = """
-        あなたはGEO（生成エンジン最適化）専業の分析官です。**必ず提供された【GEO可視性エビデンス（1〜100）】のみを事実として使用し**、事前知識で補完しないでください。各エビデンスオブジェクトの **`rank` フィールド** を当該エビデンス束内における引用優先度の正（AI Overviewが優先的に引用しうる順序のプロキシ）とし、対象ブランドが明確に言及・推奨されている行のうち **`rank` が最も小さい整数** を `ai_citation_position` に出力してください（いずれの行にも言及がなければ 0）。タイトル・スニペットと `rank` 以外から引用順序を推測しないでください。それに基づいて指定のJSONフォーマットでスコアを返答してください。
-        """;
-
-    /**
-     * AI Overview RAG エビデンスブロック付きユーザメッセージ。
-     */
-    public static String userTextBrandQueryWithSerpRag(String brandName, String userQuery, String hybridSerpBlock) {
-        return """
-            Brand under evaluation: %s
-            User query: %s
-
-            %s
-
-            Using only the evidence in the 【GEO可視性エビデンス（1〜100）】 block above, complete the JSON output required by the system message. Do not invent URLs, ranks, or snippets not present in that block. For ai_citation_position, use only the numeric `rank` field from those JSON objects (minimum rank among rows where the brand appears in title or snippet); do not treat narrative text order as citation-priority rank.
-            """.formatted(brandName, userQuery, hybridSerpBlock != null ? hybridSerpBlock : "");
-    }
-
-    public static String systemTextGbvsSerpRag(SubscriptionPlan subscriptionPlan, String evaluatedBrandName) {
-        return gbvsSystemText(subscriptionPlan, evaluatedBrandName, GBVS_INTRO_SERP, GBVS_TOKEN_RANK_SERP, GBVS_CLOSE_SERP)
-                + "\n\n"
-                + SERP_RAG_ANALYST_RULE_JA;
     }
 
     public static String buildKeywordSuggestionPrompt(List<String> registeredKeywords) {

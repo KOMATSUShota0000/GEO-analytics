@@ -104,28 +104,17 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         return subscriptionPlan.usesProTierFeatures() ? geminiStreamingPro : geminiStreamingStandard;
     }
 
-    private record PreparedHandoff(String userMessage, boolean structured, boolean serpRagGrounded) {}
+    private record PreparedHandoff(String userMessage, boolean structured) {}
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
         var crawled = verificationRequest.crawledContent();
         if (crawled == null || crawled.isBlank()) {
-            var rag = serpApiAdapter.fetchRagSearchData(verificationRequest.brandName(), verificationRequest.query());
-            if (rag.useSerpRagSystemPrompt()) {
-                return new PreparedHandoff(
-                    ConsultantPrompts.userTextBrandQueryWithSerpRag(
-                        verificationRequest.brandName(),
-                        verificationRequest.query(),
-                        rag.formattedBlock()),
-                    false,
-                    true);
-            }
             log.warn(
-                    "GBVS verification falling back to prompt without AI Overview RAG evidence (API key missing or AI visibility fetch failed) brand=\"{}\" query=\"{}\"",
+                    "Crawl data is empty/blank. Falling back to internal knowledge mode. brand=\"{}\" query=\"{}\"",
                     verificationRequest.brandName(),
                     verificationRequest.query());
             return new PreparedHandoff(
                 ConsultantPrompts.userTextBrandQueryOnly(verificationRequest.brandName(), verificationRequest.query()),
-                false,
                 false);
         }
         try {
@@ -141,8 +130,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     verificationRequest.query(),
                     canonical,
                     trust),
-                true,
-                false);
+                true);
         } catch (StructuredExtractValidationException e) {
             log.error("structured_extract_validation_failed detail={}", e.getMessage());
             throw e;
@@ -169,8 +157,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         String system;
         if (handoff.structured()) {
             system = ConsultantPrompts.systemTextGbvsStructured(plan, brandLabel);
-        } else if (handoff.serpRagGrounded()) {
-            system = ConsultantPrompts.systemTextGbvsSerpRag(plan, brandLabel);
         } else {
             system = ConsultantPrompts.systemText(plan, brandLabel);
         }
@@ -224,7 +210,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             logGeminiPrompt(verificationRequest, plan, messages);
             String rawAiResponseJson = geminiGbvsChatModel.chat(ChatRequest.builder()
                 .messages(messages)
-                .responseFormat(ConsultantOutputSchema.responseFormat(plan, handoff.serpRagGrounded()))
+                .responseFormat(ConsultantOutputSchema.responseFormat(plan))
                 .build()).aiMessage().text();
             logGeminiResponse(verificationRequest, rawAiResponseJson);
             return buildVerificationResponse(rawAiResponseJson, plan, verificationRequest);

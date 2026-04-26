@@ -20,23 +20,15 @@ public final class ConsultantOutputSchema {
     public static final String AI_CITATION_POSITION_SCHEMA_DESC_PLAIN =
             "GEO citation-priority proxy from AI-generated answer evidence: 1 if the brand appears first in an explicit ranked or preference list inside the AI answer prose, then 2, 3, …; 0 if there is no such list or the brand is not listed. This is not a search ranking — it is a proxy for how prominently the brand would be cited inside an AI Overview style answer.";
 
-    /** AI Overview RAG エビデンス束における引用優先度プロキシ。 */
-    public static final String AI_CITATION_POSITION_SCHEMA_DESC_SERP =
-            "GEO citation-priority proxy from the AI Overview citation evidence JSON in the user message: the minimum numeric `rank` among evidence objects whose title or snippet clearly mentions the brand. `rank` represents citation-priority within this evidence bundle (a GEO proxy for how likely an AI Overview is to cite that source first), not a traditional search ranking. 0 if no row mentions the brand.";
-
     private ConsultantOutputSchema() {
     }
 
     public static ResponseFormat responseFormat(SubscriptionPlan subscriptionPlan) {
-        return responseFormat(subscriptionPlan, false);
-    }
-
-    public static ResponseFormat responseFormat(SubscriptionPlan subscriptionPlan, boolean serpRagGrounded) {
         return ResponseFormat.builder()
             .type(ResponseFormatType.JSON)
             .jsonSchema(JsonSchema.builder()
                 .name("consultant_output")
-                .rootElement(rootObjectSchema(subscriptionPlan, serpRagGrounded))
+                .rootElement(rootObjectSchema(subscriptionPlan))
                 .build())
             .build();
     }
@@ -118,13 +110,12 @@ public final class ConsultantOutputSchema {
             .build();
     }
 
-    private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan, boolean serpRagGrounded) {
-        String aiCitationPositionDesc = serpRagGrounded ? AI_CITATION_POSITION_SCHEMA_DESC_SERP : AI_CITATION_POSITION_SCHEMA_DESC_PLAIN;
+    private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan) {
         JsonObjectSchema.Builder builder = JsonObjectSchema.builder()
             .addStringProperty("response")
             .addStringProperty("extracted_brand_mention")
             .addIntegerProperty("token_count")
-            .addIntegerProperty("ai_citation_position", aiCitationPositionDesc)
+            .addIntegerProperty("ai_citation_position", AI_CITATION_POSITION_SCHEMA_DESC_PLAIN)
             .addNumberProperty("sentiment_intensity")
             .addBooleanProperty("brand_mentioned", BRAND_MENTIONED_SCHEMA_DESCRIPTION)
             .addProperty(

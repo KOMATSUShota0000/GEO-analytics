@@ -24,9 +24,8 @@ import java.util.Locale;
 public class SerpApiAdapter implements SgeMeasurementPort {
     private static final Logger log = LoggerFactory.getLogger(SerpApiAdapter.class);
     private static final String SERPAPI_SEARCH_URL = "https://serpapi.com/search.json";
-    private static final int RAG_MAX_ORGANIC = 100;
     private static final Duration SERP_CONNECT_TIMEOUT = Duration.ofSeconds(15);
-    /** 100件取得時は応答が大きくなるため読み取りを長めに取る */
+    /** AI Overview 等の AI visibility 応答は JSON が大きくなり得るため読み取りタイムアウトを長めに設定する。 */
     private static final Duration SERP_READ_TIMEOUT = Duration.ofSeconds(90);
 
     private final RestClient restClient;
@@ -44,81 +43,6 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         this.objectMapper = objectMapper;
         String key = appProperties.getSerpapi().getApiKey();
         this.serpApiKey = key != null ? key : "";
-    }
-
-    /**
-     * GBVS 向け RAG: 最大100件のオーガニック結果を取得し、ハイブリッド整形済み文字列を返す。
-     */
-    public SerpRagBundle fetchRagSearchData(String brandName, String userKeyword) {
-        if (serpApiKey.isBlank()) {
-            log.warn("AI Overview RAG evidence skipped: AI visibility provider API key not configured brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
-            return new SerpRagBundle("", false);
-        }
-        String searchQuery = SerpSearchQueryBuilder.build(brandName, userKeyword);
-        if (searchQuery.isBlank()) {
-            log.warn("AI Overview RAG evidence skipped: empty search query brand=\"{}\" keyword=\"{}\"", brandName, userKeyword);
-            return new SerpRagBundle("", false);
-        }
-        URI uri = buildSerpUri(searchQuery, RAG_MAX_ORGANIC);
-        String body;
-        try {
-            body = restClient.get()
-                .uri(uri)
-                .retrieve()
-                .body(String.class);
-        } catch (RestClientResponseException restClientResponseException) {
-            log.warn(
-                    "AI visibility provider HTTP error during AI Overview RAG evidence fetch status={} searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                    restClientResponseException.getStatusCode().value(),
-                    searchQuery,
-                    brandName,
-                    userKeyword);
-            return new SerpRagBundle("", false);
-        } catch (Exception e) {
-            log.warn(
-                    "AI Overview RAG evidence request failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                    searchQuery,
-                    brandName,
-                    userKeyword,
-                    e);
-            return new SerpRagBundle("", false);
-        }
-        if (body == null || body.isBlank()) {
-            log.warn(
-                    "AI Overview RAG evidence empty body searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                    searchQuery,
-                    brandName,
-                    userKeyword);
-            return new SerpRagBundle("", false);
-        }
-        try {
-            JsonNode root = objectMapper.readTree(body);
-            int organicCount = countOrganicResults(root);
-            log.info(
-                    "AI Overview RAG retrieved AI visibility evidence (organic_results)={} (requested up to {}) searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                    organicCount,
-                    RAG_MAX_ORGANIC,
-                    searchQuery,
-                    brandName,
-                    userKeyword);
-            if (organicCount == 0) {
-                log.warn(
-                        "AI Overview RAG zero AI visibility evidence (organic_results) searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                        searchQuery,
-                        brandName,
-                        userKeyword);
-            }
-            String formatted = SerpRagHybridFormatter.format(root);
-            return new SerpRagBundle(formatted, true);
-        } catch (JsonProcessingException jsonProcessingException) {
-            log.warn(
-                    "AI Overview RAG JSON parse failed searchQuery=\"{}\" brand=\"{}\" userKeyword=\"{}\"",
-                    searchQuery,
-                    brandName,
-                    userKeyword,
-                    jsonProcessingException);
-            return new SerpRagBundle("", false);
-        }
     }
 
     private URI buildSerpUri(String searchQuery, Integer num) {
