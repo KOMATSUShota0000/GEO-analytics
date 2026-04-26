@@ -24,7 +24,6 @@ import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,7 +42,6 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class JobPersistenceService {
     public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
-    private final JobPersistenceService self;
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final AuditHistoryRepository auditHistoryRepository;
@@ -54,7 +52,6 @@ public class JobPersistenceService {
     private final StrategyInsightService strategyInsightService;
     private final JsonbOperations jsonbOperations;
     public JobPersistenceService(
-            @Lazy JobPersistenceService self,
             JobRepository jobRepository,
             QueryRepository queryRepository,
             AuditHistoryRepository auditHistoryRepository,
@@ -64,7 +61,6 @@ public class JobPersistenceService {
             @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
             StrategyInsightService strategyInsightService,
             JsonbOperations jsonbOperations) {
-        this.self = self;
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
@@ -283,8 +279,8 @@ public class JobPersistenceService {
     }
 
     /**
-     * プロジェクト解決・冪等検索・{@link #saveJobInNewTransaction} までを同一トランザクション境界で包む。
-     * 内側の {@code REQUIRES_NEW} はコミット境界として維持し、外側で冪等再試行の読み取りを行う。
+     * プロジェクト解決・冪等検索・ジョブ永続化までを同一トランザクションで行う。
+     * 親で INSERT した {@code projects} を子 TX が参照できない {@code REQUIRES_NEW} は使わない。
      */
     @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
@@ -304,7 +300,7 @@ public class JobPersistenceService {
                             () -> {
                                 try {
                                     var created =
-                                            self.saveJobInNewTransaction(
+                                            saveNewJob(
                                                     normalizedBrandName,
                                                     workspaceId,
                                                     projectEntity.getId(),
@@ -325,10 +321,13 @@ public class JobPersistenceService {
                             });
         });
     }
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public JobEntity saveJobInNewTransaction(
-            String brandName, UUID workspaceId, UUID projectId,
-            UUID idempotencyKey, String brandColor, String logoUrl) {
+    private JobEntity saveNewJob(
+            String brandName,
+            UUID workspaceId,
+            UUID projectId,
+            UUID idempotencyKey,
+            String brandColor,
+            String logoUrl) {
         JobEntity jobEntity = new JobEntity();
         jobEntity.setBrandName(brandName);
         jobEntity.setWorkspaceId(workspaceId);
