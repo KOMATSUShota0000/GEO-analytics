@@ -2,13 +2,16 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.command.UpdateProjectContextCommand;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import com.geo.analytics.web.dto.MinorityReportDto;
 import com.geo.analytics.web.dto.ProjectContextResponse;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +51,16 @@ public class ProjectContextService {
                     projectContextTextLimiter.limit(updateProjectContextCommand.extractedStrengths()));
             projectEntity.setTargetAudience(
                     projectContextTextLimiter.limit(updateProjectContextCommand.targetAudience()));
+            List<MinorityReport> limitedMinority =
+                    updateProjectContextCommand.minorityReports().stream()
+                            .map(
+                                    m ->
+                                            new MinorityReport(
+                                                    projectContextTextLimiter.limit(m.insight()),
+                                                    projectContextTextLimiter.limit(m.conflictReason()),
+                                                    projectContextTextLimiter.limit(m.evidence())))
+                            .toList();
+            projectEntity.setMinorityReports(new ArrayList<>(limitedMinority));
             return toContextResponse(projectRepository.save(projectEntity));
         });
     }
@@ -61,8 +74,19 @@ public class ProjectContextService {
             strengths = es.lines().toList();
         }
         String ta = projectEntity.getTargetAudience();
+        List<MinorityReportDto> minorityDtos =
+                projectEntity.getMinorityReports() == null || projectEntity.getMinorityReports().isEmpty()
+                        ? List.of()
+                        : projectEntity.getMinorityReports().stream()
+                                .map(
+                                        m ->
+                                                new MinorityReportDto(
+                                                        m.insight() == null ? "" : m.insight(),
+                                                        m.conflictReason() == null ? "" : m.conflictReason(),
+                                                        m.evidence() == null ? "" : m.evidence()))
+                                .toList();
         return new ProjectContextResponse(
-                projectEntity.getIndustryType(), strengths, ta == null ? "" : ta);
+                projectEntity.getIndustryType(), strengths, ta == null ? "" : ta, minorityDtos);
     }
 
     private Optional<UUID> readWorkspaceId(UUID projectId) {

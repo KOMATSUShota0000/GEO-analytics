@@ -6,5 +6,9 @@ import com.geo.analytics.domain.enums.IndustryType;
 import java.util.List;
 
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-public record ProjectContextResponse(IndustryType industryType, List<String> strengths, String targetAudience) {
+public record ProjectContextResponse(
+        IndustryType industryType,
+        List<String> strengths,
+        String targetAudience,
+        List<MinorityReportDto> minorityReports) {
 }

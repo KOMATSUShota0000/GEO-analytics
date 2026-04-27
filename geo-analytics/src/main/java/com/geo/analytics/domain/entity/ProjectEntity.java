@@ -14,6 +14,9 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.Size;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import com.geo.analytics.domain.model.MinorityReport;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +59,9 @@ public class ProjectEntity extends BaseTenantEntity {
     private String extractedStrengths;
     @Column(name = "target_audience", columnDefinition = "text")
     private String targetAudience;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
+    private List<MinorityReport> minorityReports = new ArrayList<>();
     public ProjectEntity() {
     }
     public UUID getId() {
@@ -148,6 +154,12 @@ public class ProjectEntity extends BaseTenantEntity {
     public void setTargetAudience(String targetAudience) {
         this.targetAudience = targetAudience;
     }
+    public List<MinorityReport> getMinorityReports() {
+        return minorityReports;
+    }
+    public void setMinorityReports(List<MinorityReport> minorityReports) {
+        this.minorityReports = minorityReports != null ? minorityReports : new ArrayList<>();
+    }
     @PrePersist
     protected void onCreate() {
         LocalDateTime now = LocalDateTime.now();
@@ -158,6 +170,9 @@ public class ProjectEntity extends BaseTenantEntity {
         }
         if (industryType == null) {
             industryType = IndustryType.OTHER;
+        }
+        if (minorityReports == null) {
+            minorityReports = new ArrayList<>();
         }
     }
     @PreUpdate

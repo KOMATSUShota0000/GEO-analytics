@@ -2,11 +2,40 @@ import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "./apiFetch"
 
 const EXTRACT_TIMEOUT_MS = 60000;
 
+export type MinorityReportItem = {
+  insight: string;
+  conflictReason: string;
+  evidence: string;
+};
+
 export type ProjectContextData = {
   industryType: string;
   strengths: string[];
   targetAudience: string;
+  minorityReports: MinorityReportItem[];
 };
+
+function asMinorityReportItem(o: unknown): MinorityReportItem {
+  if (o === null || typeof o !== "object") {
+    return { insight: "", conflictReason: "", evidence: "" };
+  }
+  const r = o as Record<string, unknown>;
+  return {
+    insight: typeof r.insight === "string" ? r.insight : "",
+    conflictReason: typeof r.conflictReason === "string" ? r.conflictReason : "",
+    evidence: typeof r.evidence === "string" ? r.evidence : "",
+  };
+}
+
+function asMinorityReports(raw: unknown): MinorityReportItem[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((it) => asMinorityReportItem(it));
+}
 
 function asContextData(raw: unknown): ProjectContextData | null {
   if (raw === null || typeof raw !== "object") return null;
@@ -19,7 +48,12 @@ function asContextData(raw: unknown): ProjectContextData | null {
     strengths.push(s);
   }
   if (typeof o.targetAudience !== "string") return null;
-  return { industryType: o.industryType, strengths, targetAudience: o.targetAudience };
+  return {
+    industryType: o.industryType,
+    strengths,
+    targetAudience: o.targetAudience,
+    minorityReports: asMinorityReports(o.minorityReports),
+  };
 }
 
 export async function postExtractContext(
@@ -60,7 +94,12 @@ export async function postExtractContext(
 
 export async function patchProjectContext(
   projectId: string,
-  body: { industryType: string; extractedStrengths: string; targetAudience: string },
+  body: {
+    industryType: string;
+    extractedStrengths: string;
+    targetAudience: string;
+    minorityReports: MinorityReportItem[];
+  },
 ): Promise<ProjectContextData> {
   const res = await apiFetch(
     `/api/v1/projects/${encodeURIComponent(projectId)}/context`,
@@ -71,6 +110,11 @@ export async function patchProjectContext(
         industry_type: body.industryType,
         extracted_strengths: body.extractedStrengths,
         target_audience: body.targetAudience,
+        minority_reports: body.minorityReports.map((m) => ({
+          insight: m.insight,
+          conflict_reason: m.conflictReason,
+          evidence: m.evidence,
+        })),
       }),
     },
   );

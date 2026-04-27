@@ -13,6 +13,7 @@ import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
+import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
@@ -39,6 +40,10 @@ public class AiConfig {
     public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
     public static final String GEMINI_GBVS_CHAT = "geminiGbvsChat";
     public static final String GEMINI_GEO_ONBOARDING_CHAT_MODEL = "geminiGeoOnboardingChatModel";
+    public static final String GEMINI_DEBATE_ANALYST = "geminiDebateAnalyst";
+    public static final String GEMINI_DEBATE_INNOVATOR = "geminiDebateInnovator";
+    public static final String GEMINI_DEBATE_SKEPTIC = "geminiDebateSkeptic";
+    public static final String GEMINI_DEBATE_DIRECTOR = "geminiDebateDirector";
 
     private final AppProperties appProperties;
 
@@ -83,6 +88,55 @@ public class AiConfig {
             .timeout(Duration.ofSeconds(120))
             .maxOutputTokens(4096)
             .responseFormat(GeoOnboardingOutputSchema.geoOnboardingResponseFormat())
+            .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_DEBATE_ANALYST)
+    public ChatLanguageModel geminiDebateAnalyst() {
+        return GoogleAiGeminiChatModel.builder()
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
+            .modelName(LlmModelNames.GEMINI_25_FLASH)
+            .temperature(0.1)
+            .timeout(Duration.ofSeconds(120))
+            .maxOutputTokens(8192)
+            .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_DEBATE_INNOVATOR)
+    public ChatLanguageModel geminiDebateInnovator() {
+        return GoogleAiGeminiChatModel.builder()
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
+            .modelName(LlmModelNames.GEMINI_25_FLASH)
+            .temperature(0.8)
+            .timeout(Duration.ofSeconds(120))
+            .maxOutputTokens(8192)
+            .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_DEBATE_SKEPTIC)
+    public ChatLanguageModel geminiDebateSkeptic() {
+        return GoogleAiGeminiChatModel.builder()
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
+            .modelName(LlmModelNames.GEMINI_25_FLASH)
+            .temperature(0.4)
+            .timeout(Duration.ofSeconds(120))
+            .maxOutputTokens(8192)
+            .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_DEBATE_DIRECTOR)
+    public ChatLanguageModel geminiDebateDirector() {
+        return GoogleAiGeminiChatModel.builder()
+            .apiKey(appProperties.getAi().getGemini().getApiKey())
+            .modelName(LlmModelNames.GEMINI_25_PRO)
+            .temperature(0.2)
+            .timeout(Duration.ofSeconds(180))
+            .maxOutputTokens(8192)
+            .responseFormat(DebateDirectorOutputSchema.debateDirectorResponseFormat())
             .build();
     }
 
