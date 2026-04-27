@@ -5,6 +5,8 @@ import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.infrastructure.crawler.CachedWebCrawlerDecorator;
 import com.geo.analytics.infrastructure.crawler.PlaywrightWebCrawlerAdapter;
 import com.geo.analytics.infrastructure.crawler.TieredCrawlCache;
+import com.geo.analytics.infrastructure.crawler.safety.PerDomainRequestLimiter;
+import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Playwright;
@@ -20,6 +22,16 @@ import java.util.concurrent.Semaphore;
 
 @Configuration
 public class CrawlerConfiguration {
+    @Bean
+    PerDomainRequestLimiter perDomainRequestLimiter() {
+        return new PerDomainRequestLimiter();
+    }
+
+    @Bean
+    SafeHttpClient safeHttpClient(PerDomainRequestLimiter perDomainRequestLimiter) {
+        return new SafeHttpClient(perDomainRequestLimiter);
+    }
+
     @Configuration
     @ConditionalOnProperty(name = "app.crawler.redis-enabled", havingValue = "true")
     static class CrawlerRedisConfiguration {

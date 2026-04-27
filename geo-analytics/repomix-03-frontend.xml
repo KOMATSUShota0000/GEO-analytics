@@ -1215,7 +1215,7 @@ export function KeywordSuggestionWizard({
           </div>
           <div>
             <h2 className="text-sm font-semibold tracking-tight text-slate-900">AIキーワード提案</h2>
-            <p className="text-xs text-slate-500">サイトとターゲットから、SGE向け候補を生成します</p>
+            <p className="text-xs text-slate-500">サイトとターゲットから、AI Overview（GEO）向けの候補を生成します</p>
           </div>
         </div>
       </div>
@@ -1396,7 +1396,7 @@ import { useEffect, useState } from "react";
 
 const MESSAGES = [
   "AIがウェブサイトを調査しています...",
-  "ブランドの露出度を計測中...",
+  "GEO可視性を計測中...",
   "ユーザーのアテンションをシミュレーション中...",
   "SoMスコアを数理モデルで算出しています...",
 ] as const;
@@ -2110,12 +2110,10 @@ import {
   competitorLabelsFromProject,
   formatAuditDate,
   liveMetricsFromParsed,
-  normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
   resolveChartShareData,
   resolveChartTrendData,
-  type AnalyticsSummaryNormalized,
   type JobAnalysisDetail,
   type JobProjectInfo,
   type ResultDetail,
@@ -2255,7 +2253,6 @@ export function JobAnalysisPage(): JSX.Element {
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
   const [pdfRequestNotice, setPdfRequestNotice] = useState<string | null>(null);
   const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
-  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
   const effectiveJobIdRef = useRef(effectiveJobId);
@@ -2283,37 +2280,14 @@ export function JobAnalysisPage(): JSX.Element {
     return p;
   }, []);
 
-  const fetchProjectAnalytics = useCallback(async (projectId: string) => {
-    const pid = projectId.trim();
-    if (pid.length === 0) {
-      return;
-    }
-    try {
-      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`);
-      if (!res.ok) {
-        setApiCharts(undefined);
-        return;
-      }
-      const body: unknown = await responseJsonAsCamel(res);
-      const normalized = normalizeAnalyticsSummary(body);
-      setApiCharts(normalized ?? undefined);
-    } catch {
-      setApiCharts(undefined);
-    }
-  }, []);
-
   const handleStreamSettled = useCallback(async () => {
     const id = effectiveJobIdRef.current.trim();
     if (id.length === 0) {
       return;
     }
     await refetchJobFromRest();
-    const latest = await refetchAnalysis(id);
-    const projectId = latest?.project?.projectId?.trim();
-    if (projectId !== undefined && projectId.length > 0) {
-      await fetchProjectAnalytics(projectId);
-    }
-  }, [refetchJobFromRest, refetchAnalysis, fetchProjectAnalytics]);
+    await refetchAnalysis(id);
+  }, [refetchJobFromRest, refetchAnalysis]);
 
   const {
     isStreaming,
@@ -2377,24 +2351,15 @@ export function JobAnalysisPage(): JSX.Element {
     () => competitorLabelsFromProject(data?.project ?? null),
     [data?.project],
   );
-  const chartTrendData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.trend;
-    }
-    return resolveChartTrendData(resultRows, parsedByQueryId, isStreaming);
-  }, [apiCharts, resultRows, parsedByQueryId, isStreaming]);
-  const chartShareData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.share;
-    }
-    return resolveChartShareData(
-      brandForCharts,
-      competitorPair,
-      resultRows,
-      parsedByQueryId,
-      isStreaming,
-    );
-  }, [apiCharts, brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming]);
+  const chartTrendData = useMemo(
+    () => resolveChartTrendData(resultRows, parsedByQueryId, isStreaming),
+    [resultRows, parsedByQueryId, isStreaming],
+  );
+  const chartShareData = useMemo(
+    () =>
+      resolveChartShareData(brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming),
+    [brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming],
+  );
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
   const displaySomForTier = useMemo(() => {
@@ -2422,7 +2387,8 @@ export function JobAnalysisPage(): JSX.Element {
   const showTierBlock = useMemo(() => {
     return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
   }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
-  const isProPlanUi = apiCharts?.subscriptionPlan === "PRO";
+  /** Subscription plan is not included on job analysis API; default false (conservative upsell in TierDiagnosisCard). */
+  const isProPlanUi = false;
   const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
   const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
 
@@ -2496,18 +2462,6 @@ export function JobAnalysisPage(): JSX.Element {
     setPdfDownloadInFlight(false);
     setPdfRequestNotice(null);
   }, [effectiveJobId]);
-
-  useEffect(() => {
-    setApiCharts(undefined);
-  }, [effectiveJobId]);
-
-  useEffect(() => {
-    const pid = data?.project?.projectId?.trim();
-    if (pid === undefined || pid.length === 0) {
-      return;
-    }
-    void fetchProjectAnalytics(pid);
-  }, [data?.project?.projectId, fetchProjectAnalytics]);
 
   useEffect(() => {
     const pdfStatus = jobStatus?.pdfStatus;
@@ -2660,7 +2614,7 @@ export function JobAnalysisPage(): JSX.Element {
                     <th className="px-3 py-2 font-semibold text-slate-700">SoM</th>
                     <th className="px-3 py-2 font-semibold text-slate-700">overall</th>
                     <th className="px-3 py-2 font-semibold text-slate-700">言及</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">順位</th>
+                    <th className="px-3 py-2 font-semibold text-slate-700">GEO可視性ランク</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2836,7 +2790,7 @@ export function JobAnalysisPage(): JSX.Element {
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
                   <th className="min-w-[12rem] px-4 py-3 font-semibold text-slate-700">戦略診断・推奨</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">順位</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GEO可視性ランク</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
                 </tr>
               </thead>
@@ -3780,7 +3734,7 @@ export default function ProjectSettingsPage(): JSX.Element {
 </file>
 
 <file path="frontend/src/pages/ReportPrintPage.tsx">
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -3788,11 +3742,9 @@ import {
   competitorLabelsFromProject,
   formatAuditDate,
   mergeJobAnalysisWithPdfContext,
-  normalizeAnalyticsSummary,
   parseJobAnalysisDetail,
   resolveChartShareData,
   resolveChartTrendData,
-  type AnalyticsSummaryNormalized,
   type JobAnalysisDetail,
   type ResultDetail,
 } from "../types/analysis";
@@ -3844,8 +3796,6 @@ export default function ReportPrintPage(): JSX.Element {
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [apiCharts, setApiCharts] = useState<AnalyticsSummaryNormalized | undefined>(undefined);
-  const [analyticsSettled, setAnalyticsSettled] = useState(false);
   const [fontsReady, setFontsReady] = useState(false);
   const [logoReady, setLogoReady] = useState(false);
   const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
@@ -3865,42 +3815,14 @@ export default function ReportPrintPage(): JSX.Element {
     () => competitorLabelsFromProject(data?.project ?? null),
     [data?.project],
   );
-  const chartTrendData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.trend;
-    }
-    return resolveChartTrendData(resultRows, {}, false);
-  }, [apiCharts, resultRows]);
-  const chartShareData = useMemo(() => {
-    if (apiCharts !== undefined) {
-      return apiCharts.share;
-    }
-    return resolveChartShareData(brandLabel, competitorPair, resultRows, {}, false);
-  }, [apiCharts, brandLabel, competitorPair, resultRows]);
-
-  const fetchProjectAnalytics = useCallback(async (projectId: string, signal: AbortSignal) => {
-    const pid = projectId.trim();
-    if (pid.length === 0) {
-      return;
-    }
-    try {
-      const res = await apiFetch(`/api/v1/projects/${pid}/analytics`, { signal });
-      if (!res.ok) {
-        if (!signal.aborted) {
-          setApiCharts(undefined);
-        }
-        return;
-      }
-      const body: unknown = await responseJsonAsCamel(res);
-      if (!signal.aborted) {
-        setApiCharts(normalizeAnalyticsSummary(body) ?? undefined);
-      }
-    } catch {
-      if (!signal.aborted) {
-        setApiCharts(undefined);
-      }
-    }
-  }, []);
+  const chartTrendData = useMemo(
+    () => resolveChartTrendData(resultRows, {}, false),
+    [resultRows],
+  );
+  const chartShareData = useMemo(
+    () => resolveChartShareData(brandLabel, competitorPair, resultRows, {}, false),
+    [brandLabel, competitorPair, resultRows],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3960,22 +3882,6 @@ export default function ReportPrintPage(): JSX.Element {
   }, [effectiveJobId, tokenOk]);
 
   useEffect(() => {
-    if (!analysisReady || !data?.project?.projectId || !tokenOk) {
-      setAnalyticsSettled(true);
-      setApiCharts(undefined);
-      return;
-    }
-    setAnalyticsSettled(false);
-    const ac = new AbortController();
-    void fetchProjectAnalytics(data.project.projectId, ac.signal).finally(() => {
-      if (!ac.signal.aborted) {
-        setAnalyticsSettled(true);
-      }
-    });
-    return () => ac.abort();
-  }, [analysisReady, data?.project?.projectId, tokenOk, fetchProjectAnalytics]);
-
-  useEffect(() => {
     setFontsReady(false);
     if (!analysisReady) {
       return;
@@ -4027,9 +3933,9 @@ export default function ReportPrintPage(): JSX.Element {
 
   const isErrorState = loadError != null;
   useEffect(() => {
-    const ok = (analysisReady && analyticsSettled && fontsReady && logoReady) || isErrorState;
+    const ok = (analysisReady && fontsReady && logoReady) || isErrorState;
     setPdfReadyFlag(ok);
-  }, [analysisReady, analyticsSettled, fontsReady, logoReady, isErrorState]);
+  }, [analysisReady, fontsReady, logoReady, isErrorState]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;
@@ -4240,7 +4146,7 @@ export default function ReportPrintPage(): JSX.Element {
                               </p>
                               <p className="mt-2 text-xs text-slate-600">
                                 解析日 {formatAuditDate(row.auditDate)} / 言及
-                                {row.brandMentioned ? "あり" : "なし"} / 順位{" "}
+                                {row.brandMentioned ? "あり" : "なし"} / GEO可視性ランク{" "}
                                 {row.mentionRank === null ? "—" : String(row.mentionRank)}
                               </p>
                               {row.diagnosticMessage != null && row.diagnosticMessage.trim().length > 0 ? (
@@ -4565,18 +4471,6 @@ function pad2(n: number): string {
 function isoDateFromLocal(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
-export const MOCK_TREND_LAST_7_DAYS: TrendData[] = (() => {
-  const out: TrendData[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const phase = (6 - i) / 6;
-    const som = Math.round(38 + phase * 22 + Math.sin(i * 0.7) * 4);
-    const overall = Math.round(41 + phase * 18 + Math.cos(i * 0.5) * 3);
-    out.push({ date: isoDateFromLocal(d), somScore: som, overallScore: overall });
-  }
-  return out;
-})();
 export function aggregateTrendFromResultDetails(rows: ResultDetail[]): TrendData[] {
   if (rows.length === 0) {
     return [];
@@ -4662,7 +4556,10 @@ export function buildCompetitorShareData(
   competitorNames: [string, string],
   anchorSomScore: number | null,
 ): CompetitorShare[] {
-  const self = anchorSomScore === null ? 46 : Math.max(18, Math.min(82, Math.round(anchorSomScore)));
+  if (anchorSomScore === null || Number.isNaN(anchorSomScore)) {
+    return [];
+  }
+  const self = Math.max(0, Math.min(100, Math.round(anchorSomScore)));
   const rest = 100 - self;
   const v1 = Math.round(rest * 0.52);
   const v2 = rest - v1;
@@ -4678,31 +4575,23 @@ export function resolveChartTrendData(
   isStreaming: boolean,
 ): TrendData[] {
   const agg = aggregateTrendFromResultDetails(resultRows);
-  if (agg.length >= 2) {
+  if (agg.length > 0) {
     return agg;
   }
-  const live = averageLiveScoresFromParsed(parsedByQueryId);
-  if (live !== null && (isStreaming || agg.length === 1)) {
-    const base = agg.length === 1 ? [...agg] : MOCK_TREND_LAST_7_DAYS.slice(0, -1);
-    const lastDate = isoDateFromLocal(new Date());
-    const lastPoint: TrendData = {
-      date: lastDate,
-      somScore: live.somScore,
-      overallScore: live.overallScore,
-    };
-    if (base.some((p) => p.date === lastDate)) {
-      return base.map((p) =>
-        p.date === lastDate
-          ? { ...p, somScore: lastPoint.somScore, overallScore: lastPoint.overallScore }
-          : p,
-      );
+  if (isStreaming) {
+    const live = averageLiveScoresFromParsed(parsedByQueryId);
+    if (live !== null) {
+      const lastDate = isoDateFromLocal(new Date());
+      return [
+        {
+          date: lastDate,
+          somScore: live.somScore,
+          overallScore: live.overallScore,
+        },
+      ];
     }
-    return [...base, lastPoint].slice(-7);
   }
-  if (agg.length === 1) {
-    return [...MOCK_TREND_LAST_7_DAYS.slice(0, -1), agg[0]!];
-  }
-  return MOCK_TREND_LAST_7_DAYS;
+  return [];
 }
 export function resolveAverageSomScore(
   resultRows: ResultDetail[],
@@ -4758,7 +4647,7 @@ export interface ResultDetail {
   mentionRank: number | null;
   overallScore: number | null;
   tokenCount?: number;
-  rankPosition?: number;
+  aiCitationPosition?: number | null;
   sentimentIntensity?: number;
   resolvedEntityLabel?: string | null;
   visibilityStage?: number | null;
@@ -4896,7 +4785,13 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     ? r.gbvsNormalizedScore
     : undefined;
   const tc = typeof r.tokenCount === "number" && !Number.isNaN(r.tokenCount) ? r.tokenCount : undefined;
-  const rp = typeof r.rankPosition === "number" && !Number.isNaN(r.rankPosition) ? r.rankPosition : undefined;
+  const rpRaw = r.aiCitationPosition;
+  const aiCitationPosition: number | null =
+    rpRaw === null || rpRaw === undefined
+      ? null
+      : typeof rpRaw === "number" && !Number.isNaN(rpRaw)
+        ? rpRaw
+        : null;
   const si =
     typeof r.sentimentIntensity === "number" && !Number.isNaN(r.sentimentIntensity)
       ? r.sentimentIntensity
@@ -4931,7 +4826,7 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     mentionRank,
     overallScore,
     tokenCount: tc !== undefined && !Number.isNaN(tc) ? tc : undefined,
-    rankPosition: rp !== undefined && !Number.isNaN(rp) ? rp : undefined,
+    aiCitationPosition,
     sentimentIntensity: si !== undefined && !Number.isNaN(si) ? si : undefined,
     resolvedEntityLabel,
     visibilityStage: vs !== undefined && !Number.isNaN(vs) ? vs : null,
@@ -5168,7 +5063,7 @@ const COMPETITIVE:SomTierInfo={
   subtitle:"競争力あり",
   accentClass:"bg-indigo-100 text-indigo-800 border-indigo-300",
   ringClass:"text-indigo-500",
-  advice:"主要な選択肢として認知されています。さらなる露出拡大には、独自の調査レポートや専門的な解説記事の公開が有効です。国内のビジネスメディアや業界特化型ニュースサイトにおいて、AIが引用しやすい『権威ある一次情報』としてのノードを増やしましょう。",
+  advice:"主要な選択肢として認知されています。さらなるAI引用の獲得（GEO可視化）には、独自の調査レポートや専門的な解説記事の公開が有効です。国内のビジネスメディアや業界特化型ニュースサイトにおいて、AIが引用しやすい『権威ある一次情報』としてのノードを増やしましょう。",
   minInclusive:16,
   maxInclusive:30,
 };
