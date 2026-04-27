@@ -1,5 +1,7 @@
 package com.geo.analytics.domain.ai;
 
+import java.util.Locale;
+
 public final class DebatePersonaSystemPrompts {
     private static final String ANALYST =
             """
@@ -46,6 +48,7 @@ public final class DebatePersonaSystemPrompts {
             マイノリティ・レポート: 多数派の合意に入らなかった、しかし原文に拠り所があり、捨てるに忍びない尖った主張を1〜3候補挙げる。各候補について「採択されなかった主な理由（スケプティック含む）」と「化ける条件（どんな文脈なら有効か）」を短く書く。検索流入ではなく、生成回答における「引用価値」の観点で評価する。
             ハルシネーション禁止: 議論ログや原文にない事実を捏造しない。不明な点は明記する。
             次フェーズ向け: 出力の最後に、後続のJSON化で使うキー名の目安（例: consensus_strengths, minority_reports 各要素の insight, conflictReason, evidence）にマッピングしやすい箇条書きで示す。JSON本体の生成は次の工程に任せ、ここでは日本語の説明に徹する。
+            数学的スコアも参照する: 直前のシステム指示で与えられる「情報利得」および「較正後信頼度（スカラー）」を、人間の主張の補完であるが最重要の客観指標として扱い、盤石な合意案とマイノリティ・レポートの取捨に反映すること。
             """;
 
     private DebatePersonaSystemPrompts() {}
@@ -57,5 +60,23 @@ public final class DebatePersonaSystemPrompts {
             case INNOVATOR -> INNOVATOR;
             case DIRECTOR -> DIRECTOR;
         };
+    }
+
+    /**
+     * ディレクター用システムプロンプトに、最終的な GEO-IG および較正後信頼度スカラーを埋め込む。
+     */
+    public static String forDirectorWithScoreInjection(double geoInformationGainScore, double trustScore) {
+        return String.format(
+                        Locale.US,
+                        """
+                        【数理的評価指標（必須）】
+                        本ラウンドの議論に対し、事実束・市場参照分布から求めた情報利得スコア（GEO-IG、無次元スカラー、概ね [0,1] 帯域）: %f
+                        エージェント質量の較正に基づく最終的な信頼度スカラー: %f
+                        上記二つは、各エージェントの主張内容と併せて、合意可能な強みとマイノリティ・レポートの抽出で **最重要の客観指標** として扱い、最終的な JSON 構造化（次工程）に資する要約の優先度付けに反映すること。数値の優先度は定性的トーン（賛否）より一貫して高い扱いとする。
+
+                        """,
+                        geoInformationGainScore,
+                        trustScore)
+                + DIRECTOR;
     }
 }

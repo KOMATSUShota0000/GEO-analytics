@@ -67,7 +67,7 @@ public class ProjectOnboardingService {
                         scope.fork(
                                 () ->
                                         com.geo.analytics.infrastructure.tenant.ContextPropagator.wrap(
-                                                        () -> runGeoPipeline(trimmedUrl))
+                                                        () -> runGeoPipeline(projectId, trimmedUrl))
                                                 .get());
                 scope.join();
                 result = sub.get();
@@ -132,7 +132,7 @@ public class ProjectOnboardingService {
         projectRepository.save(project);
     }
 
-    private GeoOnboardingLlmResult runGeoPipeline(String url) {
+    private GeoOnboardingLlmResult runGeoPipeline(UUID projectId, String url) {
         URI uri;
         try {
             uri = URI.create(url);
@@ -165,7 +165,7 @@ public class ProjectOnboardingService {
         } catch (IOException ioException) {
             throw new UncheckedIOException(ioException);
         }
-        return debateOnboardingOrchestrator.runDebateOnboarding(plain);
+        return debateOnboardingOrchestrator.runDebateOnboarding(plain, projectId);
     }
 
     private static void validateHttpUrl(String url) {
