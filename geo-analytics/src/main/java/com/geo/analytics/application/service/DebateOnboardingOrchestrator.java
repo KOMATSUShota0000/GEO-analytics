@@ -7,15 +7,21 @@ import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.domain.ai.CitationValidator;
 import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.ai.DebatePersonaSystemPrompts;
-import com.geo.analytics.domain.entity.MathDebateAuditEventEntity;
 import com.geo.analytics.domain.enums.IndustryType;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.logic.CalibrationCalculator;
 import com.geo.analytics.domain.logic.ConvergenceController;
 import com.geo.analytics.domain.logic.DebateTextMathHeuristics;
 import com.geo.analytics.domain.logic.InformationGainCalculator;
+import com.geo.analytics.application.security.PromptInjectionValidator;
+import com.geo.analytics.domain.logic.SeoDataEvidenceProvider;
+import com.geo.analytics.domain.logic.SeoEvidenceXmlBuilder;
+import com.geo.analytics.domain.logic.TokenProfitGuard;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.SeoEvidence;
+import com.geo.analytics.domain.model.SeoOrganicRow;
 import com.geo.analytics.infrastructure.ai.DirectorOnboardingJson;
-import com.geo.analytics.infrastructure.repository.MathDebateAuditEventRepository;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -27,9 +33,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -37,8 +41,9 @@ import java.util.UUID;
 public class DebateOnboardingOrchestrator {
     private static final int MAX_DEBATE_TURNS = 5;
     private static final double CONVERGENCE_FRICTION = 0.5d;
-    private static final String AUDIT_EVENT_TYPE = "MATH_DEBATE_ONBOARDING";
     private static final boolean[] IS_INNOVATOR = new boolean[] {false, true, false};
+    private static final int RAG_EVIDENCE_MAX_COUNT = 5;
+    private static final String DEFAULT_EVIDENCE_RELEVANCE_LABEL = "OTHER";
 
     private static final String REJECTED_INNOVATOR =
             "（イノベーター出力は引用形式が不十分なためこのラウンドでは採用しません。）";
@@ -48,7 +53,10 @@ public class DebateOnboardingOrchestrator {
     private final ChatLanguageModel skepticChatModel;
     private final ChatLanguageModel directorChatModel;
     private final ObjectMapper objectMapper;
-    private final MathDebateAuditEventRepository mathDebateAuditEventRepository;
+    private final SeoDataEvidenceProvider seoDataEvidenceProvider;
+    private final TokenProfitBudgetResolver tokenProfitBudgetResolver;
+    private final PromptInjectionValidator promptInjectionValidator;
+    private final DebateMathAuditService debateMathAuditService;
 
     public DebateOnboardingOrchestrator(
             @Qualifier(AiConfig.GEMINI_DEBATE_ANALYST) ChatLanguageModel analystChatModel,
@@ -56,18 +64,65 @@ public class DebateOnboardingOrchestrator {
             @Qualifier(AiConfig.GEMINI_DEBATE_SKEPTIC) ChatLanguageModel skepticChatModel,
             @Qualifier(AiConfig.GEMINI_DEBATE_DIRECTOR) ChatLanguageModel directorChatModel,
             ObjectMapper objectMapper,
-            MathDebateAuditEventRepository mathDebateAuditEventRepository) {
+            SeoDataEvidenceProvider seoDataEvidenceProvider,
+            TokenProfitBudgetResolver tokenProfitBudgetResolver,
+            PromptInjectionValidator promptInjectionValidator,
+            DebateMathAuditService debateMathAuditService) {
         this.analystChatModel = analystChatModel;
         this.innovatorChatModel = innovatorChatModel;
         this.skepticChatModel = skepticChatModel;
         this.directorChatModel = directorChatModel;
         this.objectMapper = objectMapper;
-        this.mathDebateAuditEventRepository = mathDebateAuditEventRepository;
+        this.seoDataEvidenceProvider = Objects.requireNonNull(seoDataEvidenceProvider, "seoDataEvidenceProvider");
+        this.tokenProfitBudgetResolver =
+                Objects.requireNonNull(tokenProfitBudgetResolver, "tokenProfitBudgetResolver");
+        this.promptInjectionValidator =
+                Objects.requireNonNull(promptInjectionValidator, "promptInjectionValidator");
+        this.debateMathAuditService = Objects.requireNonNull(debateMathAuditService, "debateMathAuditService");
     }
 
-    public GeoOnboardingLlmResult runDebateOnboarding(String plainText, UUID targetId) {
+    public GeoOnboardingLlmResult runDebateOnboarding(
+            String plainText,
+            UUID targetId,
+            String searchQuery,
+            List<SeoOrganicRow> rawSeoRows,
+            IndustryType industryHint) {
         Objects.requireNonNull(targetId, "targetId");
+        IndustryType resolvedIndustry = industryHint != null ? industryHint : IndustryType.OTHER;
+        String q = searchQuery == null ? "" : searchQuery;
         String wrapped = "<scraped_data>\n" + plainText + "\n</scraped_data>";
+        List<SeoEvidence> seoEvidences = List.of();
+        if (rawSeoRows != null && !rawSeoRows.isEmpty()) {
+            seoEvidences =
+                    seoDataEvidenceProvider.provideEvidences(
+                            q,
+                            rawSeoRows,
+                            RAG_EVIDENCE_MAX_COUNT,
+                            SeoDataEvidenceProvider.DEFAULT_MAX_PER_DOMAIN,
+                            DEFAULT_EVIDENCE_RELEVANCE_LABEL);
+            SubscriptionPlan subscriptionPlan =
+                    TenantPlanScope.currentSubscriptionPlan().orElse(SubscriptionPlan.STANDARD);
+            int maxCompetitorXmlChars = tokenProfitBudgetResolver.maxCompetitorXmlChars(subscriptionPlan);
+            seoEvidences = TokenProfitGuard.clipEvidences(seoEvidences, maxCompetitorXmlChars);
+        }
+        String competitorXml =
+                (seoEvidences == null || seoEvidences.isEmpty())
+                        ? ""
+                        : SeoEvidenceXmlBuilder.buildCompetitorBlock(seoEvidences);
+        boolean competitorXmlIncluded = false;
+        List<SeoEvidence> usedEvidencesForAudit = List.of();
+        if (!competitorXml.isEmpty()) {
+            if (promptInjectionValidator.isCompetitorXmlSafe(competitorXml)) {
+                competitorXmlIncluded = true;
+                usedEvidencesForAudit = List.copyOf(seoEvidences);
+            } else {
+                log.warn("competitor XML rejected by prompt-injection guard; continuing without competitor block");
+                competitorXml = "";
+            }
+        }
+        String contextAnalystBase =
+                competitorXml.isEmpty() ? wrapped : wrapped + "\n\n" + competitorXml;
+        String contextInnovatorBase = wrapped;
         StringBuilder debateAccumulator = new StringBuilder();
         double[] prevConfidences = null;
         double[] prevCentroid = null;
@@ -82,20 +137,23 @@ public class DebateOnboardingOrchestrator {
         double lastTrust = 0.0d;
 
         for (int turn = 0; turn < MAX_DEBATE_TURNS; turn++) {
-            String userForAnalystInnovator = wrapped;
+            String userForAnalyst = contextAnalystBase;
+            String userForInnovator = contextInnovatorBase;
             if (debateAccumulator.length() > 0) {
-                userForAnalystInnovator =
-                        wrapped + "\n\n## これまでの議論の蓄積\n" + debateAccumulator;
+                String accumulated =
+                        "\n\n## これまでの議論の蓄積\n" + debateAccumulator;
+                userForAnalyst = contextAnalystBase + accumulated;
+                userForInnovator = contextInnovatorBase + accumulated;
             }
             analystText =
                     singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST),
-                            userForAnalystInnovator,
+                            DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, resolvedIndustry),
+                            userForAnalyst,
                             analystChatModel);
             innovatorRaw =
                     singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.INNOVATOR),
-                            userForAnalystInnovator,
+                            DebatePersonaSystemPrompts.forPersona(DebatePersona.INNOVATOR, resolvedIndustry),
+                            userForInnovator,
                             innovatorChatModel);
             innovatorForHistory = innovatorRaw;
             if (!CitationValidator.hasValidCitation(innovatorRaw)) {
@@ -105,7 +163,9 @@ public class DebateOnboardingOrchestrator {
             String skepticInput = buildSkepticUserMessage(analystText, innovatorForHistory, debateAccumulator);
             skepticText =
                     singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC), skepticInput, skepticChatModel);
+                            DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC, resolvedIndustry),
+                            skepticInput,
+                            skepticChatModel);
 
             debateAccumulator
                     .append("\n## ラウンド ")
@@ -163,7 +223,7 @@ public class DebateOnboardingOrchestrator {
                         + " / 較正後信頼度スカラー: "
                         + lastTrust
                         + "\n\n## 原文\n"
-                        + wrapped
+                        + contextAnalystBase
                         + "\n\n## アナリスト（最終ラウンド抜粋）\n"
                         + analystText
                         + "\n\n## イノベーター（生テキスト、最終ラウンド）\n"
@@ -173,43 +233,22 @@ public class DebateOnboardingOrchestrator {
                         + "\n\n## 蓄積された議論ログ\n"
                         + debateAccumulator;
         String directorSystem =
-                DebatePersonaSystemPrompts.forDirectorWithScoreInjection(lastGeoIg, lastTrust);
+                DebatePersonaSystemPrompts.forDirectorWithScoreInjection(
+                        lastGeoIg, lastTrust, resolvedIndustry);
         String rawJson = singleChat(directorSystem, directorInput, directorChatModel);
 
-        persistMathAudit(
-                targetId, completedRounds, stopReason, lastSnapshot, lastGeoIg, lastTrust, CONVERGENCE_FRICTION);
+        debateMathAuditService.saveOnboardingAudit(
+                targetId,
+                completedRounds,
+                stopReason,
+                lastSnapshot,
+                lastGeoIg,
+                lastTrust,
+                CONVERGENCE_FRICTION,
+                competitorXmlIncluded,
+                usedEvidencesForAudit);
 
         return mapDirectorToResult(rawJson);
-    }
-
-    private void persistMathAudit(
-            UUID targetId,
-            int turnCount,
-            String stopReason,
-            ConvergenceController.ConvergenceSnapshot snapshot,
-            double geoIgScore,
-            double trustScore,
-            double friction) {
-        MathDebateAuditEventEntity row = new MathDebateAuditEventEntity();
-        row.setTargetId(targetId);
-        row.setEventType(AUDIT_EVENT_TYPE);
-        Map<String, Object> audit = new LinkedHashMap<>();
-        audit.put("turnCount", turnCount);
-        audit.put("stopReason", stopReason);
-        if (snapshot != null) {
-            audit.put("wasserstein1", snapshot.wasserstein1());
-            audit.put("threshold", snapshot.threshold());
-            audit.put("informationGeometryDrift", snapshot.informationGeometryDrift());
-        } else {
-            audit.put("wasserstein1", null);
-            audit.put("threshold", null);
-            audit.put("informationGeometryDrift", null);
-        }
-        audit.put("geoIgScore", geoIgScore);
-        audit.put("trustScore", trustScore);
-        audit.put("friction", friction);
-        row.setAuditData(audit);
-        mathDebateAuditEventRepository.save(row);
     }
 
     private static String buildSkepticUserMessage(

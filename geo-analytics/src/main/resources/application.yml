@@ -65,6 +65,17 @@ app:
     redis-port: 6379
   ai:
     realtime-threshold: 10
+    token-profit-guard:
+      reserved-margin-rate: 0.7
+      usd-per-million-tokens: 3.50
+      chars-per-token-approx: 1.0
+      plan-budget-usd:
+        STANDARD: 0.02
+        PRO: 0.05
+        EXPERT: 0.10
+    prompt-injection-guard:
+      timeout-seconds: 30
+      fail-open-on-error: false
     gemini:
       api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
       model-name: "${GEMINI_MODEL_NAME:gemini-2.5-flash}"

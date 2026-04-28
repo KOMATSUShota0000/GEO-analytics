@@ -2,7 +2,9 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.GeoOnboardingLlmResult;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.SeoOrganicRow;
 import com.geo.analytics.infrastructure.crawler.extraction.StreamTextExtractor;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
@@ -19,8 +21,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,7 +58,7 @@ public class ProjectOnboardingService {
         this.projectContextTextLimiter = projectContextTextLimiter;
     }
 
-    public void runOnboarding(UUID projectId, String url) {
+    public void runOnboarding(UUID projectId, String url, IndustryType industryHint) {
         String trimmedUrl = url.trim();
         validateHttpUrl(trimmedUrl);
         AtomicReference<UUID> reservationId = new AtomicReference<>();
@@ -67,7 +71,7 @@ public class ProjectOnboardingService {
                         scope.fork(
                                 () ->
                                         com.geo.analytics.infrastructure.tenant.ContextPropagator.wrap(
-                                                        () -> runGeoPipeline(projectId, trimmedUrl))
+                                                        () -> runGeoPipeline(projectId, trimmedUrl, industryHint))
                                                 .get());
                 scope.join();
                 result = sub.get();
@@ -132,7 +136,7 @@ public class ProjectOnboardingService {
         projectRepository.save(project);
     }
 
-    private GeoOnboardingLlmResult runGeoPipeline(UUID projectId, String url) {
+    private GeoOnboardingLlmResult runGeoPipeline(UUID projectId, String url, IndustryType industryHint) {
         URI uri;
         try {
             uri = URI.create(url);
@@ -165,7 +169,43 @@ public class ProjectOnboardingService {
         } catch (IOException ioException) {
             throw new UncheckedIOException(ioException);
         }
-        return debateOnboardingOrchestrator.runDebateOnboarding(plain, projectId);
+        String searchQuery = extractSearchQueryHint(uri);
+        List<SeoOrganicRow> seoRows = buildPlaceholderSeoRows(url);
+        return debateOnboardingOrchestrator.runDebateOnboarding(
+                plain, projectId, searchQuery, seoRows, industryHint);
+    }
+
+    /**
+     * Serp API のオーガニック結果パースに差し替え予定。現状はオンボ1件のプレースホルダ。
+     */
+    private static List<SeoOrganicRow> buildPlaceholderSeoRows(String pageUrl) {
+        String safeUrl = pageUrl == null ? "" : pageUrl.trim();
+        if (safeUrl.isEmpty()) {
+            return List.of();
+        }
+        List<SeoOrganicRow> rows = new ArrayList<>(1);
+        rows.add(
+                new SeoOrganicRow(
+                        safeUrl,
+                        "自社サイト（オンボーディング対象）",
+                        "フェーズ1.3 のプレースホルダ。実際の検索スニペットは Serp API 連携で置換予定。",
+                        Optional.empty(),
+                        Optional.empty()));
+        return List.copyOf(rows);
+    }
+
+    /**
+     * 類似度スコア用の簡易クエリ。ホストが取れなければ URL 全体を返す。
+     */
+    private static String extractSearchQueryHint(URI uri) {
+        if (uri == null) {
+            return "";
+        }
+        String host = uri.getHost();
+        if (host != null && !host.isEmpty()) {
+            return host;
+        }
+        return uri.toString();
     }
 
     private static void validateHttpUrl(String url) {

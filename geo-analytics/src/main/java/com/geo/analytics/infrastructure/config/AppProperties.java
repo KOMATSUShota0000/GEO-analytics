@@ -3,6 +3,8 @@ package com.geo.analytics.infrastructure.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
@@ -112,6 +114,8 @@ public class AppProperties {
 
     public static class Ai {
         private int realtimeThreshold = 10;
+        private TokenProfitGuard tokenProfitGuard = new TokenProfitGuard();
+        private PromptInjectionGuard promptInjectionGuard = new PromptInjectionGuard();
         private Gemini gemini = new Gemini();
         private Deepseek deepseek = new Deepseek();
 
@@ -121,6 +125,23 @@ public class AppProperties {
 
         public void setRealtimeThreshold(int realtimeThreshold) {
             this.realtimeThreshold = realtimeThreshold;
+        }
+
+        public TokenProfitGuard getTokenProfitGuard() {
+            return tokenProfitGuard;
+        }
+
+        public void setTokenProfitGuard(TokenProfitGuard tokenProfitGuard) {
+            this.tokenProfitGuard = tokenProfitGuard != null ? tokenProfitGuard : new TokenProfitGuard();
+        }
+
+        public PromptInjectionGuard getPromptInjectionGuard() {
+            return promptInjectionGuard;
+        }
+
+        public void setPromptInjectionGuard(PromptInjectionGuard promptInjectionGuard) {
+            this.promptInjectionGuard =
+                    promptInjectionGuard != null ? promptInjectionGuard : new PromptInjectionGuard();
         }
 
         public Gemini getGemini() {
@@ -137,6 +158,75 @@ public class AppProperties {
 
         public void setDeepseek(Deepseek deepseek) {
             this.deepseek = deepseek;
+        }
+    }
+
+    /**
+     * オンボーディング競合 XML（RAG）に使える入力文字数の上限を、プラン予算から逆算するための設定。
+     */
+    public static class TokenProfitGuard {
+        /** 確保する利益率（0〜1）。コストに回す割合は {@code 1 - reservedMarginRate}。 */
+        private double reservedMarginRate = 0.7d;
+        /** 入力トークン単価（USD / 100万トークン）。 */
+        private double usdPerMillionTokens = 3.5d;
+        /** 1文字あたり概算トークン数（保守側）。許容文字数 = 許容トークン / この値。 */
+        private double charsPerTokenApprox = 1.0d;
+        /** プランごとの competitor エビデンス予算（USD / 呼び出し）。 */
+        private Map<String, Double> planBudgetUsd = new LinkedHashMap<>();
+
+        public double getReservedMarginRate() {
+            return reservedMarginRate;
+        }
+
+        public void setReservedMarginRate(double reservedMarginRate) {
+            this.reservedMarginRate = reservedMarginRate;
+        }
+
+        public double getUsdPerMillionTokens() {
+            return usdPerMillionTokens;
+        }
+
+        public void setUsdPerMillionTokens(double usdPerMillionTokens) {
+            this.usdPerMillionTokens = usdPerMillionTokens;
+        }
+
+        public double getCharsPerTokenApprox() {
+            return charsPerTokenApprox;
+        }
+
+        public void setCharsPerTokenApprox(double charsPerTokenApprox) {
+            this.charsPerTokenApprox = charsPerTokenApprox;
+        }
+
+        public Map<String, Double> getPlanBudgetUsd() {
+            return planBudgetUsd;
+        }
+
+        public void setPlanBudgetUsd(Map<String, Double> planBudgetUsd) {
+            this.planBudgetUsd = planBudgetUsd != null ? planBudgetUsd : new LinkedHashMap<>();
+        }
+    }
+
+    /** RAG 由来 competitor XML を軽量モデルで検閲する設定。 */
+    public static class PromptInjectionGuard {
+        private int timeoutSeconds = 30;
+        /** true のときのみ API 失敗時に通過（フェイルオープン)。デフォルト false（フェイルクローズ）。 */
+        private boolean failOpenOnError = false;
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = Math.max(1, timeoutSeconds);
+        }
+
+        public boolean isFailOpenOnError() {
+            return failOpenOnError;
+        }
+
+        public void setFailOpenOnError(boolean failOpenOnError) {
+            this.failOpenOnError = failOpenOnError;
         }
     }
 

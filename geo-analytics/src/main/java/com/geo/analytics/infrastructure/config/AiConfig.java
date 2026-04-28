@@ -44,6 +44,8 @@ public class AiConfig {
     public static final String GEMINI_DEBATE_INNOVATOR = "geminiDebateInnovator";
     public static final String GEMINI_DEBATE_SKEPTIC = "geminiDebateSkeptic";
     public static final String GEMINI_DEBATE_DIRECTOR = "geminiDebateDirector";
+    /** 検閲専用 Flash（プロンプトインジェクション・ガード）。 */
+    public static final String GEMINI_PROMPT_INJECTION_GUARD = "geminiPromptInjectionGuardModel";
 
     private final AppProperties appProperties;
 
@@ -131,13 +133,26 @@ public class AiConfig {
     @Qualifier(GEMINI_DEBATE_DIRECTOR)
     public ChatLanguageModel geminiDebateDirector() {
         return GoogleAiGeminiChatModel.builder()
-            .apiKey(appProperties.getAi().getGemini().getApiKey())
-            .modelName(LlmModelNames.GEMINI_25_PRO)
-            .temperature(0.2)
-            .timeout(Duration.ofSeconds(180))
-            .maxOutputTokens(8192)
-            .responseFormat(DebateDirectorOutputSchema.debateDirectorResponseFormat())
-            .build();
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_PRO)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(180))
+                .maxOutputTokens(8192)
+                .responseFormat(DebateDirectorOutputSchema.debateDirectorResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_PROMPT_INJECTION_GUARD)
+    public ChatLanguageModel geminiPromptInjectionGuardModel() {
+        int sec = appProperties.getAi().getPromptInjectionGuard().getTimeoutSeconds();
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.0)
+                .timeout(Duration.ofSeconds(sec))
+                .maxOutputTokens(10)
+                .build();
     }
 
     @Bean
