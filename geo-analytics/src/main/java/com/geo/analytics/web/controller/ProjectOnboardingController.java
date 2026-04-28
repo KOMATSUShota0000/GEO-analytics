@@ -35,7 +35,10 @@ public class ProjectOnboardingController {
     public ResponseEntity<ProjectContextResponse> extractContext(
             @PathVariable("id") UUID id, @Valid @RequestBody ExtractContextRequest extractContextRequest) {
         projectOnboardingService.runOnboarding(
-                id, extractContextRequest.url(), extractContextRequest.industryHint());
+                id,
+                extractContextRequest.url(),
+                extractContextRequest.industryHint(),
+                extractContextRequest.sessionId());
         return projectContextService
                 .getContext(id)
                 .map(ResponseEntity::ok)

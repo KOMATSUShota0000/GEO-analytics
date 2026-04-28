@@ -189,7 +189,7 @@ public class JobPersistenceService {
                 existing.setOverallScore(overallScore);
                 existing.setResolvedEntityLabel(resolvedEntityLabel);
                 existing.setTokenCount(tokenCount);
-                existing.setAiCitationPosition(aiCitationPosition);
+                existing.setAiCitationPosition(normalizedAiCitationPosition(aiCitationPosition));
                 existing.setSentimentIntensity(sentimentIntensity);
                 existing.setVisibilityStage(visibilityStage);
                 existing.setCalculationVersion(calculationVersion);
@@ -216,7 +216,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setOverallScore(overallScore);
                 auditHistoryEntity.setResolvedEntityLabel(resolvedEntityLabel);
                 auditHistoryEntity.setTokenCount(tokenCount);
-                auditHistoryEntity.setAiCitationPosition(aiCitationPosition);
+                auditHistoryEntity.setAiCitationPosition(normalizedAiCitationPosition(aiCitationPosition));
                 auditHistoryEntity.setSentimentIntensity(sentimentIntensity);
                 auditHistoryEntity.setVisibilityStage(visibilityStage);
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
@@ -238,6 +238,13 @@ public class JobPersistenceService {
         });
     }
 
+    /**
+     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
+     */
+    private static Integer normalizedAiCitationPosition(Integer position) {
+        return (position != null && position > 0) ? position : null;
+    }
+
     private static void applyCompetitorScores(AuditHistoryEntity audit, List<CompetitorScoreRow> rows) {
         audit.getCompetitorScores().clear();
         if (rows == null || rows.isEmpty()) {
@@ -248,7 +255,7 @@ public class JobPersistenceService {
             entity.setAuditHistory(audit);
             entity.setCompetitorName(row.competitorName());
             entity.setSomScore(row.somScore());
-            entity.setAiCitationPosition(row.aiCitationPosition());
+            entity.setAiCitationPosition(normalizedAiCitationPosition(row.aiCitationPosition()));
             entity.setVisibilityStage(row.visibilityStage());
             entity.setMatchStatus(row.matchStatus());
             entity.setNounCount(row.nounCount());

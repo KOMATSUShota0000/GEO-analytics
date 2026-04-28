@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
 public class DataSourceConfig {
@@ -70,6 +71,15 @@ public class DataSourceConfig {
     @Primary
     public PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
         return new JpaTransactionManager(entityManagerFactory);
+    }
+
+    /**
+     * 宣言的トランザクション外での短いトランザクション境界用（例: 仮想スレッド内からの credit settle）。
+     * {@link #transactionManager(EntityManagerFactory)} と同一の {@link PlatformTransactionManager} を束ねる。
+     */
+    @Bean
+    public TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+        return new TransactionTemplate(transactionManager);
     }
 
     @Bean

@@ -30,6 +30,9 @@ import {
   patchProjectContext,
   postExtractContext,
 } from "../api/geoOnboardingApi";
+import { OnboardingMathVisualizer } from "../components/onboarding/OnboardingMathVisualizer";
+import { OnboardingNarrationMonitor } from "../components/onboarding/OnboardingNarrationMonitor";
+import { useOnboardingStream } from "../hooks/useOnboardingStream";
 
 const theme = createTheme();
 const industries: { value: string; label: string }[] = [
@@ -84,6 +87,17 @@ export default function GeoOnboardingView(): JSX.Element {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [toast, setToast] = useState<string | null>(null);
 
+  const {
+    startStream,
+    stopStream,
+    narrationLog,
+    scoreSeries,
+    latestRadar,
+    streamError: streamChannelError,
+    settlementNotice,
+    dismissStreamAlerts,
+  } = useOnboardingStream();
+
   const patchMinority = useCallback(
     (index: number, patch: Partial<MinorityReportItem>) => {
       setMinorityReports((prev) =>
@@ -100,8 +114,10 @@ export default function GeoOnboardingView(): JSX.Element {
     setError(null);
     setFieldErrors({});
     setExtracting(true);
+    const sessionId = crypto.randomUUID();
     try {
-      const data = await postExtractContext(projectId, url);
+      await startStream(projectId, sessionId);
+      const data = await postExtractContext(projectId, url, sessionId);
       setIndustryType(data.industryType);
       setStrengthsText(data.strengths.join("\n"));
       setTargetAudience(data.targetAudience);
@@ -129,9 +145,10 @@ export default function GeoOnboardingView(): JSX.Element {
       }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      stopStream();
       setExtracting(false);
     }
-  }, [projectId, url]);
+  }, [projectId, url, startStream, stopStream]);
 
   const onSave = useCallback(async () => {
     if (!projectId) {
@@ -190,14 +207,24 @@ export default function GeoOnboardingView(): JSX.Element {
       <CssBaseline />
       <Container maxWidth="md" className="py-8">
         <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
-          自社サイトのGEO分析
+          GEOオンボーディング
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 2 }}>
-          URLを入力し、AIに強みとターゲットを抽出します。内容を確認し、保存で確定します。
+          URLを入力すると、AI検索推奨率に効く構造と独自性を4つのペルソナがレビューしながら要約します。内容を確認し、保存で確定します。
         </Typography>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
             {error}
+          </Alert>
+        )}
+        {streamChannelError !== null && streamChannelError.trim().length > 0 && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={dismissStreamAlerts}>
+            {streamChannelError}
+          </Alert>
+        )}
+        {settlementNotice !== null && settlementNotice.trim().length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={dismissStreamAlerts}>
+            {settlementNotice}
           </Alert>
         )}
         <Stack spacing={2} className="mb-6">
@@ -214,6 +241,31 @@ export default function GeoOnboardingView(): JSX.Element {
             AI解析を開始
           </Button>
         </Stack>
+        {(extracting
+          || narrationLog.length > 0
+          || scoreSeries.length > 0) && (
+          <Paper
+            elevation={0}
+            variant="outlined"
+            sx={{ p: 2.5, mb: 3, borderColor: "divider" }}
+          >
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              alignItems="flex-start"
+            >
+              <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+                <OnboardingNarrationMonitor entries={narrationLog} />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+                <OnboardingMathVisualizer
+                  scoreSeries={scoreSeries}
+                  pSiteRadar={latestRadar}
+                />
+              </Box>
+            </Stack>
+          </Paper>
+        )}
         {hasPreview && (
           <Stack spacing={3}>
             <Paper
@@ -389,7 +441,9 @@ export default function GeoOnboardingView(): JSX.Element {
         <Backdrop open={extracting} sx={{ color: "#fff", zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Stack alignItems="center" gap={1}>
             <CircularProgress color="inherit" />
-            <Typography>AIが解析中です…</Typography>
+            <Typography variant="body2" sx={{ maxWidth: 360, textAlign: "center" }}>
+              4ペルソナのディベートを実況中です。構造的シグナルと独自性スコアをリアルタイムで表示しています。
+            </Typography>
           </Stack>
         </Backdrop>
         <Snackbar

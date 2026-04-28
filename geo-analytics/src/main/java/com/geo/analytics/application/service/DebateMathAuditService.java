@@ -1,5 +1,7 @@
 package com.geo.analytics.application.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.domain.entity.MathDebateAuditEventEntity;
 import com.geo.analytics.domain.logic.ConvergenceController;
 import com.geo.analytics.domain.model.AuditEvidenceRef;
@@ -7,6 +9,7 @@ import com.geo.analytics.domain.model.MathDebateAuditExportEvent;
 import com.geo.analytics.domain.model.SeoEvidence;
 import com.geo.analytics.infrastructure.repository.MathDebateAuditEventRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.web.dto.DebateOnboardingSseEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,13 +33,16 @@ public class DebateMathAuditService {
 
     private final MathDebateAuditEventRepository mathDebateAuditEventRepository;
     private final WormAuditExportBridge wormAuditExportBridge;
+    private final ObjectMapper objectMapper;
 
     public DebateMathAuditService(
             MathDebateAuditEventRepository mathDebateAuditEventRepository,
-            WormAuditExportBridge wormAuditExportBridge) {
+            WormAuditExportBridge wormAuditExportBridge,
+            ObjectMapper objectMapper) {
         this.mathDebateAuditEventRepository =
                 Objects.requireNonNull(mathDebateAuditEventRepository, "mathDebateAuditEventRepository");
         this.wormAuditExportBridge = Objects.requireNonNull(wormAuditExportBridge, "wormAuditExportBridge");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -49,7 +55,10 @@ public class DebateMathAuditService {
             double trustScore,
             double friction,
             boolean competitorXmlIncluded,
-            List<SeoEvidence> usedEvidences) {
+            List<SeoEvidence> usedEvidences,
+            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            String sessionOutcome,
+            int executedTurnsAtEnd) {
         MathDebateAuditEventEntity row = new MathDebateAuditEventEntity();
         row.setTargetId(targetId);
         row.setEventType(AUDIT_EVENT_TYPE);
@@ -70,23 +79,43 @@ public class DebateMathAuditService {
         audit.put("friction", friction);
         audit.put("competitorXmlIncluded", competitorXmlIncluded);
         audit.put("usedEvidenceRefs", toAuditEvidenceRefMaps(usedEvidences));
+        audit.put("narration_logs", narrationEventsToJsonMaps(narrationLogBuffer));
+        audit.put("session_outcome", sessionOutcome);
+        audit.put("executed_turns_at_end", executedTurnsAtEnd);
         row.setAuditData(audit);
         MathDebateAuditEventEntity saved = mathDebateAuditEventRepository.save(row);
 
         UUID workspaceId = TenantContextHolder.getTenantId().orElse(null);
+        Map<String, Object> exportAuditPayload = new LinkedHashMap<>(saved.getAuditData());
         MathDebateAuditExportEvent exportEvent =
                 new MathDebateAuditExportEvent(
                         saved.getId(),
                         saved.getTargetId(),
                         workspaceId,
                         saved.getEventType(),
-                        new LinkedHashMap<>(saved.getAuditData()),
+                        exportAuditPayload,
                         saved.getCreatedAt());
         try {
             wormAuditExportBridge.exportAsync(exportEvent);
         } catch (RuntimeException e) {
             log.warn("failed to schedule async WORM export eventId={}", saved.getId(), e);
         }
+    }
+
+    private List<Map<String, Object>> narrationEventsToJsonMaps(List<DebateOnboardingSseEvent> narrationLogBuffer) {
+        if (narrationLogBuffer == null || narrationLogBuffer.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>(narrationLogBuffer.size());
+        synchronized (narrationLogBuffer) {
+            for (DebateOnboardingSseEvent event : narrationLogBuffer) {
+                if (event == null) {
+                    continue;
+                }
+                out.add(objectMapper.convertValue(event, new TypeReference<LinkedHashMap<String, Object>>() {}));
+            }
+        }
+        return out;
     }
 
     private static List<Map<String, Object>> toAuditEvidenceRefMaps(List<SeoEvidence> used) {

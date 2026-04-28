@@ -47,6 +47,7 @@ frontend/package.json
 frontend/postcss.config.js
 frontend/src/api/apiFetch.ts
 frontend/src/api/downloadJobPdf.ts
+frontend/src/api/geoOnboardingApi.ts
 frontend/src/api/keywordApi.ts
 frontend/src/api/tenantConstants.ts
 frontend/src/App.tsx
@@ -56,11 +57,15 @@ frontend/src/auth/RequireAuthLayout.tsx
 frontend/src/components/AnalysisCharts.tsx
 frontend/src/components/KeywordSuggestionWizard.tsx
 frontend/src/components/LoadingCharacter.tsx
+frontend/src/components/onboarding/OnboardingMathVisualizer.tsx
+frontend/src/components/onboarding/OnboardingNarrationMonitor.tsx
 frontend/src/components/SafeHtmlRenderer.tsx
 frontend/src/components/TierDiagnosisCard.tsx
 frontend/src/hooks/useJobNotification.ts
 frontend/src/hooks/useJobStreaming.ts
+frontend/src/hooks/useOnboardingStream.ts
 frontend/src/main.tsx
+frontend/src/pages/GeoOnboardingView.tsx
 frontend/src/pages/JobAnalysisPage.tsx
 frontend/src/pages/JobCreationPage.tsx
 frontend/src/pages/LoginPage.tsx
@@ -70,6 +75,7 @@ frontend/src/pages/ReportPrintPage.tsx
 frontend/src/types/analysis.ts
 frontend/src/types/auth.ts
 frontend/src/types/keyword.ts
+frontend/src/types/onboardingDebateStream.ts
 frontend/src/utils/authMessages.ts
 frontend/src/utils/somTierUtils.ts
 frontend/src/vite-env.d.ts
@@ -490,6 +496,175 @@ export async function downloadJobPdfWithAuth(jobId: string): Promise<void> {
 }
 </file>
 
+<file path="frontend/src/api/geoOnboardingApi.ts">
+import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "./apiFetch";
+
+const EXTRACT_TIMEOUT_MS = 60000;
+
+export type MinorityReportItem = {
+  insight: string;
+  conflictReason: string;
+  evidence: string;
+};
+
+export type ProjectContextData = {
+  industryType: string;
+  strengths: string[];
+  targetAudience: string;
+  minorityReports: MinorityReportItem[];
+};
+
+function asMinorityReportItem(o: unknown): MinorityReportItem {
+  if (o === null || typeof o !== "object") {
+    return { insight: "", conflictReason: "", evidence: "" };
+  }
+  const r = o as Record<string, unknown>;
+  return {
+    insight: typeof r.insight === "string" ? r.insight : "",
+    conflictReason: typeof r.conflictReason === "string" ? r.conflictReason : "",
+    evidence: typeof r.evidence === "string" ? r.evidence : "",
+  };
+}
+
+function asMinorityReports(raw: unknown): MinorityReportItem[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((it) => asMinorityReportItem(it));
+}
+
+function asContextData(raw: unknown): ProjectContextData | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.industryType !== "string") return null;
+  if (!Array.isArray(o.strengths)) return null;
+  const strengths: string[] = [];
+  for (const s of o.strengths) {
+    if (typeof s !== "string") return null;
+    strengths.push(s);
+  }
+  if (typeof o.targetAudience !== "string") return null;
+  return {
+    industryType: o.industryType,
+    strengths,
+    targetAudience: o.targetAudience,
+    minorityReports: asMinorityReports(o.minorityReports),
+  };
+}
+
+export async function postExtractContext(
+  projectId: string,
+  url: string,
+  sessionId?: string | null,
+): Promise<ProjectContextData> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, EXTRACT_TIMEOUT_MS);
+  try {
+    const body: { url: string; session_id?: string } = { url: url.trim() };
+    if (sessionId !== undefined && sessionId !== null && sessionId.trim().length > 0) {
+      body.session_id = sessionId.trim();
+    }
+    const res = await apiFetch(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/extract-context`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text();
+      const err = new Error(errText || `HTTP ${res.status}`) as Error & { status?: number; body?: string };
+      err.status = res.status;
+      err.body = errText;
+      throw err;
+    }
+    const parsed = await responseJsonAsCamel(res);
+    const data = asContextData(parsed);
+    if (!data) {
+      throw new Error("解析結果の形式が不正です");
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function patchProjectContext(
+  projectId: string,
+  body: {
+    industryType: string;
+    extractedStrengths: string;
+    targetAudience: string;
+    minorityReports: MinorityReportItem[];
+  },
+): Promise<ProjectContextData> {
+  const res = await apiFetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/context`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        industry_type: body.industryType,
+        extracted_strengths: body.extractedStrengths,
+        target_audience: body.targetAudience,
+        minority_reports: body.minorityReports.map((m) => ({
+          insight: m.insight,
+          conflict_reason: m.conflictReason,
+          evidence: m.evidence,
+        })),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const errText = await res.text();
+    const err = new Error(errText || `HTTP ${res.status}`) as Error & { status?: number; body?: string };
+    err.status = res.status;
+    err.body = errText;
+    throw err;
+  }
+  const parsed = await responseJsonAsCamel(res);
+  const data = asContextData(parsed);
+  if (!data) {
+    throw new Error("保存後の形式が不正です");
+  }
+  return data;
+}
+
+export function parseApiErrorBody(
+  text: string,
+):
+  | { errorCode: string; message: string; fields: Record<string, string> }
+  | null {
+  if (text.trim().length === 0) {
+    return null;
+  }
+  try {
+    const p = parseJsonTextAsCamel(text) as {
+      errorCode?: string;
+      message?: string;
+      details?: { fields?: Record<string, string> };
+    };
+    if (p.errorCode !== "validation_failed" || typeof p.message !== "string") {
+      return null;
+    }
+    const fields = p.details?.fields;
+    if (fields === undefined || fields === null || typeof fields !== "object") {
+      return { errorCode: p.errorCode, message: p.message, fields: {} };
+    }
+    return { errorCode: p.errorCode, message: p.message, fields: { ...fields } };
+  } catch {
+    return null;
+  }
+}
+</file>
+
 <file path="frontend/src/api/keywordApi.ts">
 import type {
   KeywordRegistrationRequestPayload,
@@ -589,6 +764,7 @@ import { JobAnalysisPage } from "./pages/JobAnalysisPage";
 import JobCreationPage from "./pages/JobCreationPage";
 import LoginPage from "./pages/LoginPage";
 import PricingPage from "./pages/PricingPage";
+import GeoOnboardingView from "./pages/GeoOnboardingView";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import ReportPrintPage from "./pages/ReportPrintPage";
 
@@ -601,6 +777,7 @@ export default function App(): JSX.Element {
         <Route path="/job/:jobId" element={<JobAnalysisPage />} />
         <Route path="/reports/print/:jobId" element={<ReportPrintPage />} />
         <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
+        <Route path="/projects/:projectId/onboarding" element={<GeoOnboardingView />} />
         <Route path="/pricing" element={<PricingPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -1451,6 +1628,301 @@ export function LoadingCharacter({ className = "" }: LoadingCharacterProps): JSX
 }
 </file>
 
+<file path="frontend/src/components/onboarding/OnboardingMathVisualizer.tsx">
+import { Box, Stack, Typography } from "@mui/material";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import type { OnboardingScorePoint } from "../../types/onboardingDebateStream";
+
+const RADAR_AXES = ["根拠シグナル", "オファリング明示", "読者接続", "補助基盤"] as const;
+
+export interface OnboardingMathVisualizerProps {
+  scoreSeries: OnboardingScorePoint[];
+  pSiteRadar: number[] | null;
+}
+
+export function OnboardingMathVisualizer(props: OnboardingMathVisualizerProps): JSX.Element {
+  const { scoreSeries, pSiteRadar } = props;
+
+  const lineData = scoreSeries.map((p) => ({
+    roundLabel: `R${p.round}`,
+    round: p.round,
+    独自性スコア: Number(p.geoIg.toFixed(5)),
+  }));
+
+  const radarData =
+    pSiteRadar !== null && pSiteRadar.length >= 4
+      ? RADAR_AXES.map((axis, i) => ({
+          axis,
+          構造バランス: Math.min(1, Math.max(0, pSiteRadar[i] ?? 0)),
+        }))
+      : RADAR_AXES.map((axis, i) => ({
+          axis,
+          構造バランス:
+            pSiteRadar !== null && pSiteRadar[i] !== undefined
+              ? Math.min(1, Math.max(0, pSiteRadar[i]))
+              : 0,
+        }));
+
+  const radarHasSignal =
+    pSiteRadar !== null
+    && pSiteRadar.length > 0
+    && pSiteRadar.some((v) => typeof v === "number" && v > 1e-8);
+
+  return (
+    <Stack spacing={2}>
+      <Typography variant="subtitle2" color="text.secondary" fontWeight={700}>
+        数理ビジュアライザー
+      </Typography>
+      <Box sx={{ height: 260, width: "100%" }}>
+        {lineData.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 6, textAlign: "center" }}>
+            スコア更新を待っています…
+          </Typography>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={lineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
+              <XAxis dataKey="roundLabel" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} width={48} domain={["auto", "auto"]} />
+              <Tooltip
+                formatter={(value: number, name: string) => [
+                  value,
+                  name === "独自性スコア" ? "独自性スコア（情報の独自性）" : name,
+                ]}
+                labelFormatter={(l) => `ラウンド ${String(l)}`}
+              />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="独自性スコア"
+                stroke="#4f46e5"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                isAnimationActive
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </Box>
+      <Box sx={{ height: 300, width: "100%" }}>
+        {!radarHasSignal ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 6, textAlign: "center" }}>
+            構造バランス（サイト上の質量配分）はスコア更新とともに表示されます。
+          </Typography>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="78%">
+              <PolarGrid />
+              <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11 }} />
+              <Radar
+                name="構造バランス"
+                dataKey="構造バランス"
+                stroke="#0d9488"
+                fill="#14b8a6"
+                fillOpacity={0.35}
+                isAnimationActive
+              />
+              <Tooltip formatter={(v: number) => [v.toFixed(4), "質量シェア（正規化）"]} />
+              <Legend />
+            </RadarChart>
+          </ResponsiveContainer>
+        )}
+      </Box>
+    </Stack>
+  );
+}
+</file>
+
+<file path="frontend/src/components/onboarding/OnboardingNarrationMonitor.tsx">
+import { Box, Stack, Typography } from "@mui/material";
+import { useEffect, useMemo, useState } from "react";
+import type { DebateStreamPersona, OnboardingNarrationLogEntry } from "../../types/onboardingDebateStream";
+
+const FACADE_REPLACEMENTS: Array<{ pattern: RegExp; text: string }> = [
+  { pattern: /検索エンジン/g, text: "AI推奨インターフェース" },
+  { pattern: /SEO/gi, text: "AI検索での見え方（GEO）" },
+  { pattern: /検索順位/g, text: "AI検索推奨率" },
+  { pattern: /順位付け/g, text: "推奨のされやすさ" },
+  { pattern: /ランキング/g, text: "推奨スコア" },
+];
+
+function toGeoFacadeCopy(raw: string): string {
+  let s = raw;
+  for (const { pattern, text } of FACADE_REPLACEMENTS) {
+    s = s.replace(pattern, text);
+  }
+  return s;
+}
+
+function personaLabel(persona: DebateStreamPersona | null): string {
+  switch (persona) {
+    case "ANALYST":
+      return "アナリスト（構造的シグナル担当）";
+    case "INNOVATOR":
+      return "イノベーター（情報の独自性）";
+    case "SKEPTIC":
+      return "スケプティック（健全性監査）";
+    case "DIRECTOR":
+      return "ディレクター（収束オーケストレーション）";
+    case "SYSTEM":
+      return "オーケストレーター";
+    default:
+      return "参加エージェント";
+  }
+}
+
+function personaTypingMs(persona: DebateStreamPersona | null): number {
+  switch (persona) {
+    case "ANALYST":
+      return 26;
+    case "INNOVATOR":
+      return 17;
+    case "SKEPTIC":
+      return 21;
+    case "DIRECTOR":
+      return 24;
+    case "SYSTEM":
+      return 29;
+    default:
+      return 22;
+  }
+}
+
+function TypingLine(props: { text: string; intervalMs: number }): JSX.Element {
+  const { text, intervalMs } = props;
+  const [revealed, setRevealed] = useState(0);
+
+  useEffect(() => {
+    if (text.length === 0) {
+      return;
+    }
+    setRevealed(0);
+    let i = 0;
+    const id = window.setInterval(() => {
+      i += 1;
+      if (i >= text.length) {
+        window.clearInterval(id);
+        setRevealed(text.length);
+        return;
+      }
+      setRevealed(i);
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [text, intervalMs]);
+
+  const shown = text.slice(0, revealed);
+  return (
+    <Typography component="span" variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+      {shown}
+      {revealed < text.length && (
+        <Box
+          component="span"
+          sx={{
+            display: "inline-block",
+            width: "0.35em",
+            height: "1em",
+            ml: 0.15,
+            verticalAlign: "text-bottom",
+            bgcolor: "primary.main",
+            opacity: 0.55,
+            animation: "obCaret 0.9s step-end infinite",
+            "@keyframes obCaret": {
+              "0%, 49%": { opacity: 0.55 },
+              "50%, 100%": { opacity: 0.05 },
+            },
+          }}
+          aria-hidden
+        />
+      )}
+    </Typography>
+  );
+}
+
+export interface OnboardingNarrationMonitorProps {
+  entries: OnboardingNarrationLogEntry[];
+}
+
+export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProps): JSX.Element {
+  const { entries } = props;
+  const stablePrevious = useMemo(() => (entries.length >= 2 ? entries.slice(0, -1) : []), [entries]);
+  const last = entries.length >= 1 ? entries[entries.length - 1] : null;
+
+  return (
+    <Stack spacing={1.75} sx={{ maxHeight: 360, overflowY: "auto", pr: 0.5 }}>
+      <Typography variant="subtitle2" color="text.secondary" fontWeight={700}>
+        ディベート実況（AI検索推奨率に効く構造と独自性）
+      </Typography>
+      {stablePrevious.map((row) => (
+        <Box
+          key={row.id}
+          sx={{
+            borderLeft: 3,
+            borderColor:
+              row.persona === "SKEPTIC"
+                ? "warning.main"
+                : row.persona === "INNOVATOR"
+                  ? "secondary.main"
+                  : row.persona === "DIRECTOR"
+                    ? "success.main"
+                    : "primary.light",
+            pl: 1.25,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.35 }}>
+            {personaLabel(row.persona)}
+          </Typography>
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+            {toGeoFacadeCopy(row.message)}
+          </Typography>
+        </Box>
+      ))}
+      {last !== null && (
+        <Box
+          sx={{
+            borderLeft: 3,
+            borderColor:
+              last.persona === "SKEPTIC"
+                ? "warning.main"
+                : last.persona === "INNOVATOR"
+                  ? "secondary.main"
+                  : last.persona === "DIRECTOR"
+                    ? "success.main"
+                    : "primary.main",
+            pl: 1.25,
+            bgcolor: "action.hover",
+            borderRadius: 1,
+            py: 0.75,
+          }}
+        >
+          <Typography variant="caption" color="primary" display="block" fontWeight={700} sx={{ mb: 0.35 }}>
+            {personaLabel(last.persona)}
+          </Typography>
+          <TypingLine text={toGeoFacadeCopy(last.message)} intervalMs={personaTypingMs(last.persona)} />
+        </Box>
+      )}
+      {entries.length === 0 && (
+        <Typography variant="body2" color="text.secondary">
+          接続が確立されると、各ペルソナの実況がリアルタイムで流れます。
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+</file>
+
 <file path="frontend/src/components/SafeHtmlRenderer.tsx">
 import DOMPurify, { type Config } from "dompurify";
 import { useMemo } from "react";
@@ -2081,6 +2553,379 @@ export function useJobStreaming(
 }
 </file>
 
+<file path="frontend/src/hooks/useOnboardingStream.ts">
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { keysToCamelDeep } from "../api/apiFetch";
+import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
+import { getAccessToken } from "../auth/authSession";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import type {
+  DebateOnboardingSseEventPayload,
+  DebateOnboardingSseEventType,
+  DebatePartialScoresPayload,
+  DebateStreamPersona,
+  DebateStreamPhase,
+  OnboardingNarrationLogEntry,
+  OnboardingScorePoint,
+} from "../types/onboardingDebateStream";
+
+const FLUSH_MS = 120;
+const MAX_PRE_OPEN_ATTEMPTS = 14;
+const INITIAL_BACKOFF_MS = 500;
+
+export const ONBOARDING_STREAM_SETTLEMENT_NOTICE =
+  "接続が切断されたか、エラーで処理が完了しませんでした。この場合でもご利用枠（クレジット等）の精算はサーバー側で正しく行われています。ご不明点があればサポートへお問い合わせください。";
+
+type QueuedStreamChunk =
+  | { kind: "narration"; entry: OnboardingNarrationLogEntry }
+  | { kind: "score"; point: OnboardingScorePoint; radar: number[] };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildOnboardingStreamUrl(projectId: string, sessionId: string): string {
+  const pid = encodeURIComponent(projectId);
+  const sid = encodeURIComponent(sessionId);
+  return `/api/v1/projects/${pid}/onboarding/stream?session_id=${sid}`;
+}
+
+function parseDebatePayload(rawText: string): DebateOnboardingSseEventPayload | null {
+  try {
+    const parsed: unknown = keysToCamelDeep(JSON.parse(rawText));
+    if (parsed === null || typeof parsed !== "object") {
+      return null;
+    }
+    const o = parsed as Record<string, unknown>;
+    const eventType = o.eventType;
+    if (
+      eventType !== "NARRATION"
+      && eventType !== "SCORE_UPDATE"
+      && eventType !== "PHASE_CHANGE"
+      && eventType !== "DONE"
+      && eventType !== "ERROR"
+    ) {
+      return null;
+    }
+    const persona = (o.persona ?? null) as DebateStreamPersona | null;
+    const status = (o.status ?? null) as DebateStreamPhase;
+    const message = typeof o.message === "string" ? o.message : null;
+    let partialScores: DebatePartialScoresPayload | null = null;
+    if (o.partialScores !== undefined && o.partialScores !== null && typeof o.partialScores === "object") {
+      partialScores = o.partialScores as DebatePartialScoresPayload;
+    }
+    return {
+      eventType,
+      persona,
+      status,
+      message,
+      partialScores,
+      timestamp: typeof o.timestamp === "string" ? o.timestamp : null,
+      sessionId: typeof o.sessionId === "string" ? o.sessionId : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function streamHeaders(): Record<string, string> {
+  const streamHeaders: Record<string, string> = {
+    "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
+  };
+  const accessToken = getAccessToken();
+  if (accessToken !== null && accessToken.length > 0) {
+    streamHeaders.Authorization = `Bearer ${accessToken}`;
+  }
+  return streamHeaders;
+}
+
+function nextLogId(): string {
+  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function applyMessageToPending(
+  payload: DebateOnboardingSseEventPayload,
+  runId: number,
+  runIdRef: MutableRefObject<number>,
+  queueRef: MutableRefObject<QueuedStreamChunk[]>,
+  receivedDoneRef: MutableRefObject<boolean>,
+  setStreamError: (v: string | null) => void,
+  setSettlementNotice: (v: string | null) => void,
+): void {
+  if (runId !== runIdRef.current) {
+    return;
+  }
+  const eventType = payload.eventType as DebateOnboardingSseEventType;
+  if (eventType === "DONE") {
+    receivedDoneRef.current = true;
+    return;
+  }
+  if (eventType === "ERROR") {
+    receivedDoneRef.current = true;
+    const serverMsg = payload.message?.trim() ?? "";
+    setStreamError(serverMsg.length > 0 ? serverMsg : "ストリームでエラーが返されました。");
+    setSettlementNotice(ONBOARDING_STREAM_SETTLEMENT_NOTICE);
+    return;
+  }
+  if (eventType === "NARRATION" || eventType === "PHASE_CHANGE") {
+    const text = payload.message?.trim() ?? "";
+    if (text.length === 0) {
+      return;
+    }
+    const entry: OnboardingNarrationLogEntry = {
+      id: nextLogId(),
+      eventType,
+      persona: payload.persona ?? null,
+      phase: payload.status ?? null,
+      message: text,
+      atMs: Date.now(),
+    };
+    queueRef.current.push({ kind: "narration", entry });
+    return;
+  }
+  if (eventType === "SCORE_UPDATE") {
+    const ps = payload.partialScores;
+    const round = typeof ps?.round === "number" ? ps.round : null;
+    const geoIg = typeof ps?.geoIg === "number" && Number.isFinite(ps.geoIg) ? ps.geoIg : null;
+    if (round === null || geoIg === null) {
+      return;
+    }
+    const w1 =
+      typeof ps?.wasserstein1 === "number" && Number.isFinite(ps.wasserstein1) ? ps.wasserstein1 : null;
+    const pSite = Array.isArray(ps?.pSite) ? ps.pSite.filter((n) => typeof n === "number" && Number.isFinite(n)) : [];
+    const radar = pSite.length >= 4 ? pSite.slice(0, 4) : pSite;
+    queueRef.current.push({
+      kind: "score",
+      point: { round, geoIg, wasserstein1: w1 },
+      radar,
+    });
+  }
+}
+
+export interface UseOnboardingStreamResult {
+  narrationLog: OnboardingNarrationLogEntry[];
+  scoreSeries: OnboardingScorePoint[];
+  latestRadar: number[] | null;
+  streamError: string | null;
+  settlementNotice: string | null;
+  streamRunning: boolean;
+  startStream: (projectId: string, sessionId: string) => Promise<void>;
+  stopStream: () => void;
+  resetStreamUiState: () => void;
+  dismissStreamAlerts: () => void;
+}
+
+export function useOnboardingStream(): UseOnboardingStreamResult {
+  const [narrationLog, setNarrationLog] = useState<OnboardingNarrationLogEntry[]>([]);
+  const [scoreSeries, setScoreSeries] = useState<OnboardingScorePoint[]>([]);
+  const [latestRadar, setLatestRadar] = useState<number[] | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [settlementNotice, setSettlementNotice] = useState<string | null>(null);
+  const [streamRunning, setStreamRunning] = useState(false);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
+  const receivedDoneRef = useRef(false);
+  const queueRef = useRef<QueuedStreamChunk[]>([]);
+  const flushIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const flushQueueToReact = useCallback(() => {
+    const batch = queueRef.current;
+    if (batch.length === 0) {
+      return;
+    }
+    queueRef.current = [];
+    const narrations: OnboardingNarrationLogEntry[] = [];
+    let lastScore: OnboardingScorePoint | null = null;
+    let lastRadar: number[] | null = null;
+    for (const item of batch) {
+      if (item.kind === "narration") {
+        narrations.push(item.entry);
+      } else {
+        lastScore = item.point;
+        lastRadar = item.radar.length > 0 ? item.radar : lastRadar;
+      }
+    }
+    if (narrations.length > 0) {
+      setNarrationLog((prev) => [...prev, ...narrations]);
+    }
+    if (lastScore !== null) {
+      setScoreSeries((prev) => {
+        const withoutSameRound = prev.filter((p) => p.round !== lastScore.round);
+        return [...withoutSameRound, lastScore!].sort((a, b) => a.round - b.round);
+      });
+    }
+    if (lastRadar !== null) {
+      setLatestRadar(lastRadar);
+    }
+  }, []);
+
+  const stopFlushTimer = useCallback(() => {
+    if (flushIntervalRef.current !== null) {
+      clearInterval(flushIntervalRef.current);
+      flushIntervalRef.current = null;
+    }
+  }, []);
+
+  const startFlushTimer = useCallback(() => {
+    if (flushIntervalRef.current !== null) {
+      return;
+    }
+    flushIntervalRef.current = setInterval(() => {
+      flushQueueToReact();
+    }, FLUSH_MS);
+  }, [flushQueueToReact]);
+
+  const stopStream = useCallback(() => {
+    runIdRef.current += 1;
+    stopFlushTimer();
+    flushQueueToReact();
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStreamRunning(false);
+  }, [flushQueueToReact, stopFlushTimer]);
+
+  const resetStreamUiState = useCallback(() => {
+    queueRef.current = [];
+    setNarrationLog([]);
+    setScoreSeries([]);
+    setLatestRadar(null);
+    setStreamError(null);
+    setSettlementNotice(null);
+    receivedDoneRef.current = false;
+  }, []);
+
+  const startStream = useCallback(
+    async (projectId: string, sessionId: string) => {
+      stopStream();
+      resetStreamUiState();
+      receivedDoneRef.current = false;
+      setStreamRunning(true);
+      const runId = runIdRef.current;
+      const ac = new AbortController();
+      abortRef.current = ac;
+      startFlushTimer();
+
+      let preOpenAttempts = 0;
+      let backoffMs = INITIAL_BACKOFF_MS;
+      let openResolved = false;
+
+      await new Promise<void>((resolve, reject) => {
+        const resolveOpenOnce = (): void => {
+          if (openResolved) {
+            return;
+          }
+          openResolved = true;
+          resolve();
+        };
+
+        const failOpen = (err: unknown): void => {
+          if (openResolved || ac.signal.aborted) {
+            return;
+          }
+          reject(err instanceof Error ? err : new Error(String(err)));
+        };
+
+        async function attemptConnection(): Promise<void> {
+          while (!ac.signal.aborted && preOpenAttempts < MAX_PRE_OPEN_ATTEMPTS) {
+            preOpenAttempts += 1;
+            let openedThisSession = false;
+            try {
+              await fetchEventSource(buildOnboardingStreamUrl(projectId, sessionId), {
+                signal: ac.signal,
+                credentials: "include",
+                openWhenHidden: true,
+                headers: streamHeaders(),
+                async onopen(response) {
+                  if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(text.length > 0 ? text : `HTTP ${response.status}`);
+                  }
+                  openedThisSession = true;
+                  resolveOpenOnce();
+                },
+                onmessage(ev) {
+                  if (runId !== runIdRef.current) {
+                    return;
+                  }
+                  if (ev.event !== "debate" || typeof ev.data !== "string") {
+                    return;
+                  }
+                  const payload = parseDebatePayload(ev.data);
+                  if (payload === null) {
+                    return;
+                  }
+                  applyMessageToPending(
+                    payload,
+                    runId,
+                    runIdRef,
+                    queueRef,
+                    receivedDoneRef,
+                    setStreamError,
+                    setSettlementNotice,
+                  );
+                },
+              });
+              if (ac.signal.aborted) {
+                return;
+              }
+              if (!receivedDoneRef.current && openedThisSession) {
+                setSettlementNotice(ONBOARDING_STREAM_SETTLEMENT_NOTICE);
+              }
+              return;
+            } catch (caught: unknown) {
+              if (ac.signal.aborted) {
+                return;
+              }
+              if (!openedThisSession) {
+                await sleep(backoffMs);
+                backoffMs = Math.min(backoffMs * 2, 32_000);
+                continue;
+              }
+              if (!receivedDoneRef.current) {
+                setSettlementNotice(ONBOARDING_STREAM_SETTLEMENT_NOTICE);
+              }
+              setStreamError(caught instanceof Error ? caught.message : String(caught));
+              return;
+            }
+          }
+          if (!ac.signal.aborted && !openResolved) {
+            failOpen(new Error("リアルタイム接続を確立できませんでした。ネットワークを確認のうえ、しばらくしてからお試しください。"));
+          }
+        }
+
+        void attemptConnection().catch(failOpen);
+      });
+    },
+    [resetStreamUiState, startFlushTimer, stopStream],
+  );
+
+  const dismissStreamAlerts = useCallback(() => {
+    setStreamError(null);
+    setSettlementNotice(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopStream();
+    };
+  }, [stopStream]);
+
+  return {
+    narrationLog,
+    scoreSeries,
+    latestRadar,
+    streamError,
+    settlementNotice,
+    streamRunning,
+    startStream,
+    stopStream,
+    resetStreamUiState,
+    dismissStreamAlerts,
+  };
+}
+</file>
+
 <file path="frontend/src/main.tsx">
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -2095,6 +2940,467 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+</file>
+
+<file path="frontend/src/pages/GeoOnboardingView.tsx">
+import {
+  Alert,
+  Backdrop,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Container,
+  CssBaseline,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Snackbar,
+  Stack,
+  TextField,
+  ThemeProvider,
+  Typography,
+  createTheme,
+} from "@mui/material";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  type MinorityReportItem,
+  parseApiErrorBody,
+  patchProjectContext,
+  postExtractContext,
+} from "../api/geoOnboardingApi";
+import { OnboardingMathVisualizer } from "../components/onboarding/OnboardingMathVisualizer";
+import { OnboardingNarrationMonitor } from "../components/onboarding/OnboardingNarrationMonitor";
+import { useOnboardingStream } from "../hooks/useOnboardingStream";
+
+const theme = createTheme();
+const industries: { value: string; label: string }[] = [
+  { value: "YMYL", label: "YMYL分野" },
+  { value: "LOCAL", label: "ローカルビジネス" },
+  { value: "B2B", label: "法人向け" },
+  { value: "B2C", label: "消費者向け" },
+  { value: "EC", label: "通販・EC" },
+  { value: "OTHER", label: "その他" },
+];
+
+const MAX_MINORITY = 10;
+
+type FieldKey = "url" | "industryType" | "extractedStrengths" | "targetAudience";
+
+function applyFieldErrors(
+  err: { fields: Record<string, string> | undefined },
+  setFieldErrors: Dispatch<SetStateAction<Partial<Record<FieldKey, string>>>>,
+) {
+  const f = err.fields;
+  if (!f) {
+    return;
+  }
+  const next: Partial<Record<FieldKey, string>> = {};
+  for (const k of Object.keys(f)) {
+    if (k === "url" || k === "industryType" || k === "extractedStrengths" || k === "targetAudience") {
+      const v = f[k];
+      if (typeof v === "string" && v.length > 0) {
+        next[k] = v;
+      }
+    }
+  }
+  setFieldErrors(next);
+}
+
+function emptyMinorityRow(): MinorityReportItem {
+  return { insight: "", conflictReason: "", evidence: "" };
+}
+
+export default function GeoOnboardingView(): JSX.Element {
+  const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
+  const [url, setUrl] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [industryType, setIndustryType] = useState<string>("OTHER");
+  const [strengthsText, setStrengthsText] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [minorityReports, setMinorityReports] = useState<MinorityReportItem[]>([]);
+  const [hasPreview, setHasPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [toast, setToast] = useState<string | null>(null);
+
+  const {
+    startStream,
+    stopStream,
+    narrationLog,
+    scoreSeries,
+    latestRadar,
+    streamError: streamChannelError,
+    settlementNotice,
+    dismissStreamAlerts,
+  } = useOnboardingStream();
+
+  const patchMinority = useCallback(
+    (index: number, patch: Partial<MinorityReportItem>) => {
+      setMinorityReports((prev) =>
+        prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+      );
+    },
+    [],
+  );
+
+  const onExtract = useCallback(async () => {
+    if (!projectId) {
+      return;
+    }
+    setError(null);
+    setFieldErrors({});
+    setExtracting(true);
+    const sessionId = crypto.randomUUID();
+    try {
+      await startStream(projectId, sessionId);
+      const data = await postExtractContext(projectId, url, sessionId);
+      setIndustryType(data.industryType);
+      setStrengthsText(data.strengths.join("\n"));
+      setTargetAudience(data.targetAudience);
+      setMinorityReports(data.minorityReports.map((m) => ({ ...m })));
+      setHasPreview(true);
+    } catch (e: unknown) {
+      if (
+        e !== null
+        && typeof e === "object"
+        && "status" in e
+        && (e as { status: number }).status === 400
+        && "body" in e
+        && typeof (e as { body: unknown }).body === "string"
+      ) {
+        const parsed = parseApiErrorBody((e as { body: string }).body);
+        if (parsed) {
+          setError(parsed.message);
+          applyFieldErrors({ fields: parsed.fields }, setFieldErrors);
+          return;
+        }
+      }
+      if (e instanceof Error && e.name === "AbortError") {
+        setError("解析は1分以内に完了しませんでした。URLを確認し、再試行してください。");
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      stopStream();
+      setExtracting(false);
+    }
+  }, [projectId, url, startStream, stopStream]);
+
+  const onSave = useCallback(async () => {
+    if (!projectId) {
+      return;
+    }
+    setError(null);
+    setFieldErrors({});
+    setSaving(true);
+    try {
+      const data = await patchProjectContext(projectId, {
+        industryType,
+        extractedStrengths: strengthsText,
+        targetAudience,
+        minorityReports,
+      });
+      setIndustryType(data.industryType);
+      setStrengthsText(data.strengths.join("\n"));
+      setTargetAudience(data.targetAudience);
+      setMinorityReports(data.minorityReports.map((m) => ({ ...m })));
+      setToast("保存しました");
+    } catch (e: unknown) {
+      if (
+        e !== null
+        && typeof e === "object"
+        && "status" in e
+        && (e as { status: number }).status === 400
+        && "body" in e
+        && typeof (e as { body: unknown }).body === "string"
+      ) {
+        const parsed = parseApiErrorBody((e as { body: string }).body);
+        if (parsed) {
+          setError(parsed.message);
+          applyFieldErrors({ fields: parsed.fields }, setFieldErrors);
+          return;
+        }
+      }
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [projectId, industryType, strengthsText, targetAudience, minorityReports]);
+
+  if (!projectId) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Container>
+          <Typography>プロジェクトIDが不正です</Typography>
+        </Container>
+      </ThemeProvider>
+    );
+  }
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Container maxWidth="md" className="py-8">
+        <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
+          GEOオンボーディング
+        </Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
+          URLを入力すると、AI検索推奨率に効く構造と独自性を4つのペルソナがレビューしながら要約します。内容を確認し、保存で確定します。
+        </Typography>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+        {streamChannelError !== null && streamChannelError.trim().length > 0 && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={dismissStreamAlerts}>
+            {streamChannelError}
+          </Alert>
+        )}
+        {settlementNotice !== null && settlementNotice.trim().length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={dismissStreamAlerts}>
+            {settlementNotice}
+          </Alert>
+        )}
+        <Stack spacing={2} className="mb-6">
+          <TextField
+            label="WebサイトのURL"
+            value={url}
+            onChange={(valueEvent) => setUrl(valueEvent.target.value)}
+            fullWidth
+            required
+            error={!!fieldErrors.url}
+            helperText={fieldErrors.url}
+          />
+          <Button variant="contained" onClick={() => void onExtract()} disabled={extracting || url.trim().length === 0}>
+            AI解析を開始
+          </Button>
+        </Stack>
+        {(extracting
+          || narrationLog.length > 0
+          || scoreSeries.length > 0) && (
+          <Paper
+            elevation={0}
+            variant="outlined"
+            sx={{ p: 2.5, mb: 3, borderColor: "divider" }}
+          >
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              alignItems="flex-start"
+            >
+              <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+                <OnboardingNarrationMonitor entries={narrationLog} />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+                <OnboardingMathVisualizer
+                  scoreSeries={scoreSeries}
+                  pSiteRadar={latestRadar}
+                />
+              </Box>
+            </Stack>
+          </Paper>
+        )}
+        {hasPreview && (
+          <Stack spacing={3}>
+            <Paper
+              elevation={0}
+              variant="outlined"
+              sx={{
+                p: 2.5,
+                borderLeft: 4,
+                borderColor: "primary.main",
+                bgcolor: "action.hover",
+              }}
+            >
+              <Typography variant="overline" color="primary" fontWeight={700} letterSpacing={0.08}>
+                盤石な合意案
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                事実根拠が重なり、スケプティックの批判を乗り越えた強みとターゲットを編集できます。
+              </Typography>
+              <Stack spacing={2}>
+                <FormControl fullWidth>
+                  <InputLabel id="industry-label">業種</InputLabel>
+                  <Select
+                    labelId="industry-label"
+                    label="業種"
+                    value={industryType}
+                    onChange={(selectEvent) => setIndustryType(String(selectEvent.target.value))}
+                    error={!!fieldErrors.industryType}
+                  >
+                    {industries.map((row) => (
+                      <MenuItem key={row.value} value={row.value}>
+                        {row.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {fieldErrors.industryType && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5 }} component="p">
+                      {fieldErrors.industryType}
+                    </Typography>
+                  )}
+                </FormControl>
+                <TextField
+                  label="強み"
+                  value={strengthsText}
+                  onChange={(valueEvent) => setStrengthsText(valueEvent.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  error={!!fieldErrors.extractedStrengths}
+                  helperText={fieldErrors.extractedStrengths}
+                />
+                <TextField
+                  label="ターゲット層"
+                  value={targetAudience}
+                  onChange={(valueEvent) => setTargetAudience(valueEvent.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  error={!!fieldErrors.targetAudience}
+                  helperText={fieldErrors.targetAudience}
+                />
+              </Stack>
+            </Paper>
+
+            <Paper
+              elevation={0}
+              variant="outlined"
+              sx={{
+                p: 2.5,
+                borderLeft: 4,
+                borderColor: "warning.main",
+              }}
+            >
+              <Typography variant="overline" color="warning.dark" fontWeight={700} letterSpacing={0.08}>
+                破壊的マイノリティ・レポート
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                多数派の合意に入らなかったが、根拠ある尖り。AI間の知的な摩擦をここに集約します。
+              </Typography>
+              <Stack spacing={2}>
+                {minorityReports.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">
+                    まだマイノリティ行がありません。「行を追加」で編集するか、再度AI解析を試してください。
+                  </Typography>
+                )}
+                {minorityReports.map((row, index) => (
+                  <Card key={index} variant="outlined" sx={{ overflow: "visible" }}>
+                    <CardContent sx={{ "&:last-child": { pb: 2 } }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary">
+                          レポート {index + 1} / {MAX_MINORITY}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          aria-label="このレポートを削除"
+                          onClick={() =>
+                            setMinorityReports((prev) => prev.filter((_, i) => i !== index))
+                          }
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                      <Stack spacing={1.5}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            <span aria-hidden>💡</span> 独自の強み（insight）
+                          </Typography>
+                          <TextField
+                            value={row.insight}
+                            onChange={(e) => patchMinority(index, { insight: e.target.value })}
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            size="small"
+                            placeholder="引用価値のある切り口"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="warning.main" display="block" fontWeight={600} sx={{ mb: 0.5 }}>
+                            <span aria-hidden>⚠️</span> 多数派の懸念（conflict）
+                          </Typography>
+                          <TextField
+                            value={row.conflictReason}
+                            onChange={(e) => patchMinority(index, { conflictReason: e.target.value })}
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            size="small"
+                            placeholder="合意が難しい理由"
+                          />
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                            <span aria-hidden>🔍</span> 根拠（evidence）
+                          </Typography>
+                          <TextField
+                            value={row.evidence}
+                            onChange={(e) => patchMinority(index, { evidence: e.target.value })}
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            size="small"
+                            placeholder="原文に基づく根拠"
+                          />
+                        </Box>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  disabled={minorityReports.length >= MAX_MINORITY}
+                  onClick={() => setMinorityReports((prev) => [...prev, emptyMinorityRow()])}
+                >
+                  行を追加（最大{MAX_MINORITY}件）
+                </Button>
+              </Stack>
+            </Paper>
+
+            <Button
+              variant="contained"
+              onClick={() => void onSave()}
+              disabled={saving}
+              color="primary"
+            >
+              保存
+            </Button>
+          </Stack>
+        )}
+        <Button sx={{ mt: 2 }} onClick={() => navigate(`/projects/${projectId}/settings`)}>
+          設定へ
+        </Button>
+        <Backdrop open={extracting} sx={{ color: "#fff", zIndex: (t) => t.zIndex.drawer + 1 }}>
+          <Stack alignItems="center" gap={1}>
+            <CircularProgress color="inherit" />
+            <Typography variant="body2" sx={{ maxWidth: 360, textAlign: "center" }}>
+              4ペルソナのディベートを実況中です。構造的シグナルと独自性スコアをリアルタイムで表示しています。
+            </Typography>
+          </Stack>
+        </Backdrop>
+        <Snackbar
+          open={toast !== null}
+          autoHideDuration={4000}
+          onClose={() => setToast(null)}
+          message={toast ?? ""}
+        />
+      </Container>
+    </ThemeProvider>
+  );
+}
 </file>
 
 <file path="frontend/src/pages/JobAnalysisPage.tsx">
@@ -4998,6 +6304,66 @@ export type KeywordSuggestionResponse = { categories: KeywordCategory[] };
 export type SelectedKeywordPayload = { text: string; category_name: string };
 export type KeywordRegistrationRequestPayload = { project_id: string; keywords: SelectedKeywordPayload[] };
 export type KeywordRegistrationResult = { registeredCount: number; skippedCount: number };
+</file>
+
+<file path="frontend/src/types/onboardingDebateStream.ts">
+export type DebateOnboardingSseEventType =
+  | "NARRATION"
+  | "SCORE_UPDATE"
+  | "PHASE_CHANGE"
+  | "DONE"
+  | "ERROR";
+
+export type DebateStreamPersona =
+  | "ANALYST"
+  | "INNOVATOR"
+  | "SKEPTIC"
+  | "DIRECTOR"
+  | "SYSTEM";
+
+export type DebateStreamPhase =
+  | "GATHERING"
+  | "ANALYZING"
+  | "DEBATING"
+  | "CONVERGING"
+  | null;
+
+export type DebatePartialScoresPayload = {
+  round?: number | null;
+  pSite?: number[];
+  agentMass?: number[];
+  sDensity?: number | null;
+  qIntent?: number | null;
+  currConfidences?: number[];
+  currCentroid?: number[];
+  geoIg?: number | null;
+  wasserstein1?: number | null;
+};
+
+export type DebateOnboardingSseEventPayload = {
+  eventType: DebateOnboardingSseEventType;
+  persona?: DebateStreamPersona | null;
+  status?: DebateStreamPhase;
+  message?: string | null;
+  partialScores?: DebatePartialScoresPayload | null;
+  timestamp?: string | null;
+  sessionId?: string | null;
+};
+
+export type OnboardingNarrationLogEntry = {
+  id: string;
+  eventType: DebateOnboardingSseEventType;
+  persona: DebateStreamPersona | null;
+  phase: DebateStreamPhase;
+  message: string;
+  atMs: number;
+};
+
+export type OnboardingScorePoint = {
+  round: number;
+  geoIg: number;
+  wasserstein1: number | null;
+};
 </file>
 
 <file path="frontend/src/utils/authMessages.ts">

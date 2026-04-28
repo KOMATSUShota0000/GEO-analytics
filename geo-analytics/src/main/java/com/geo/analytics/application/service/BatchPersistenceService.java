@@ -49,6 +49,13 @@ public class BatchPersistenceService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
+     */
+    private static Integer normalizedAiCitationPosition(Integer position) {
+        return (position != null && position > 0) ? position : null;
+    }
+
     private static final String JOB_COLS =
             "id, tenant_id, project_id, job_status, subscription_plan, "
             + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
@@ -172,6 +179,7 @@ public class BatchPersistenceService {
                                    String diagnosticMessage, List<String> recommendedActions,
                                    String modelInsightsJson,
                                    List<CompetitorScoreRow> competitorScoreRows) {
+        Integer persistedAiCitationPosition = normalizedAiCitationPosition(aiCitationPosition);
         Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
         UUID auditId;
         if (existingId.isPresent()) {
@@ -192,7 +200,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 6, overallScore);
                 ps.setString(7, resolvedEntityLabel);
                 ps.setInt(8, tokenCount);
-                ps.setObject(9, aiCitationPosition, Types.INTEGER);
+                ps.setObject(9, persistedAiCitationPosition, Types.INTEGER);
                 ps.setDouble(10, sentimentIntensity);
                 setNullableInt(ps, 11, visibilityStage);
                 ps.setString(12, calculationVersion);
@@ -228,7 +236,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 11, overallScore);
                 ps.setString(12, resolvedEntityLabel);
                 ps.setInt(13, tokenCount);
-                ps.setObject(14, aiCitationPosition, Types.INTEGER);
+                ps.setObject(14, persistedAiCitationPosition, Types.INTEGER);
                 ps.setDouble(15, sentimentIntensity);
                 setNullableInt(ps, 16, visibilityStage);
                 ps.setString(17, calculationVersion);
@@ -249,7 +257,7 @@ public class BatchPersistenceService {
                         + "som_score, ai_citation_position, visibility_stage, match_status, noun_count) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         UUID.randomUUID(), auditId, row.competitorName(),
-                        row.somScore(), row.aiCitationPosition(), row.visibilityStage(),
+                        row.somScore(), normalizedAiCitationPosition(row.aiCitationPosition()), row.visibilityStage(),
                         row.matchStatus() != null ? row.matchStatus().name() : null, row.nounCount());
             }
         }

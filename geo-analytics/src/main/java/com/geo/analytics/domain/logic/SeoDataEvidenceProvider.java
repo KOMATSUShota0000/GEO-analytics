@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -40,6 +41,7 @@ public class SeoDataEvidenceProvider {
     private final int maxYearsWhenDateUnknown;
     private final double snippetDuplicateThreshold;
 
+    @Autowired
     public SeoDataEvidenceProvider(SimilarityScorer similarityScorer) {
         this(
                 similarityScorer,

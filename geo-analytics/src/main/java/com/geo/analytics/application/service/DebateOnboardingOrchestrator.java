@@ -22,6 +22,7 @@ import com.geo.analytics.domain.model.SeoEvidence;
 import com.geo.analytics.domain.model.SeoOrganicRow;
 import com.geo.analytics.infrastructure.ai.DirectorOnboardingJson;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import com.geo.analytics.web.dto.DebateOnboardingSseEvent;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -31,15 +32,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class DebateOnboardingOrchestrator {
-    private static final int MAX_DEBATE_TURNS = 5;
+    /** オンボーディングディベートの最大ターン数（クレジット按分の分母と一致させる）。 */
+    public static final int MAX_DEBATE_TURNS = 5;
+    /** 監査・WORM 向け実況バッファの上限（超過分は古いものから破棄）。 */
+    public static final int MAX_NARRATION_LOG_BUFFER_ENTRIES = 100;
+    private static final int MAX_AUDIT_NARRATION_MESSAGE_CHARS = 2000;
     private static final double CONVERGENCE_FRICTION = 0.5d;
     private static final boolean[] IS_INNOVATOR = new boolean[] {false, true, false};
     private static final int RAG_EVIDENCE_MAX_COUNT = 5;
@@ -57,6 +65,7 @@ public class DebateOnboardingOrchestrator {
     private final TokenProfitBudgetResolver tokenProfitBudgetResolver;
     private final PromptInjectionValidator promptInjectionValidator;
     private final DebateMathAuditService debateMathAuditService;
+    private final OnboardingDebateStreamRegistry onboardingDebateStreamRegistry;
 
     public DebateOnboardingOrchestrator(
             @Qualifier(AiConfig.GEMINI_DEBATE_ANALYST) ChatLanguageModel analystChatModel,
@@ -67,7 +76,8 @@ public class DebateOnboardingOrchestrator {
             SeoDataEvidenceProvider seoDataEvidenceProvider,
             TokenProfitBudgetResolver tokenProfitBudgetResolver,
             PromptInjectionValidator promptInjectionValidator,
-            DebateMathAuditService debateMathAuditService) {
+            DebateMathAuditService debateMathAuditService,
+            OnboardingDebateStreamRegistry onboardingDebateStreamRegistry) {
         this.analystChatModel = analystChatModel;
         this.innovatorChatModel = innovatorChatModel;
         this.skepticChatModel = skepticChatModel;
@@ -79,6 +89,28 @@ public class DebateOnboardingOrchestrator {
         this.promptInjectionValidator =
                 Objects.requireNonNull(promptInjectionValidator, "promptInjectionValidator");
         this.debateMathAuditService = Objects.requireNonNull(debateMathAuditService, "debateMathAuditService");
+        this.onboardingDebateStreamRegistry =
+                Objects.requireNonNull(onboardingDebateStreamRegistry, "onboardingDebateStreamRegistry");
+    }
+
+    public static void enforceNarrationLogBufferCap(List<DebateOnboardingSseEvent> narrationLogBuffer) {
+        Objects.requireNonNull(narrationLogBuffer, "narrationLogBuffer");
+        synchronized (narrationLogBuffer) {
+            while (narrationLogBuffer.size() >= MAX_NARRATION_LOG_BUFFER_ENTRIES) {
+                narrationLogBuffer.remove(0);
+            }
+        }
+    }
+
+    /** 監査ログ／JSONB 向けにユーザ向け実況メッセージを短縮する（SSE ペイロードは別途フル長を可）。 */
+    public static String truncateNarrationForAudit(String message) {
+        if (message == null) {
+            return null;
+        }
+        if (message.length() <= MAX_AUDIT_NARRATION_MESSAGE_CHARS) {
+            return message;
+        }
+        return message.substring(0, MAX_AUDIT_NARRATION_MESSAGE_CHARS) + "…";
     }
 
     public GeoOnboardingLlmResult runDebateOnboarding(
@@ -86,57 +118,86 @@ public class DebateOnboardingOrchestrator {
             UUID targetId,
             String searchQuery,
             List<SeoOrganicRow> rawSeoRows,
-            IndustryType industryHint) {
+            IndustryType industryHint,
+            UUID sessionId,
+            AtomicInteger executedTurns,
+            List<DebateOnboardingSseEvent> narrationLogBuffer) {
         Objects.requireNonNull(targetId, "targetId");
-        IndustryType resolvedIndustry = industryHint != null ? industryHint : IndustryType.OTHER;
-        String q = searchQuery == null ? "" : searchQuery;
-        String wrapped = "<scraped_data>\n" + plainText + "\n</scraped_data>";
-        List<SeoEvidence> seoEvidences = List.of();
-        if (rawSeoRows != null && !rawSeoRows.isEmpty()) {
-            seoEvidences =
-                    seoDataEvidenceProvider.provideEvidences(
-                            q,
-                            rawSeoRows,
-                            RAG_EVIDENCE_MAX_COUNT,
-                            SeoDataEvidenceProvider.DEFAULT_MAX_PER_DOMAIN,
-                            DEFAULT_EVIDENCE_RELEVANCE_LABEL);
-            SubscriptionPlan subscriptionPlan =
-                    TenantPlanScope.currentSubscriptionPlan().orElse(SubscriptionPlan.STANDARD);
-            int maxCompetitorXmlChars = tokenProfitBudgetResolver.maxCompetitorXmlChars(subscriptionPlan);
-            seoEvidences = TokenProfitGuard.clipEvidences(seoEvidences, maxCompetitorXmlChars);
-        }
-        String competitorXml =
-                (seoEvidences == null || seoEvidences.isEmpty())
-                        ? ""
-                        : SeoEvidenceXmlBuilder.buildCompetitorBlock(seoEvidences);
-        boolean competitorXmlIncluded = false;
-        List<SeoEvidence> usedEvidencesForAudit = List.of();
-        if (!competitorXml.isEmpty()) {
-            if (promptInjectionValidator.isCompetitorXmlSafe(competitorXml)) {
-                competitorXmlIncluded = true;
-                usedEvidencesForAudit = List.copyOf(seoEvidences);
-            } else {
-                log.warn("competitor XML rejected by prompt-injection guard; continuing without competitor block");
-                competitorXml = "";
-            }
-        }
-        String contextAnalystBase =
-                competitorXml.isEmpty() ? wrapped : wrapped + "\n\n" + competitorXml;
-        String contextInnovatorBase = wrapped;
-        StringBuilder debateAccumulator = new StringBuilder();
-        double[] prevConfidences = null;
-        double[] prevCentroid = null;
-        String analystText = "";
-        String innovatorRaw = "";
-        String innovatorForHistory = "";
-        String skepticText = "";
-        String stopReason = "MAX_TURNS_REACHED";
+        Objects.requireNonNull(executedTurns, "executedTurns");
+        Objects.requireNonNull(narrationLogBuffer, "narrationLogBuffer");
+
+        String sessionOutcome = "SUCCESS";
+        GeoOnboardingLlmResult resultHolder = null;
         int completedRounds = 0;
+        String stopReason = "MAX_TURNS_REACHED";
         ConvergenceController.ConvergenceSnapshot lastSnapshot = null;
         double lastGeoIg = 0.0d;
         double lastTrust = 0.0d;
+        boolean competitorXmlIncluded = false;
+        List<SeoEvidence> usedEvidencesForAudit = List.of();
 
-        for (int turn = 0; turn < MAX_DEBATE_TURNS; turn++) {
+        try {
+            IndustryType resolvedIndustry = industryHint != null ? industryHint : IndustryType.OTHER;
+            String q = searchQuery == null ? "" : searchQuery;
+            String wrapped = "<scraped_data>\n" + plainText + "\n</scraped_data>";
+            List<SeoEvidence> seoEvidences = List.of();
+            if (rawSeoRows != null && !rawSeoRows.isEmpty()) {
+                emitAndRecord(
+                        targetId,
+                        sessionId,
+                        narrationLogBuffer,
+                        DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                        DebateOnboardingSseEvent.DebateStreamPersona.SYSTEM,
+                        DebateOnboardingSseEvent.DebateStreamPhase.GATHERING,
+                        "AI推奨視点に基づき、参照候補の根拠スニペットを収集・正規化しています。",
+                        null);
+                seoEvidences =
+                        seoDataEvidenceProvider.provideEvidences(
+                                q,
+                                rawSeoRows,
+                                RAG_EVIDENCE_MAX_COUNT,
+                                SeoDataEvidenceProvider.DEFAULT_MAX_PER_DOMAIN,
+                                DEFAULT_EVIDENCE_RELEVANCE_LABEL);
+                SubscriptionPlan subscriptionPlan =
+                        TenantPlanScope.currentSubscriptionPlan().orElse(SubscriptionPlan.STANDARD);
+                int maxCompetitorXmlChars = tokenProfitBudgetResolver.maxCompetitorXmlChars(subscriptionPlan);
+                seoEvidences = TokenProfitGuard.clipEvidences(seoEvidences, maxCompetitorXmlChars);
+            }
+            String competitorXml =
+                    (seoEvidences == null || seoEvidences.isEmpty())
+                            ? ""
+                            : SeoEvidenceXmlBuilder.buildCompetitorBlock(seoEvidences);
+            if (!competitorXml.isEmpty()) {
+                if (promptInjectionValidator.isCompetitorXmlSafe(competitorXml)) {
+                    competitorXmlIncluded = true;
+                    usedEvidencesForAudit = List.copyOf(seoEvidences);
+                } else {
+                    log.warn("competitor XML rejected by prompt-injection guard; continuing without competitor block");
+                    competitorXml = "";
+                }
+            }
+            String contextAnalystBase =
+                    competitorXml.isEmpty() ? wrapped : wrapped + "\n\n" + competitorXml;
+            String contextInnovatorBase = wrapped;
+            emitAndRecord(
+                    targetId,
+                    sessionId,
+                    narrationLogBuffer,
+                    DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                    DebateOnboardingSseEvent.DebateStreamPersona.ANALYST,
+                    DebateOnboardingSseEvent.DebateStreamPhase.ANALYZING,
+                    "ページ実体と外部シグナルを結合しました。市場セグメントとリスク要因の整理に入ります。",
+                    null);
+            StringBuilder debateAccumulator = new StringBuilder();
+            double[] prevConfidences = null;
+            double[] prevCentroid = null;
+            String analystText = "";
+            String innovatorRaw = "";
+            String innovatorForHistory = "";
+            String skepticText = "";
+
+            for (int turn = 0; turn < MAX_DEBATE_TURNS; turn++) {
+            throwIfClientDisconnected();
             String userForAnalyst = contextAnalystBase;
             String userForInnovator = contextInnovatorBase;
             if (debateAccumulator.length() > 0) {
@@ -145,27 +206,43 @@ public class DebateOnboardingOrchestrator {
                 userForAnalyst = contextAnalystBase + accumulated;
                 userForInnovator = contextInnovatorBase + accumulated;
             }
+            throwIfClientDisconnected();
             analystText =
                     singleChat(
                             DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, resolvedIndustry),
                             userForAnalyst,
                             analystChatModel);
+            throwIfClientDisconnected();
+            emitAndRecord(
+                    targetId,
+                    sessionId,
+                    narrationLogBuffer,
+                    DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                    DebateOnboardingSseEvent.DebateStreamPersona.INNOVATOR,
+                    DebateOnboardingSseEvent.DebateStreamPhase.DEBATING,
+                    "競合ブロックは遮断済みです。ページ本文のみを手掛かりに、独自の付加仮説を蒸留します。",
+                    null);
+            throwIfClientDisconnected();
             innovatorRaw =
                     singleChat(
                             DebatePersonaSystemPrompts.forPersona(DebatePersona.INNOVATOR, resolvedIndustry),
                             userForInnovator,
                             innovatorChatModel);
+            throwIfClientDisconnected();
             innovatorForHistory = innovatorRaw;
             if (!CitationValidator.hasValidCitation(innovatorRaw)) {
                 log.warn("innovator output rejected: insufficient citation format");
                 innovatorForHistory = REJECTED_INNOVATOR;
             }
             String skepticInput = buildSkepticUserMessage(analystText, innovatorForHistory, debateAccumulator);
+            throwIfClientDisconnected();
             skepticText =
                     singleChat(
                             DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC, resolvedIndustry),
                             skepticInput,
                             skepticChatModel);
+            throwIfClientDisconnected();
+            executedTurns.incrementAndGet();
 
             debateAccumulator
                     .append("\n## ラウンド ")
@@ -189,6 +266,7 @@ public class DebateOnboardingOrchestrator {
 
             double[] currConfidences = math.currConfidences();
             double[] currCentroid = math.currCentroid();
+            boolean convergedThisRound = false;
             if (turn > 0 && prevConfidences != null && prevCentroid != null) {
                 lastSnapshot =
                         ConvergenceController.computeConvergenceSnapshot(
@@ -206,13 +284,26 @@ public class DebateOnboardingOrchestrator {
                         CONVERGENCE_FRICTION,
                         turn)) {
                     stopReason = "CONVERGED";
-                    completedRounds = turn + 1;
-                    break;
+                    convergedThisRound = true;
                 }
             }
+
+            emitAndRecord(
+                    targetId,
+                    sessionId,
+                    narrationLogBuffer,
+                    DebateOnboardingSseEvent.DebateOnboardingSseEventType.SCORE_UPDATE,
+                    DebateOnboardingSseEvent.DebateStreamPersona.SKEPTIC,
+                    DebateOnboardingSseEvent.DebateStreamPhase.DEBATING,
+                    "数理カーネルから分布を更新しました。前提の健全性と反証可能性を確認します。",
+                    partialScoresPayload(math, turn + 1, lastGeoIg, lastSnapshot));
+
             prevConfidences = Arrays.copyOf(currConfidences, currConfidences.length);
             prevCentroid = Arrays.copyOf(currCentroid, currCentroid.length);
             completedRounds = turn + 1;
+            if (convergedThisRound) {
+                break;
+            }
         }
 
         String directorInput =
@@ -235,20 +326,156 @@ public class DebateOnboardingOrchestrator {
         String directorSystem =
                 DebatePersonaSystemPrompts.forDirectorWithScoreInjection(
                         lastGeoIg, lastTrust, resolvedIndustry);
+        emitAndRecord(
+                targetId,
+                sessionId,
+                narrationLogBuffer,
+                DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                DebateOnboardingSseEvent.DebateStreamPersona.DIRECTOR,
+                DebateOnboardingSseEvent.DebateStreamPhase.CONVERGING,
+                "GEO-IG と較正信頼を踏まえ、合意可能な最終成果物へ収束させます。",
+                null);
+        throwIfClientDisconnected();
         String rawJson = singleChat(directorSystem, directorInput, directorChatModel);
 
-        debateMathAuditService.saveOnboardingAudit(
-                targetId,
-                completedRounds,
-                stopReason,
-                lastSnapshot,
-                lastGeoIg,
-                lastTrust,
-                CONVERGENCE_FRICTION,
-                competitorXmlIncluded,
-                usedEvidencesForAudit);
+        throwIfClientDisconnected();
+        resultHolder = mapDirectorToResult(rawJson);
+        } catch (Throwable t) {
+            if (t instanceof CancellationException) {
+                sessionOutcome = "CLIENT_DISCONNECT";
+            } else {
+                sessionOutcome = "FAILED";
+            }
+            throw t;
+        } finally {
+            try {
+                debateMathAuditService.saveOnboardingAudit(
+                        targetId,
+                        completedRounds,
+                        stopReason,
+                        lastSnapshot,
+                        lastGeoIg,
+                        lastTrust,
+                        CONVERGENCE_FRICTION,
+                        competitorXmlIncluded,
+                        usedEvidencesForAudit,
+                        narrationLogBuffer,
+                        sessionOutcome,
+                        executedTurns.get());
+            } catch (RuntimeException e) {
+                log.warn("saveOnboardingAudit failed targetId={}", targetId, e);
+            }
+        }
+        return resultHolder;
+    }
 
-        return mapDirectorToResult(rawJson);
+    private static void throwIfClientDisconnected() {
+        if (Thread.currentThread().isInterrupted()) {
+            log.debug("debate onboarding cancelled (client disconnected)");
+            throw new CancellationException("onboarding client disconnected");
+        }
+    }
+
+    private void emitAndRecord(
+            UUID targetId,
+            UUID sessionId,
+            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            DebateOnboardingSseEvent.DebateOnboardingSseEventType eventType,
+            DebateOnboardingSseEvent.DebateStreamPersona persona,
+            DebateOnboardingSseEvent.DebateStreamPhase phase,
+            String message,
+            DebateOnboardingSseEvent.DebatePartialScoresPayload partialScoresForWire) {
+        if (sessionId == null) {
+            return;
+        }
+        Instant timestamp = Instant.now();
+        DebateOnboardingSseEvent wireEvent =
+                new DebateOnboardingSseEvent(
+                        eventType, persona, phase, message, partialScoresForWire, timestamp, sessionId);
+        DebateOnboardingSseEvent bufferEvent;
+        if (eventType == DebateOnboardingSseEvent.DebateOnboardingSseEventType.SCORE_UPDATE
+                && partialScoresForWire != null) {
+            ScoreAuditBufferFields snap = summarizeScoresForAudit(partialScoresForWire, message);
+            bufferEvent =
+                    new DebateOnboardingSseEvent(
+                            eventType,
+                            persona,
+                            phase,
+                            snap.auditMessage(),
+                            snap.summarizedPayload(),
+                            timestamp,
+                            sessionId);
+        } else {
+            bufferEvent =
+                    new DebateOnboardingSseEvent(
+                            eventType,
+                            persona,
+                            phase,
+                            truncateNarrationForAudit(message),
+                            null,
+                            timestamp,
+                            sessionId);
+        }
+        synchronized (narrationLogBuffer) {
+            enforceNarrationLogBufferCap(narrationLogBuffer);
+            narrationLogBuffer.add(bufferEvent);
+        }
+        try {
+            onboardingDebateStreamRegistry.sendEvent(targetId, sessionId, wireEvent);
+        } catch (Throwable throwable) {
+            log.debug("onboarding debate narration skipped: {}", throwable.toString());
+        }
+    }
+
+    private record ScoreAuditBufferFields(
+            DebateOnboardingSseEvent.DebatePartialScoresPayload summarizedPayload,
+            String auditMessage) {}
+
+    private static ScoreAuditBufferFields summarizeScoresForAudit(
+            DebateOnboardingSseEvent.DebatePartialScoresPayload full,
+            String scoreEventMessage) {
+        String auditMessage = truncateNarrationForAudit(scoreEventMessage);
+        DebateOnboardingSseEvent.DebatePartialScoresPayload summarized =
+                new DebateOnboardingSseEvent.DebatePartialScoresPayload(
+                        full.round(),
+                        null,
+                        null,
+                        full.sDensity(),
+                        full.qIntent(),
+                        null,
+                        null,
+                        full.geoIg(),
+                        full.wasserstein1());
+        return new ScoreAuditBufferFields(summarized, auditMessage);
+    }
+
+    private static DebateOnboardingSseEvent.DebatePartialScoresPayload partialScoresPayload(
+            DebateTextMathHeuristics.RoundHeuristicResult math,
+            int round,
+            double geoIg,
+            ConvergenceController.ConvergenceSnapshot snapshot) {
+        Double wasserstein1 = null;
+        if (snapshot != null) {
+            double w1 = snapshot.wasserstein1();
+            wasserstein1 = Double.isFinite(w1) ? w1 : null;
+        }
+        return new DebateOnboardingSseEvent.DebatePartialScoresPayload(
+                round,
+                doubleArrayToList(math.pSite()),
+                doubleArrayToList(math.agentMass()),
+                math.sDensity(),
+                math.qIntent(),
+                doubleArrayToList(math.currConfidences()),
+                doubleArrayToList(math.currCentroid()),
+                geoIg,
+                wasserstein1);
+    }
+
+    private static List<Double> doubleArrayToList(double[] values) {
+        if (values == null || values.length == 0) {
+            return List.of();
+        }
+        return Arrays.stream(values).boxed().toList();
     }
 
     private static String buildSkepticUserMessage(

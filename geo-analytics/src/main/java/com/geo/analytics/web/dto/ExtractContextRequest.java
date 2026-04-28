@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.domain.enums.IndustryType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record ExtractContextRequest(
         @NotBlank @Size(max = 2083) String url,
-        @JsonProperty("industry_type") IndustryType industryHint) {}
+        @JsonProperty("industry_type") IndustryType industryHint,
+        @JsonProperty("session_id") UUID sessionId) {}

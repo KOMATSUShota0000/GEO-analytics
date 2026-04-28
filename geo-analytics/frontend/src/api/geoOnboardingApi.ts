@@ -59,18 +59,23 @@ function asContextData(raw: unknown): ProjectContextData | null {
 export async function postExtractContext(
   projectId: string,
   url: string,
+  sessionId?: string | null,
 ): Promise<ProjectContextData> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
   }, EXTRACT_TIMEOUT_MS);
   try {
+    const body: { url: string; session_id?: string } = { url: url.trim() };
+    if (sessionId !== undefined && sessionId !== null && sessionId.trim().length > 0) {
+      body.session_id = sessionId.trim();
+    }
     const res = await apiFetch(
       `/api/v1/projects/${encodeURIComponent(projectId)}/extract-context`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       },
     );

@@ -9,6 +9,8 @@ import com.geo.analytics.infrastructure.crawler.extraction.StreamTextExtractor;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.web.dto.DebateOnboardingSseEvent;
+import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.StructuredTaskScope.FailedException;
@@ -40,6 +43,7 @@ public class ProjectOnboardingService {
     private final ProjectRepository projectRepository;
     private final SafeHttpClient safeHttpClient;
     private final DebateOnboardingOrchestrator debateOnboardingOrchestrator;
+    private final OnboardingDebateStreamRegistry onboardingDebateStreamRegistry;
     private final TransactionTemplate transactionTemplate;
     private final ProjectContextTextLimiter projectContextTextLimiter;
 
@@ -48,21 +52,24 @@ public class ProjectOnboardingService {
             ProjectRepository projectRepository,
             SafeHttpClient safeHttpClient,
             DebateOnboardingOrchestrator debateOnboardingOrchestrator,
+            OnboardingDebateStreamRegistry onboardingDebateStreamRegistry,
             TransactionTemplate transactionTemplate,
             ProjectContextTextLimiter projectContextTextLimiter) {
         this.creditVaultService = creditVaultService;
         this.projectRepository = projectRepository;
         this.safeHttpClient = safeHttpClient;
         this.debateOnboardingOrchestrator = debateOnboardingOrchestrator;
+        this.onboardingDebateStreamRegistry = onboardingDebateStreamRegistry;
         this.transactionTemplate = transactionTemplate;
         this.projectContextTextLimiter = projectContextTextLimiter;
     }
 
-    public void runOnboarding(UUID projectId, String url, IndustryType industryHint) {
+    public void runOnboarding(UUID projectId, String url, IndustryType industryHint, UUID sessionId) {
         String trimmedUrl = url.trim();
         validateHttpUrl(trimmedUrl);
         AtomicReference<UUID> reservationId = new AtomicReference<>();
         AtomicBoolean settled = new AtomicBoolean();
+        AtomicInteger executedTurns = new AtomicInteger();
         try {
             reservationId.set(creditVaultService.reserve(projectId, ONBOARDING_CREDIT));
             GeoOnboardingLlmResult result;
@@ -71,7 +78,13 @@ public class ProjectOnboardingService {
                         scope.fork(
                                 () ->
                                         com.geo.analytics.infrastructure.tenant.ContextPropagator.wrap(
-                                                        () -> runGeoPipeline(projectId, trimmedUrl, industryHint))
+                                                        () ->
+                                                                runGeoPipeline(
+                                                                        projectId,
+                                                                        trimmedUrl,
+                                                                        industryHint,
+                                                                        sessionId,
+                                                                        executedTurns))
                                                 .get());
                 scope.join();
                 result = sub.get();
@@ -85,7 +98,10 @@ public class ProjectOnboardingService {
             final UUID resId = reservationId.get();
             transactionTemplate.executeWithoutResult(
                     s -> {
-                        creditVaultService.settle(resId, ONBOARDING_CREDIT);
+                        creditVaultService.settle(
+                                resId,
+                                ONBOARDING_CREDIT,
+                                "ONBOARDING_COMPLETED_SETTLE (full consumption)");
                         applyProjectSnapshot(projectId, toPersist);
                     });
             settled.set(true);
@@ -93,10 +109,27 @@ public class ProjectOnboardingService {
             UUID rid = reservationId.get();
             if (rid != null && !settled.get()) {
                 try {
-                    transactionTemplate.executeWithoutResult(s -> creditVaultService.refund(rid));
+                    int t = executedTurns.get();
+                    long consumedAmount = (ONBOARDING_CREDIT * t) / DebateOnboardingOrchestrator.MAX_DEBATE_TURNS;
+                    String note = String.format("SESSION_CANCELLED_PARTIAL_SETTLE (Executed: %d turns)", t);
+                    transactionTemplate.executeWithoutResult(
+                            s -> creditVaultService.settle(rid, consumedAmount, note));
                 } catch (RuntimeException e) {
                     log.error(
-                            "[CRITICAL-LEDGER-REFUND-FAILED] Failed to refund credit for reservation: {}", rid, e);
+                            "[CRITICAL-LEDGER-PARTIAL-SETTLE-FAILED] Failed partial settle for reservation: {}",
+                            rid,
+                            e);
+                }
+            }
+            if (sessionId != null) {
+                try {
+                    onboardingDebateStreamRegistry.complete(projectId, sessionId);
+                } catch (RuntimeException e) {
+                    log.debug(
+                            "onboarding sse registry complete failed projectId={} sessionId={}",
+                            projectId,
+                            sessionId,
+                            e);
                 }
             }
         }
@@ -136,43 +169,102 @@ public class ProjectOnboardingService {
         projectRepository.save(project);
     }
 
-    private GeoOnboardingLlmResult runGeoPipeline(UUID projectId, String url, IndustryType industryHint) {
-        URI uri;
+    private GeoOnboardingLlmResult runGeoPipeline(
+            UUID projectId, String url, IndustryType industryHint, UUID sessionId, AtomicInteger executedTurns) {
+        List<DebateOnboardingSseEvent> narrationLogBuffer = new ArrayList<>(64);
+        Thread worker = Thread.currentThread();
         try {
-            uri = URI.create(url);
-        } catch (IllegalArgumentException illegalArgumentException) {
-            throw new IllegalStateException("url", illegalArgumentException);
-        }
-        HttpRequest request =
-                HttpRequest.newBuilder(uri).GET().timeout(Duration.ofSeconds(45)).header("User-Agent", "GeoAnalyticsBot/1.0").build();
-        HttpResponse<InputStream> response;
-        try {
-            response = safeHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        } catch (UncheckedIOException uncheckedIOException) {
-            throw new RuntimeException(uncheckedIOException);
-        }
-        int code = response.statusCode();
-        if (code / 100 != 2) {
-            InputStream b = response.body();
-            if (b != null) {
-                try (InputStream in = b) {
-                    in.transferTo(java.io.OutputStream.nullOutputStream());
-                } catch (IOException ioException) {
-                    throw new UncheckedIOException(ioException);
-                }
+            if (sessionId != null) {
+                onboardingDebateStreamRegistry.bindWorkerThread(projectId, sessionId, worker);
             }
-            throw new IllegalStateException("http " + code);
+            emitNarration(
+                    projectId,
+                    sessionId,
+                    narrationLogBuffer,
+                    "公開ページから一次情報を取得しています。ノイズ除去と安全な取得制限を適用します。",
+                    DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                    DebateOnboardingSseEvent.DebateStreamPersona.SYSTEM,
+                    DebateOnboardingSseEvent.DebateStreamPhase.GATHERING);
+            URI uri;
+            try {
+                uri = URI.create(url);
+            } catch (IllegalArgumentException illegalArgumentException) {
+                throw new IllegalStateException("url", illegalArgumentException);
+            }
+            HttpRequest request =
+                    HttpRequest.newBuilder(uri)
+                            .GET()
+                            .timeout(Duration.ofSeconds(45))
+                            .header("User-Agent", "GeoAnalyticsBot/1.0")
+                            .build();
+            HttpResponse<InputStream> response;
+            try {
+                response = safeHttpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            } catch (UncheckedIOException uncheckedIOException) {
+                throw new RuntimeException(uncheckedIOException);
+            }
+            int code = response.statusCode();
+            if (code / 100 != 2) {
+                InputStream b = response.body();
+                if (b != null) {
+                    try (InputStream in = b) {
+                        in.transferTo(java.io.OutputStream.nullOutputStream());
+                    } catch (IOException ioException) {
+                        throw new UncheckedIOException(ioException);
+                    }
+                }
+                throw new IllegalStateException("http " + code);
+            }
+            String plain;
+            try (InputStream in = Objects.requireNonNull(response.body(), "body")) {
+                plain = StreamTextExtractor.extract(in, MAX_EXTRACT_BYTES, StandardCharsets.UTF_8);
+            } catch (IOException ioException) {
+                throw new UncheckedIOException(ioException);
+            }
+            String searchQuery = extractSearchQueryHint(uri);
+            List<SeoOrganicRow> seoRows = buildPlaceholderSeoRows(url);
+            return debateOnboardingOrchestrator.runDebateOnboarding(
+                    plain, projectId, searchQuery, seoRows, industryHint, sessionId, executedTurns, narrationLogBuffer);
+        } finally {
+            if (sessionId != null) {
+                onboardingDebateStreamRegistry.clearWorkerThread(projectId, sessionId, worker);
+            }
         }
-        String plain;
-        try (InputStream in = Objects.requireNonNull(response.body(), "body")) {
-            plain = StreamTextExtractor.extract(in, MAX_EXTRACT_BYTES, StandardCharsets.UTF_8);
-        } catch (IOException ioException) {
-            throw new UncheckedIOException(ioException);
+    }
+
+    private void emitNarration(
+            UUID projectId,
+            UUID sessionId,
+            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            String message,
+            DebateOnboardingSseEvent.DebateOnboardingSseEventType eventType,
+            DebateOnboardingSseEvent.DebateStreamPersona persona,
+            DebateOnboardingSseEvent.DebateStreamPhase phase) {
+        if (sessionId == null) {
+            return;
         }
-        String searchQuery = extractSearchQueryHint(uri);
-        List<SeoOrganicRow> seoRows = buildPlaceholderSeoRows(url);
-        return debateOnboardingOrchestrator.runDebateOnboarding(
-                plain, projectId, searchQuery, seoRows, industryHint);
+        Instant timestamp = Instant.now();
+        DebateOnboardingSseEvent wireEvent =
+                new DebateOnboardingSseEvent(
+                        eventType, persona, phase, message, null, timestamp, sessionId);
+        DebateOnboardingSseEvent bufferEvent =
+                new DebateOnboardingSseEvent(
+                        eventType,
+                        persona,
+                        phase,
+                        DebateOnboardingOrchestrator.truncateNarrationForAudit(message),
+                        null,
+                        timestamp,
+                        sessionId);
+        synchronized (narrationLogBuffer) {
+            DebateOnboardingOrchestrator.enforceNarrationLogBufferCap(narrationLogBuffer);
+            narrationLogBuffer.add(bufferEvent);
+        }
+        try {
+            onboardingDebateStreamRegistry.sendEvent(projectId, sessionId, wireEvent);
+        } catch (Throwable throwable) {
+            log.debug("onboarding narration skipped: {}", throwable.toString());
+        }
     }
 
     /**
@@ -188,7 +280,7 @@ public class ProjectOnboardingService {
                 new SeoOrganicRow(
                         safeUrl,
                         "自社サイト（オンボーディング対象）",
-                        "フェーズ1.3 のプレースホルダ。実際の検索スニペットは Serp API 連携で置換予定。",
+                        "フェーズ1.3 のプレースホルダ。実際の生成AI回答内シェア用スニペットは外部取得API連携で置換予定。",
                         Optional.empty(),
                         Optional.empty()));
         return List.copyOf(rows);

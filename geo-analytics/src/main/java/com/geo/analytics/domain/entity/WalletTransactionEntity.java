@@ -29,6 +29,8 @@ public class WalletTransactionEntity {
     private UUID parentReservationId;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+    @Column(name = "note", length = 2048)
+    private String note;
     protected WalletTransactionEntity() {
     }
     public WalletTransactionEntity(
@@ -39,6 +41,17 @@ public class WalletTransactionEntity {
             long amount,
             UUID parentReservationId,
             LocalDateTime createdAt) {
+        this(id, organizationId, projectId, transactionType, amount, parentReservationId, createdAt, null);
+    }
+    public WalletTransactionEntity(
+            UUID id,
+            UUID organizationId,
+            UUID projectId,
+            TransactionType transactionType,
+            long amount,
+            UUID parentReservationId,
+            LocalDateTime createdAt,
+            String note) {
         this.id = id;
         this.organizationId = organizationId;
         this.projectId = projectId;
@@ -46,6 +59,7 @@ public class WalletTransactionEntity {
         this.amount = amount;
         this.parentReservationId = parentReservationId;
         this.createdAt = createdAt;
+        this.note = note;
     }
     public UUID getId() {
         return id;
@@ -67,5 +81,8 @@ public class WalletTransactionEntity {
     }
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+    public String getNote() {
+        return note;
     }
 }

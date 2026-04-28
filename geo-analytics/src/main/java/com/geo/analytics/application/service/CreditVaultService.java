@@ -55,11 +55,16 @@ public class CreditVaultService {
         UUID reservationId = UUID.randomUUID();
         walletTransactionRepository.save(
                 new WalletTransactionEntity(
-                        reservationId, orgId, projectId, TransactionType.RESERVE, amount, null, LocalDateTime.now()));
+                        reservationId, orgId, projectId, TransactionType.RESERVE, amount, null, LocalDateTime.now(), null));
         return reservationId;
     }
     @Transactional
     public void settle(UUID reservationId, long consumedAmount) {
+        settle(reservationId, consumedAmount, null);
+    }
+
+    @Transactional
+    public void settle(UUID reservationId, long consumedAmount, String note) {
         UUID orgId = requireOrgId();
         if (consumedAmount < 0L) {
             throw new IllegalArgumentException("consumedAmount");
@@ -86,7 +91,8 @@ public class CreditVaultService {
                         TransactionType.SETTLE,
                         consumedAmount,
                         reservationId,
-                        LocalDateTime.now()));
+                        LocalDateTime.now(),
+                        note));
     }
     public List<WalletTransactionEntity> findStaleReservations(OffsetDateTime cutoff) {
         LocalDateTime at =
@@ -117,7 +123,8 @@ public class CreditVaultService {
                         TransactionType.REFUND,
                         reserved,
                         reservationId,
-                        LocalDateTime.now()));
+                        LocalDateTime.now(),
+                        null));
     }
     private static UUID requireOrgId() {
         UUID orgId = TenantContextHolder.requireContext().organizationId();
