@@ -14,6 +14,8 @@ import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.domain.exception.UnauthenticatedApiException;
 import com.geo.analytics.domain.exception.VersionMismatchException;
 import com.geo.analytics.infrastructure.lock.PostgresDistributedLockManager.LockAcquisitionException;
+import com.geo.analytics.application.exception.QueryProposalException;
+import com.geo.analytics.application.exception.QueryProposalPhase;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
 import com.geo.analytics.web.dto.ApiErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -247,6 +249,45 @@ public class GlobalExceptionHandler {
                 ApiErrorResponse.of(
                         "database_unavailable",
                         "データベースへの接続が混み合っています。しばらくしてから再度お試しください。"));
+    }
+
+    @ExceptionHandler(QueryProposalException.class)
+    public ResponseEntity<ApiErrorResponse> handleQueryProposal(QueryProposalException exception) {
+        QueryProposalPhase phase = exception.getPhase();
+        final HttpStatus status;
+        final String errorCode;
+        if (phase == QueryProposalPhase.VALIDATION) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            errorCode = "query_proposal_validation_failed";
+        } else if (phase == QueryProposalPhase.SCRAPING) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            errorCode = "query_proposal_scraping_failed";
+        } else if (phase == QueryProposalPhase.AI_ANALYSIS) {
+            status = HttpStatus.SERVICE_UNAVAILABLE;
+            errorCode = "query_proposal_ai_failed";
+        } else {
+            throw new IllegalStateException("Unexpected QueryProposalPhase: " + phase);
+        }
+        String detail = exception.getDetail();
+        if (detail == null || detail.isBlank()) {
+            detail = exception.getUserMessage();
+        }
+        Map<String, Object> details = Map.of("phase", phase.name(), "detail", detail);
+        if (phase == QueryProposalPhase.AI_ANALYSIS) {
+            logger.error(
+                    "Query proposal AI phase failed errorCode={} message={}",
+                    errorCode,
+                    exception.getUserMessage(),
+                    exception);
+        } else {
+            logger.warn(
+                    "Query proposal failed phase={} errorCode={} message={}",
+                    phase.name(),
+                    errorCode,
+                    exception.getUserMessage(),
+                    exception.getCause());
+        }
+        return json(status, ApiErrorResponse.of(errorCode, exception.getUserMessage(), details));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

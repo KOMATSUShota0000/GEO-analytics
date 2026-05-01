@@ -201,6 +201,16 @@ export default function JobCreationPage(): JSX.Element {
             <Typography color="text.secondary">
               ブランド名と解析したいキーワードを登録します。
             </Typography>
+            <Link
+              component={RouterLink}
+              to="/query-proposal"
+              variant="body2"
+              fontWeight={600}
+              underline="hover"
+              sx={{ mt: 1, display: "inline-block" }}
+            >
+              AI戦略クエリ提案へ
+            </Link>
           </Box>
           <Box
             sx={{
