@@ -7,6 +7,7 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,11 @@ import java.util.UUID;
 
 @Service
 public class ProjectManagementService {
+
+    /**
+     * 既存ワークスペース向けにデフォルトブランド名プロジェクトを解決した結果（所属組織 ID を含む）。
+     */
+    public record DefaultProjectResolution(ProjectEntity project, UUID organizationId) {}
     private final WorkspaceRepository workspaceRepository;
     private final ProjectRepository projectRepository;
     @PersistenceContext
@@ -75,5 +81,30 @@ public class ProjectManagementService {
                 return projectRepository.saveAndFlush(projectEntity);
             });
         });
+    }
+
+    /**
+     * 指定ワークスペース内でブランド名に紐づくプロジェクトを取得または作成する。ワークスペース行は既に存在すること（自動作成しない）。
+     */
+    @Transactional
+    public DefaultProjectResolution getOrCreateDefaultProjectForWorkspace(String brandName, UUID workspaceId) {
+        Objects.requireNonNull(brandName, "brandName");
+        Objects.requireNonNull(workspaceId, "workspaceId");
+        WorkspaceEntity workspace = workspaceRepository
+                .findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("Workspace not found: " + workspaceId));
+        UUID orgId = workspace.getOrganizationId();
+        ProjectEntity project = TenantPlanScope.executeWithTenant(workspaceId, () -> projectRepository
+                .findByTenantIdAndName(workspaceId.toString(), brandName)
+                .orElseGet(() -> {
+                    ProjectEntity projectEntity = new ProjectEntity();
+                    projectEntity.setWorkspaceId(workspaceId);
+                    projectEntity.setName(brandName);
+                    projectEntity.setTargetUrl("");
+                    projectEntity.setCompetitorUrls(new ArrayList<>());
+                    forceSetTenantId(projectEntity, workspaceId);
+                    return projectRepository.saveAndFlush(projectEntity);
+                }));
+        return new DefaultProjectResolution(project, orgId);
     }
 }

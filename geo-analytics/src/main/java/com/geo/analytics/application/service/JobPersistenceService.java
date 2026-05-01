@@ -295,6 +295,29 @@ public class JobPersistenceService {
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
+        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, workspaceId, orgId);
+    }
+
+    /**
+     * 永続化済みのクエリ提案が属するワークスペース内でジョブを作成（または冪等キーで既存を返却）する。
+     */
+    @Transactional(readOnly = false)
+    public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey, UUID workspaceId) {
+        String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
+        ProjectManagementService.DefaultProjectResolution resolution =
+                projectManagementService.getOrCreateDefaultProjectForWorkspace(normalizedBrandName, workspaceId);
+        ProjectEntity projectEntity = resolution.project();
+        UUID resolvedWorkspaceId = projectEntity.getWorkspaceId();
+        UUID orgId = resolution.organizationId();
+        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, resolvedWorkspaceId, orgId);
+    }
+
+    private JobCreateOutcome runJobCreationWithProject(
+            String normalizedBrandName,
+            UUID idempotencyKey,
+            ProjectEntity projectEntity,
+            UUID workspaceId,
+            UUID organizationId) {
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
@@ -302,7 +325,7 @@ public class JobPersistenceService {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, workspaceId, null))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, workspaceId, null))
                     .call(
                             () -> {
                                 try {

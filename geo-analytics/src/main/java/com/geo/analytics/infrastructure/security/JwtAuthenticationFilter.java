@@ -86,10 +86,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             securityExceptionResponseHandler.handle(request, response, mapJwtFailure(e));
             return;
         }
-        TenantIdentity jwtContext =
-                new TenantIdentity(parsed.organizationId(), null, parsed.userId());
+        // TenantContextFilter / TenantPlanScope が束ねた workspace を維持する（ScopedValue の内側束縛で消さない）
+        UUID mergedWorkspaceId =
+                TenantContextHolder.current().map(TenantIdentity::tenantId).orElse(null);
+        TenantIdentity mergedContext =
+                new TenantIdentity(parsed.organizationId(), mergedWorkspaceId, parsed.userId());
         try {
-            ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
+            ScopedValue.where(TenantContextHolder.CONTEXT, mergedContext)
                     .run(
                             () -> {
                                 Boolean cachedValid = userSessionsCache.getIfPresent(parsed.sessionId());

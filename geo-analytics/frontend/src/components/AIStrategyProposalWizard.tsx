@@ -1,11 +1,11 @@
 import { postQueryProposal } from "../api/queryProposalApi";
-import { AnalysisProgress } from "../components/AnalysisProgress";
-import { ProposalForm } from "../components/ProposalForm";
-import { ProposalResultView } from "../components/ProposalResultView";
+import { AnalysisProgress } from "./AnalysisProgress";
+import { ProposalForm } from "./ProposalForm";
+import { ProposalResultView } from "./ProposalResultView";
 import { GeoApiRequestError } from "../errors/GeoApiRequestError";
 import type { QueryProposalRequest, QueryProposalResponse } from "../types/queryProposal";
-import { Alert, AlertTitle, Container, Stack, Typography } from "@mui/material";
-import { useState } from "react";
+import { Alert, AlertTitle, Stack, Typography } from "@mui/material";
+import { useEffect, useState } from "react";
 
 type ResolvedProposalAlert = {
   severity: "error" | "warning" | "info";
@@ -146,16 +146,40 @@ function resolveProposalErrorAlert(err: unknown): ResolvedProposalAlert {
   };
 }
 
-export default function QueryProposalPage(): JSX.Element {
+export type AIStrategyProposalWizardProps = {
+  /**
+   * 「この戦略で分析を開始」確定時。親がジョブ変換・遷移等を行う。失敗時は reject してウィザードがエラー表示する。
+   */
+  onProposalComplete: (queries: string[], proposalId: string) => void | Promise<void>;
+  /** 親側の処理中（例: 手動ジョブ送信中）の間、入力と確定操作を無効化する */
+  disabled?: boolean;
+  /** 提案API実行中またはジョブ変換中のいずれかのとき true */
+  onWizardBusyChange?: (busy: boolean) => void;
+};
+
+export function AIStrategyProposalWizard({
+  onProposalComplete,
+  disabled = false,
+  onWizardBusyChange,
+}: AIStrategyProposalWizardProps): JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState<GeoApiRequestError | Error | null>(null);
   const [data, setData] = useState<QueryProposalResponse | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string> | null>(null);
+
+  const busy = isLoading || isConverting;
+  useEffect(() => {
+    onWizardBusyChange?.(busy);
+  }, [busy, onWizardBusyChange]);
+
+  const formDisabled = isLoading || disabled;
 
   const handleSubmit = async (request: QueryProposalRequest): Promise<void> => {
     setData(null);
     setError(null);
     setFieldErrors(null);
+    setIsConverting(false);
     setIsLoading(true);
     try {
       const result = await postQueryProposal(request);
@@ -172,36 +196,64 @@ export default function QueryProposalPage(): JSX.Element {
     }
   };
 
+  const handleComplete = async (): Promise<void> => {
+    if (data === null || data.id.trim().length === 0) {
+      return;
+    }
+    setError(null);
+    setFieldErrors(null);
+    setIsConverting(true);
+    let conversionSucceeded = false;
+    try {
+      const queryTexts = data.queries.map((q) => q.queryText);
+      await onProposalComplete(queryTexts, data.id);
+      conversionSucceeded = true;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e : new Error(String(e)));
+      if (e instanceof GeoApiRequestError && e.status === 400 && e.errorCode === "validation_failed") {
+        setFieldErrors(normalizeValidationFailedFields(e.details));
+      } else {
+        setFieldErrors(null);
+      }
+    } finally {
+      if (!conversionSucceeded) {
+        setIsConverting(false);
+      }
+    }
+  };
+
   const alertContent = error && !isLoading ? resolveProposalErrorAlert(error) : null;
 
   return (
-    <Container maxWidth="md" className="py-8">
-      <Stack spacing={3}>
-        <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
-          AI戦略クエリ提案
-        </Typography>
+    <Stack spacing={3}>
+      <ProposalForm
+        onSubmit={handleSubmit}
+        disabled={formDisabled}
+        serverFieldErrors={fieldErrors ?? undefined}
+      />
 
-        <ProposalForm
-          onSubmit={handleSubmit}
-          disabled={isLoading}
-          serverFieldErrors={fieldErrors ?? undefined}
+      {isLoading ? <AnalysisProgress /> : null}
+
+      {alertContent !== null ? (
+        <Alert severity={alertContent.severity}>
+          <AlertTitle>{alertContent.title}</AlertTitle>
+          {alertContent.description !== undefined ? (
+            <Typography variant="body2" component="p" sx={{ m: 0, mt: 0.5 }}>
+              {alertContent.description}
+            </Typography>
+          ) : null}
+        </Alert>
+      ) : null}
+
+      {data !== null && !isLoading ? (
+        <ProposalResultView
+          data={data}
+          proposalId={data.id}
+          isConverting={isConverting}
+          disabled={disabled}
+          onConvert={() => void handleComplete()}
         />
-
-        {isLoading ? <AnalysisProgress /> : null}
-
-        {alertContent !== null ? (
-          <Alert severity={alertContent.severity}>
-            <AlertTitle>{alertContent.title}</AlertTitle>
-            {alertContent.description !== undefined ? (
-              <Typography variant="body2" component="p" sx={{ m: 0, mt: 0.5 }}>
-                {alertContent.description}
-              </Typography>
-            ) : null}
-          </Alert>
-        ) : null}
-
-        {data !== null && !isLoading ? <ProposalResultView data={data} /> : null}
-      </Stack>
-    </Container>
+      ) : null}
+    </Stack>
   );
 }

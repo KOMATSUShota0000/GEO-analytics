@@ -15,6 +15,7 @@ export type SuggestedQuery = {
 };
 
 export type QueryProposalResponse = {
+  id: string;
   inferredPersona: string;
   queries: SuggestedQuery[];
 };

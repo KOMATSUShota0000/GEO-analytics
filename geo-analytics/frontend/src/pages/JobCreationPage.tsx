@@ -3,6 +3,9 @@ import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
+  CardHeader,
   Chip,
   Container,
   CssBaseline,
@@ -21,14 +24,17 @@ import {
   createTheme,
 } from "@mui/material";
 import type { MouseEvent } from "react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { KeywordSuggestionWizard } from "../components/KeywordSuggestionWizard";
-import { LoadingCharacter } from "../components/LoadingCharacter";
+import { convertProposalToJob } from "../api/queryProposalApi";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { AIStrategyProposalWizard } from "../components/AIStrategyProposalWizard";
+import { LoadingCharacter } from "../components/LoadingCharacter";
 import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
 
 const theme = createTheme();
+
+const CONVERT_NAVIGATE_DELAY_MS = 600;
 
 /** 解析開始フロー: 握り潰し禁止（コンソール + アラート + 呼び出し元で UI 表示用メッセージ返却） */
 function exposeAndFormatJobApiError(context: string, e: unknown): string {
@@ -40,22 +46,48 @@ function exposeAndFormatJobApiError(context: string, e: unknown): string {
 }
 
 function isThresholdError(message: string): boolean {
-  return message.includes("キーワードの上限を超えています");
+  return (
+    message.includes("キーワードの上限を超えています") ||
+    message.includes("クエリの上限を超えています")
+  );
 }
 
 export default function JobCreationPage(): JSX.Element {
   const navigate = useNavigate();
+  const navigateTimeoutRef = useRef<number | null>(null);
   const [brandName, setBrandName] = useState("");
-  const [keywordDraft, setKeywordDraft] = useState("");
-  const [keywords, setKeywords] = useState<string[]>([]);
+  const [queryDraft, setQueryDraft] = useState("");
+  const [queries, setQueries] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisMode, setAnalysisMode] = useState<"realtime" | "deep">("realtime");
   const [upsellOpen, setUpsellOpen] = useState(false);
-  const [draftJobId, setDraftJobId] = useState<string | null>(null);
-  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
-  const [wizardPreparing, setWizardPreparing] = useState(false);
-  const [kwRegSnackbar, setKwRegSnackbar] = useState<string | null>(null);
+  const [wizardBusy, setWizardBusy] = useState(false);
+  const [convertSuccessOpen, setConvertSuccessOpen] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (navigateTimeoutRef.current !== null) {
+        window.clearTimeout(navigateTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleWizardBusyChange = useCallback((busy: boolean) => {
+    setWizardBusy(busy);
+  }, []);
+
+  const handleProposalComplete = async (_queries: string[], proposalId: string): Promise<void> => {
+    const jobId = await convertProposalToJob(proposalId, "STANDARD");
+    setConvertSuccessOpen(true);
+    if (navigateTimeoutRef.current !== null) {
+      window.clearTimeout(navigateTimeoutRef.current);
+    }
+    navigateTimeoutRef.current = window.setTimeout(() => {
+      navigateTimeoutRef.current = null;
+      navigate(`/job/${jobId}`);
+    }, CONVERT_NAVIGATE_DELAY_MS);
+  };
 
   const handleAnalysisModeChange = (
     _event: MouseEvent<HTMLElement>,
@@ -71,30 +103,29 @@ export default function JobCreationPage(): JSX.Element {
     setAnalysisMode(newValue);
   };
 
-  const addKeyword = () => {
-    const trimmed = keywordDraft.trim();
+  const addQuery = () => {
+    const trimmed = queryDraft.trim();
     if (!trimmed) return;
-    if (keywords.includes(trimmed)) {
-      setKeywordDraft("");
+    if (queries.includes(trimmed)) {
+      setQueryDraft("");
       return;
     }
-    setKeywords((prev) => [...prev, trimmed]);
-    setKeywordDraft("");
+    setQueries((prev) => [...prev, trimmed]);
+    setQueryDraft("");
   };
 
-  const removeKeyword = (value: string) => {
-    setKeywords((prev) => prev.filter((k) => k !== value));
+  const removeQuery = (value: string) => {
+    setQueries((prev) => prev.filter((q) => q !== value));
   };
 
-  const ensureProjectForWizard = async (): Promise<boolean> => {
+  const createJob = async () => {
     setError(null);
     const brand = brandName.trim();
     if (!brand) {
-      setError("AI提案を使うにはブランド名を入力してください。");
-      return false;
+      setError("ブランド名を入力してください。");
+      return;
     }
-    if (draftJobId !== null && draftProjectId !== null) return true;
-    setWizardPreparing(true);
+    setSubmitting(true);
     try {
       const createRes = await apiFetch("/api/v1/jobs", {
         method: "POST",
@@ -107,57 +138,15 @@ export default function JobCreationPage(): JSX.Element {
       }
       const raw: unknown = await responseJsonAsCamel(createRes);
       const created = normalizeJobStatusResponse(raw);
-      if (created === null || created.projectId === null) {
+      if (created === null) {
         throw new Error("ジョブ作成レスポンスの形式が不正です");
       }
-      setDraftJobId(created.jobId);
-      setDraftProjectId(created.projectId);
-      return true;
-    } catch (e: unknown) {
-      setError(exposeAndFormatJobApiError("ensureProjectForWizard", e));
-      return false;
-    } finally {
-      setWizardPreparing(false);
-    }
-  };
-
-  const createJob = async () => {
-    setError(null);
-    const brand = brandName.trim();
-    if (!brand) {
-      setError("ブランド名を入力してください。");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      let jobId = draftJobId;
-      if (jobId === null) {
-        const createRes = await apiFetch("/api/v1/jobs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brandName: brand }),
-        });
-        if (!createRes.ok) {
-          const text = await createRes.text();
-          throw new Error(text || `HTTP ${createRes.status}`);
-        }
-        const raw: unknown = await responseJsonAsCamel(createRes);
-        const created = normalizeJobStatusResponse(raw);
-        if (created === null) {
-          throw new Error("ジョブ作成レスポンスの形式が不正です");
-        }
-        jobId = created.jobId;
-        setDraftJobId(created.jobId);
-        if (created.projectId !== null) setDraftProjectId(created.projectId);
-      }
-      if (jobId === null) {
-        throw new Error("ジョブIDがありません");
-      }
-      if (keywords.length > 0) {
+      const jobId = created.jobId;
+      if (queries.length > 0) {
         const queriesRes = await apiFetch(`/api/v1/jobs/${jobId}/queries`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ queries: keywords, plan: "STANDARD" }),
+          body: JSON.stringify({ queries, plan: "STANDARD" }),
         });
         if (!queriesRes.ok) {
           const text = await queriesRes.text();
@@ -168,7 +157,9 @@ export default function JobCreationPage(): JSX.Element {
             if (em !== undefined) {
               message = em;
             }
-          } catch {}
+          } catch {
+            /* use message as-is */
+          }
           throw new Error(message);
         }
       }
@@ -183,7 +174,7 @@ export default function JobCreationPage(): JSX.Element {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="sm" sx={{ py: 4 }}>
+      <Container maxWidth="md" sx={{ py: 4 }}>
         <Box
           sx={{
             display: "flex",
@@ -199,18 +190,8 @@ export default function JobCreationPage(): JSX.Element {
               ジョブ作成
             </Typography>
             <Typography color="text.secondary">
-              ブランド名と解析したいキーワードを登録します。
+              AIによるクエリ提案と手動入力のどちらでも、解析ジョブを開始できます。
             </Typography>
-            <Link
-              component={RouterLink}
-              to="/query-proposal"
-              variant="body2"
-              fontWeight={600}
-              underline="hover"
-              sx={{ mt: 1, display: "inline-block" }}
-            >
-              AI戦略クエリ提案へ
-            </Link>
           </Box>
           <Box
             sx={{
@@ -286,114 +267,120 @@ export default function JobCreationPage(): JSX.Element {
             </Stack>
           </Alert>
         )}
-        <Stack spacing={3}>
-          <TextField
-            label="ブランド名"
-            value={brandName}
-            onChange={(e) => setBrandName(e.target.value)}
-            fullWidth
-            required
-            autoComplete="organization"
+        <Card variant="outlined" sx={{ mb: 3 }}>
+          <CardHeader
+            title="AI戦略クエリ提案"
+            titleTypographyProps={{ variant: "h6", component: "h2", fontWeight: 600 }}
           />
-          <Box>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
+          <CardContent>
+            <AIStrategyProposalWizard
+              disabled={submitting}
+              onWizardBusyChange={handleWizardBusyChange}
+              onProposalComplete={handleProposalComplete}
+            />
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined">
+          <CardHeader
+            title="手動でジョブを作成"
+            titleTypographyProps={{ variant: "h6", component: "h2", fontWeight: 600 }}
+          />
+          <CardContent>
+            <Stack spacing={3}>
               <TextField
-                label="キーワード"
-                value={keywordDraft}
-                onChange={(e) => setKeywordDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addKeyword();
-                  }
-                }}
+                label="ブランド名"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
                 fullWidth
-                placeholder="キーワードを入力して追加"
+                required
+                autoComplete="organization"
               />
+              <Box>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
+                  <TextField
+                    label="クエリ"
+                    value={queryDraft}
+                    onChange={(e) => setQueryDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addQuery();
+                      }
+                    }}
+                    fullWidth
+                    placeholder="クエリを入力して追加"
+                  />
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={addQuery}
+                    sx={{ flexShrink: 0, alignSelf: { xs: "stretch", sm: "center" } }}
+                  >
+                    追加
+                  </Button>
+                </Stack>
+                {queries.length > 0 && (
+                  <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
+                    {queries.map((q) => (
+                      <Chip key={q} label={q} onDelete={() => removeQuery(q)} />
+                    ))}
+                  </Stack>
+                )}
+              </Box>
+              {submitting && (
+                <Box sx={{ mb: 1 }}>
+                  <LoadingCharacter />
+                </Box>
+              )}
               <Button
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={addKeyword}
-                sx={{ flexShrink: 0, alignSelf: { xs: "stretch", sm: "center" } }}
+                variant="contained"
+                size="large"
+                onClick={createJob}
+                disabled={submitting || wizardBusy}
+                sx={
+                  submitting
+                    ? {
+                        py: 1.5,
+                        background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                        color: "#fff",
+                        boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
+                        "&.Mui-disabled": {
+                          color: "rgba(255,255,255,0.95)",
+                          opacity: 1,
+                          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                        },
+                      }
+                    : { py: 1.5 }
+                }
               >
-                追加
+                {submitting ? "作成中…" : "ジョブを作成"}
               </Button>
             </Stack>
-            {keywords.length > 0 && (
-              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
-                {keywords.map((k) => (
-                  <Chip key={k} label={k} onDelete={() => removeKeyword(k)} />
-                ))}
-              </Stack>
-            )}
-          </Box>
-          <Box sx={{ mt: 2 }}>
-            <KeywordSuggestionWizard
-              projectId={draftProjectId}
-              ensureProjectReady={ensureProjectForWizard}
-              registeredKeywords={keywords}
-              isSubmitting={submitting || wizardPreparing}
-              onRegistered={(r) =>
-                setKwRegSnackbar(
-                  `プロジェクトへ登録しました（新規${r.registeredCount}件・スキップ${r.skippedCount}件）`,
-                )
-              }
-              onKeywordsSelected={(selectedKeywords) => {
-                setKeywords((prev) => {
-                  const next = [...prev];
-                  for (const k of selectedKeywords) {
-                    const t = k.trim();
-                    if (t && !next.includes(t)) next.push(t);
-                  }
-                  return next;
-                });
-              }}
-            />
-          </Box>
-          {submitting && (
-            <Box sx={{ mb: 1 }}>
-              <LoadingCharacter />
-            </Box>
-          )}
-          <Button
-            variant="contained"
-            size="large"
-            onClick={createJob}
-            disabled={submitting}
-            sx={
-              submitting
-                ? {
-                    py: 1.5,
-                    background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
-                    color: "#fff",
-                    boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
-                    "&.Mui-disabled": {
-                      color: "rgba(255,255,255,0.95)",
-                      opacity: 1,
-                      background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
-                    },
-                  }
-                : { py: 1.5 }
-            }
-          >
-            {submitting ? "作成中…" : "ジョブを作成"}
-          </Button>
-        </Stack>
+          </CardContent>
+        </Card>
+
         <Snackbar
-          open={kwRegSnackbar !== null}
-          autoHideDuration={6000}
-          onClose={() => setKwRegSnackbar(null)}
+          open={convertSuccessOpen}
+          autoHideDuration={4000}
+          onClose={(_, reason) => {
+            if (reason === "clickaway") {
+              return;
+            }
+            setConvertSuccessOpen(false);
+          }}
           anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
           <Alert
-            onClose={() => setKwRegSnackbar(null)}
             severity="success"
             variant="filled"
             sx={{ width: "100%" }}
+            onClose={() => setConvertSuccessOpen(false)}
           >
-            {kwRegSnackbar}
+            分析ジョブを開始しました。解析画面へ移動します。
           </Alert>
         </Snackbar>
+
         <Dialog open={upsellOpen} onClose={() => setUpsellOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle fontWeight={700}>Proプラン限定機能</DialogTitle>
           <DialogContent>

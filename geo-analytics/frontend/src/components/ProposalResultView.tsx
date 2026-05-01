@@ -2,6 +2,7 @@ import type { QueryProposalResponse } from "../types/queryProposal";
 import {
   Box,
   Button,
+  CircularProgress,
   List,
   ListItem,
   ListItemText,
@@ -15,6 +16,11 @@ import { useEffect, useState } from "react";
 
 export type ProposalResultViewProps = {
   data: QueryProposalResponse;
+  proposalId: string;
+  isConverting: boolean;
+  /** 親側の排他ロック（例: 手動ジョブ送信中） */
+  disabled?: boolean;
+  onConvert: () => void;
 };
 
 type CopyFeedbackState = "idle" | "success" | "error";
@@ -86,7 +92,13 @@ async function copyTextWithFallbacks(text: string): Promise<boolean> {
   return entered !== null;
 }
 
-export function ProposalResultView({ data }: ProposalResultViewProps): JSX.Element {
+export function ProposalResultView({
+  data,
+  proposalId,
+  isConverting,
+  disabled = false,
+  onConvert,
+}: ProposalResultViewProps): JSX.Element {
   const [copyState, setCopyState] = useState<CopyFeedbackState>("idle");
 
   useEffect(() => {
@@ -113,6 +125,9 @@ export function ProposalResultView({ data }: ProposalResultViewProps): JSX.Eleme
         : "すべてコピー";
 
   const CopyIcon = copyState === "success" ? Check : Copy;
+
+  const convertDisabled = isConverting || proposalId.trim().length === 0 || disabled;
+  const secondaryActionsLocked = isConverting || disabled;
 
   return (
     <Paper
@@ -148,22 +163,43 @@ export function ProposalResultView({ data }: ProposalResultViewProps): JSX.Eleme
         </Stack>
 
         <Stack spacing={2}>
+          <Typography component="h2" variant="subtitle1" fontWeight={700}>
+            検索戦略クエリ
+          </Typography>
+
           <Stack
             direction={{ xs: "column", sm: "row" }}
             alignItems={{ xs: "stretch", sm: "center" }}
-            justifyContent="space-between"
             spacing={2}
+            sx={{ flexWrap: "wrap" }}
           >
-            <Typography component="h2" variant="subtitle1" fontWeight={700}>
-              検索戦略クエリ
-            </Typography>
+            <Button
+              type="button"
+              variant="contained"
+              color="primary"
+              disabled={convertDisabled}
+              aria-busy={isConverting}
+              onClick={() => {
+                onConvert();
+              }}
+              sx={{ alignSelf: { xs: "stretch", sm: "flex-start" } }}
+              startIcon={
+                isConverting ? (
+                  <CircularProgress color="inherit" size={20} aria-hidden />
+                ) : undefined
+              }
+            >
+              {isConverting ? "分析を準備しています…" : "この戦略で分析を開始"}
+            </Button>
             <Button
               type="button"
               variant="outlined"
               size="small"
+              disabled={secondaryActionsLocked}
               onClick={() => void handleCopyAll()}
               aria-label="すべてのクエリをタブ区切りでクリップボードにコピーする"
               startIcon={<CopyIcon size={18} strokeWidth={2} aria-hidden />}
+              sx={{ alignSelf: { xs: "stretch", sm: "center" } }}
             >
               {copyButtonLabel}
             </Button>

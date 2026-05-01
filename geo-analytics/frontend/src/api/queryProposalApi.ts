@@ -1,5 +1,6 @@
 import { GeoApiRequestError } from "../errors/GeoApiRequestError";
 import type { QueryProposalRequest, QueryProposalResponse, SuggestedQuery } from "../types/queryProposal";
+import type { SubscriptionPlanApi } from "../types/analysis";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "./apiFetch";
 
 const PROPOSAL_TIMEOUT_MS = 60_000;
@@ -20,6 +21,9 @@ function asQueryProposalResponse(value: unknown): QueryProposalResponse | null {
     return null;
   }
   const o = value as Record<string, unknown>;
+  if (typeof o.id !== "string" || o.id.trim().length === 0) {
+    return null;
+  }
   if (typeof o.inferredPersona !== "string" || !Array.isArray(o.queries)) {
     return null;
   }
@@ -31,7 +35,18 @@ function asQueryProposalResponse(value: unknown): QueryProposalResponse | null {
     }
     queries.push(row);
   }
-  return { inferredPersona: o.inferredPersona, queries };
+  return { id: o.id.trim(), inferredPersona: o.inferredPersona, queries };
+}
+
+function asConvertProposalResponse(value: unknown): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const o = value as Record<string, unknown>;
+  if (typeof o.jobId !== "string" || o.jobId.trim().length === 0) {
+    return null;
+  }
+  return o.jobId.trim();
 }
 
 function toSnakeCaseBody(request: QueryProposalRequest): Record<string, unknown> {
@@ -127,4 +142,28 @@ export async function postQueryProposal(
       signal.removeEventListener("abort", forwardAbort);
     }
   }
+}
+
+/**
+ * 保存済みクエリ提案をジョブに変換し、生成されたジョブ ID を返す。
+ */
+export async function convertProposalToJob(id: string, plan: SubscriptionPlanApi): Promise<string> {
+  const trimmedId = id.trim();
+  if (trimmedId.length === 0) {
+    throw new Error("proposal id must not be blank");
+  }
+  const res = await apiFetch(`/api/v1/proposals/${encodeURIComponent(trimmedId)}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  if (!res.ok) {
+    await throwGeoApiRequestError(res);
+  }
+  const parsed = await responseJsonAsCamel(res);
+  const jobId = asConvertProposalResponse(parsed);
+  if (jobId === null) {
+    throw new Error("ジョブ作成の応答形式が不正です");
+  }
+  return jobId;
 }
