@@ -12,8 +12,10 @@ import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
+import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
@@ -91,6 +93,18 @@ public class AiConfig {
             .maxOutputTokens(4096)
             .responseFormat(GeoOnboardingOutputSchema.geoOnboardingResponseFormat())
             .build();
+    }
+
+    @Bean(DomainAnalysisAiModelNames.GEMINI_DOMAIN_ANALYSIS_CHAT_MODEL)
+    public ChatLanguageModel geminiDomainAnalysisChatModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(8192)
+                .responseFormat(DomainAnalysisOutputSchema.domainAnalysisResponseFormat())
+                .build();
     }
 
     @Bean
