@@ -49,7 +49,9 @@ src/main/java/com/geo/analytics/application/dto/CompetitorResult.java
 src/main/java/com/geo/analytics/application/dto/CompetitorScoreRow.java
 src/main/java/com/geo/analytics/application/dto/CompetitorShareEntry.java
 src/main/java/com/geo/analytics/application/dto/ConsultantOutputData.java
+src/main/java/com/geo/analytics/application/dto/ConvertProposalToJobOutcome.java
 src/main/java/com/geo/analytics/application/dto/CrawledPageData.java
+src/main/java/com/geo/analytics/application/dto/DomainAnalysisResult.java
 src/main/java/com/geo/analytics/application/dto/GapAnalystJobResponse.java
 src/main/java/com/geo/analytics/application/dto/GapLlmResult.java
 src/main/java/com/geo/analytics/application/dto/GeoOnboardingLlmResult.java
@@ -64,16 +66,21 @@ src/main/java/com/geo/analytics/application/dto/LoginRequest.java
 src/main/java/com/geo/analytics/application/dto/LoginResponse.java
 src/main/java/com/geo/analytics/application/dto/PdfGenerationStartResult.java
 src/main/java/com/geo/analytics/application/dto/PdfWhiteLabelInjection.java
+src/main/java/com/geo/analytics/application/dto/QueryProposalProposeOutcome.java
 src/main/java/com/geo/analytics/application/dto/ResolutionResult.java
 src/main/java/com/geo/analytics/application/dto/SelectedKeyword.java
 src/main/java/com/geo/analytics/application/dto/SgeMentionResult.java
 src/main/java/com/geo/analytics/application/dto/SomScoreData.java
 src/main/java/com/geo/analytics/application/dto/StrategyInsight.java
+src/main/java/com/geo/analytics/application/dto/SuggestedQuery.java
 src/main/java/com/geo/analytics/application/dto/SyncVerificationResult.java
 src/main/java/com/geo/analytics/application/dto/TaskDTO.java
+src/main/java/com/geo/analytics/application/dto/UserStrategicKnowledge.java
 src/main/java/com/geo/analytics/application/dto/VerificationRequest.java
 src/main/java/com/geo/analytics/application/dto/VerificationResponse.java
 src/main/java/com/geo/analytics/application/event/UserSessionEvictedEvent.java
+src/main/java/com/geo/analytics/application/exception/QueryProposalException.java
+src/main/java/com/geo/analytics/application/exception/QueryProposalPhase.java
 src/main/java/com/geo/analytics/application/listener/UserSessionCacheEvictionListener.java
 src/main/java/com/geo/analytics/application/port/AiVerificationPort.java
 src/main/java/com/geo/analytics/application/port/JobStatusBroadcastPublisher.java
@@ -119,6 +126,7 @@ src/main/java/com/geo/analytics/application/service/ProjectLastAuditService.java
 src/main/java/com/geo/analytics/application/service/ProjectManagementService.java
 src/main/java/com/geo/analytics/application/service/ProjectOnboardingService.java
 src/main/java/com/geo/analytics/application/service/ProjectSettingsService.java
+src/main/java/com/geo/analytics/application/service/QueryProposalService.java
 src/main/java/com/geo/analytics/application/service/RagDomainRuleSeeder.java
 src/main/java/com/geo/analytics/application/service/RateLimiterService.java
 src/main/java/com/geo/analytics/application/service/ScheduledProjectAuditService.java
@@ -130,6 +138,7 @@ src/main/java/com/geo/analytics/application/service/SyncVerificationService.java
 src/main/java/com/geo/analytics/application/service/TokenProfitBudgetResolver.java
 src/main/java/com/geo/analytics/application/service/WorkspacePlanResolver.java
 src/main/java/com/geo/analytics/application/service/WormAuditExportBridge.java
+src/main/java/com/geo/analytics/application/validator/QueryQualityValidator.java
 src/main/java/com/geo/analytics/domain/ai/CitationValidator.java
 src/main/java/com/geo/analytics/domain/ai/DebatePersona.java
 src/main/java/com/geo/analytics/domain/ai/DebatePersonaSystemPrompts.java
@@ -138,6 +147,7 @@ src/main/java/com/geo/analytics/domain/audit/UserRevisionListener.java
 src/main/java/com/geo/analytics/domain/entity/AuditHistoryEntity.java
 src/main/java/com/geo/analytics/domain/entity/AuditRevisionEntity.java
 src/main/java/com/geo/analytics/domain/entity/BaseTenantEntity.java
+src/main/java/com/geo/analytics/domain/entity/DomainAnalysisSnapshotEntity.java
 src/main/java/com/geo/analytics/domain/entity/DomainAuthorityCacheEntity.java
 src/main/java/com/geo/analytics/domain/entity/JobCompetitorScoreEntity.java
 src/main/java/com/geo/analytics/domain/entity/JobEntity.java
@@ -147,6 +157,8 @@ src/main/java/com/geo/analytics/domain/entity/OrganizationUser.java
 src/main/java/com/geo/analytics/domain/entity/ProjectEntity.java
 src/main/java/com/geo/analytics/domain/entity/ProjectKeywordEntity.java
 src/main/java/com/geo/analytics/domain/entity/QueryEntity.java
+src/main/java/com/geo/analytics/domain/entity/QueryProposalEntity.java
+src/main/java/com/geo/analytics/domain/entity/QueryProposalSuggestedQueryEntity.java
 src/main/java/com/geo/analytics/domain/entity/RagDomainRuleEntity.java
 src/main/java/com/geo/analytics/domain/entity/SgeResultEntity.java
 src/main/java/com/geo/analytics/domain/entity/UnresolvedEntityQueueEntity.java
@@ -172,6 +184,7 @@ src/main/java/com/geo/analytics/domain/exception/ForbiddenApiException.java
 src/main/java/com/geo/analytics/domain/exception/InsufficientCreditException.java
 src/main/java/com/geo/analytics/domain/exception/InsufficientQuotaException.java
 src/main/java/com/geo/analytics/domain/exception/RateLimitExceededException.java
+src/main/java/com/geo/analytics/domain/exception/ScrapingException.java
 src/main/java/com/geo/analytics/domain/exception/SessionRevokedException.java
 src/main/java/com/geo/analytics/domain/exception/SsrFBlockedException.java
 src/main/java/com/geo/analytics/domain/exception/SystemMaintenanceException.java
@@ -249,8 +262,11 @@ src/main/java/com/geo/analytics/domain/phase10/ZibAggregationState.java
 src/main/java/com/geo/analytics/domain/phase10/ZibAggregationUpdater.java
 src/main/java/com/geo/analytics/domain/phase10/ZibExpectationCalculator.java
 src/main/java/com/geo/analytics/domain/phase10/ZScorePurgeFilter.java
+src/main/java/com/geo/analytics/domain/port/UrlContentFetcher.java
 src/main/java/com/geo/analytics/domain/port/WormAuditExportPort.java
 src/main/java/com/geo/analytics/domain/semantic/SemanticJudgmentEngine.java
+src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiModelNames.java
+src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiService.java
 src/main/java/com/geo/analytics/domain/service/EntityNormalizer.java
 src/main/java/com/geo/analytics/domain/service/EntityResolutionBlockingService.java
 src/main/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorService.java
@@ -261,12 +277,14 @@ src/main/java/com/geo/analytics/domain/support/JapaneseTextNormalizer.java
 src/main/java/com/geo/analytics/domain/support/TextWhitespaceNormalizer.java
 src/main/java/com/geo/analytics/domain/trie/OffHeapDoubleArrayTrie.java
 src/main/java/com/geo/analytics/GeoAnalyticsApplication.java
+src/main/java/com/geo/analytics/infrastructure/adapter/JsoupUrlContentFetcherAdapter.java
 src/main/java/com/geo/analytics/infrastructure/adapter/LocalWormAuditAdapter.java
 src/main/java/com/geo/analytics/infrastructure/ai/ConsultantOutputSchema.java
 src/main/java/com/geo/analytics/infrastructure/ai/ConsultantPrompts.java
 src/main/java/com/geo/analytics/infrastructure/ai/DebateDirectorOutputSchema.java
 src/main/java/com/geo/analytics/infrastructure/ai/DeepSeekAdapter.java
 src/main/java/com/geo/analytics/infrastructure/ai/DirectorOnboardingJson.java
+src/main/java/com/geo/analytics/infrastructure/ai/DomainAnalysisOutputSchema.java
 src/main/java/com/geo/analytics/infrastructure/ai/dto/BatchConfig.java
 src/main/java/com/geo/analytics/infrastructure/ai/dto/BatchGenerateContentRequest.java
 src/main/java/com/geo/analytics/infrastructure/ai/dto/BatchQueryLine.java
@@ -340,6 +358,7 @@ src/main/java/com/geo/analytics/infrastructure/ratelimit/PublicApiRateLimitFilte
 src/main/java/com/geo/analytics/infrastructure/ratelimit/RateLimitFilter.java
 src/main/java/com/geo/analytics/infrastructure/ratelimit/SerpApiGlobalRequestGate.java
 src/main/java/com/geo/analytics/infrastructure/repository/AuditHistoryRepository.java
+src/main/java/com/geo/analytics/infrastructure/repository/DomainAnalysisSnapshotRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/DomainAuthorityCacheRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/JobRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/MathDebateAuditEventRepository.java
@@ -347,6 +366,7 @@ src/main/java/com/geo/analytics/infrastructure/repository/OrganizationRepository
 src/main/java/com/geo/analytics/infrastructure/repository/OrganizationUserRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/ProjectKeywordRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/ProjectRepository.java
+src/main/java/com/geo/analytics/infrastructure/repository/QueryProposalRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/QueryRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/RagDomainRuleRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/SgeResultRepository.java
@@ -364,6 +384,7 @@ src/main/java/com/geo/analytics/infrastructure/security/JwtAuthenticationFilter.
 src/main/java/com/geo/analytics/infrastructure/security/JwtTokenException.java
 src/main/java/com/geo/analytics/infrastructure/security/RefreshTokenCookieFactory.java
 src/main/java/com/geo/analytics/infrastructure/security/SecurityExceptionResponseHandler.java
+src/main/java/com/geo/analytics/infrastructure/security/SsrfValidator.java
 src/main/java/com/geo/analytics/infrastructure/security/TenantAccessEvaluator.java
 src/main/java/com/geo/analytics/infrastructure/security/TokenService.java
 src/main/java/com/geo/analytics/infrastructure/tenant/ContextPropagator.java
@@ -374,6 +395,7 @@ src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextFilter.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantContextHolder.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantIdentity.java
 src/main/java/com/geo/analytics/infrastructure/tenant/TenantPlanScope.java
+src/main/java/com/geo/analytics/infrastructure/util/HtmlSanitizer.java
 src/main/java/com/geo/analytics/web/controller/AuthController.java
 src/main/java/com/geo/analytics/web/controller/BatchTestController.java
 src/main/java/com/geo/analytics/web/controller/CsrfController.java
@@ -383,6 +405,7 @@ src/main/java/com/geo/analytics/web/controller/KeywordController.java
 src/main/java/com/geo/analytics/web/controller/ProjectAnalyticsController.java
 src/main/java/com/geo/analytics/web/controller/ProjectOnboardingController.java
 src/main/java/com/geo/analytics/web/controller/PublicApiController.java
+src/main/java/com/geo/analytics/web/controller/QueryProposalController.java
 src/main/java/com/geo/analytics/web/controller/SyncVerificationController.java
 src/main/java/com/geo/analytics/web/controller/VerificationController.java
 src/main/java/com/geo/analytics/web/controller/WorkspaceController.java
@@ -392,6 +415,8 @@ src/main/java/com/geo/analytics/web/dto/AnalyticsSummaryResponse.java
 src/main/java/com/geo/analytics/web/dto/ApiErrorResponse.java
 src/main/java/com/geo/analytics/web/dto/ChangeSubscriptionRequest.java
 src/main/java/com/geo/analytics/web/dto/CompetitorSharePoint.java
+src/main/java/com/geo/analytics/web/dto/ConvertProposalToJobRequest.java
+src/main/java/com/geo/analytics/web/dto/ConvertProposalToJobResponse.java
 src/main/java/com/geo/analytics/web/dto/CreateJobRequest.java
 src/main/java/com/geo/analytics/web/dto/DebateOnboardingSseEvent.java
 src/main/java/com/geo/analytics/web/dto/ExtractContextRequest.java
@@ -403,6 +428,10 @@ src/main/java/com/geo/analytics/web/dto/ProjectContextPatchRequest.java
 src/main/java/com/geo/analytics/web/dto/ProjectContextResponse.java
 src/main/java/com/geo/analytics/web/dto/ProjectSettingsPatchRequest.java
 src/main/java/com/geo/analytics/web/dto/ProjectSettingsResponse.java
+src/main/java/com/geo/analytics/web/dto/QueryProposalKnowledgeRequest.java
+src/main/java/com/geo/analytics/web/dto/QueryProposalRequest.java
+src/main/java/com/geo/analytics/web/dto/QueryProposalResponse.java
+src/main/java/com/geo/analytics/web/dto/QueryProposalSuggestedQueryResponse.java
 src/main/java/com/geo/analytics/web/dto/ResultDetailRanking.java
 src/main/java/com/geo/analytics/web/dto/ResultDetailResponse.java
 src/main/java/com/geo/analytics/web/dto/ResultSummaryResponse.java
@@ -436,6 +465,8 @@ src/main/resources/db/migration/V109__wallet_transactions.sql
 src/main/resources/db/migration/V110__add_minority_reports_to_projects.sql
 src/main/resources/db/migration/V111__add_domain_authority_and_math_audit.sql
 src/main/resources/db/migration/V112__wallet_transactions_note.sql
+src/main/resources/db/migration/V113__domain_analysis_snapshots.sql
+src/main/resources/db/migration/V114__query_proposals.sql
 src/main/resources/db/migration/V2__organization_users_role_varchar.sql
 src/main/resources/db/migration/V3__setup_roles_and_grants.sql
 src/main/resources/db/migration/V4__auth_select_policy.sql
@@ -656,6 +687,10 @@ if not "%JAVA_HOME%"=="" set JAVA_CMD=%JAVA_HOME%\bin\java
             <artifactId>langchain4j-google-ai-gemini</artifactId>
         </dependency>
         <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.microsoft.playwright</groupId>
             <artifactId>playwright</artifactId>
             <version>${playwright.version}</version>
@@ -675,7 +710,7 @@ if not "%JAVA_HOME%"=="" set JAVA_CMD=%JAVA_HOME%\bin\java
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
-            <version>1.17.2</version>
+            <version>1.22.2</version>
         </dependency>
         <dependency>
             <groupId>com.worksap.nlp</groupId>
@@ -916,6 +951,17 @@ public record ConsultantOutputData(
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/dto/ConvertProposalToJobOutcome.java">
+package com.geo.analytics.application.dto;
+
+import java.util.UUID;
+
+/**
+ * クエリ提案からジョブへの変換結果。冪等再試行時は {@code created == false}。
+ */
+public record ConvertProposalToJobOutcome(UUID jobId, boolean created) {}
+</file>
+
 <file path="src/main/java/com/geo/analytics/application/dto/CrawledPageData.java">
 package com.geo.analytics.application.dto;
 
@@ -938,6 +984,23 @@ public record CrawledPageData(
 
     public String content() {
         return mainContent;
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/dto/DomainAnalysisResult.java">
+package com.geo.analytics.application.dto;
+
+import java.util.List;
+
+/**
+ * ドメイン分析の最終アウトプット（推定ペルソナと提案クエリ列）。{@code queries} は不変リストとして保持する。
+ */
+public record DomainAnalysisResult(String inferredPersona, List<SuggestedQuery> queries) {
+
+    public DomainAnalysisResult {
+        inferredPersona = inferredPersona == null ? "" : inferredPersona;
+        queries = queries == null ? List.of() : List.copyOf(queries);
     }
 }
 </file>
@@ -1204,6 +1267,24 @@ public record PdfWhiteLabelInjection(String brandColor, String logoUrl, String b
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/dto/QueryProposalProposeOutcome.java">
+package com.geo.analytics.application.dto;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * クエリ提案の AI 分析結果と、永続化された {@link com.geo.analytics.domain.entity.QueryProposalEntity} の ID。
+ */
+public record QueryProposalProposeOutcome(DomainAnalysisResult analysis, UUID savedProposalId) {
+
+    public QueryProposalProposeOutcome {
+        Objects.requireNonNull(analysis, "analysis");
+        Objects.requireNonNull(savedProposalId, "savedProposalId");
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/application/dto/ResolutionResult.java">
 package com.geo.analytics.application.dto;
 
@@ -1285,6 +1366,22 @@ import java.util.List;
 public record StrategyInsight(String diagnosticMessage, List<String> recommendedActions, Double representativeModifiedZ) {}
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/dto/SuggestedQuery.java">
+package com.geo.analytics.application.dto;
+
+/**
+ * AI が生成した 1 件の質問本文と、その重要性の根拠（意図）。
+ * 未入力は空文字として扱う。{@code null} は受け付けず正規化する。
+ */
+public record SuggestedQuery(String queryText, String intent) {
+
+    public SuggestedQuery {
+        queryText = queryText == null ? "" : queryText;
+        intent = intent == null ? "" : intent;
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/application/dto/SyncVerificationResult.java">
 package com.geo.analytics.application.dto;
 
@@ -1318,6 +1415,23 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TaskDTO(String rank, String title, String description) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/dto/UserStrategicKnowledge.java">
+package com.geo.analytics.application.dto;
+
+/**
+ * AI 解析のインプットとなる、ユーザーが入力した戦略的ナレッジ（自社の強み・ターゲット等）。
+ * 未入力は空文字として扱う。{@code null} は受け付けず正規化する。
+ */
+public record UserStrategicKnowledge(String businessDescription, String targetAudience, String strategicFocus) {
+
+    public UserStrategicKnowledge {
+        businessDescription = businessDescription == null ? "" : businessDescription;
+        targetAudience = targetAudience == null ? "" : targetAudience;
+        strategicFocus = strategicFocus == null ? "" : strategicFocus;
+    }
+}
 </file>
 
 <file path="src/main/java/com/geo/analytics/application/dto/VerificationRequest.java">
@@ -1417,6 +1531,69 @@ public record UserSessionEvictedEvent(UUID userId, UUID organizationId, List<UUI
     public UserSessionEvictedEvent {
         revokedSessionIds = List.copyOf(revokedSessionIds);
     }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/exception/QueryProposalException.java">
+package com.geo.analytics.application.exception;
+
+/**
+ * {@link com.geo.analytics.application.service.QueryProposalService} における統合失敗。
+ * 呼び出し元向けの短い {@link #getUserMessage()}、検証時の {@link #getDetail()}、デバッグ用の {@link #getCause()} を備える。
+ */
+public class QueryProposalException extends RuntimeException {
+
+    private final QueryProposalPhase phase;
+
+    private final String userMessage;
+
+    private final String detail;
+
+    public QueryProposalException(QueryProposalPhase phase, String userMessage, Throwable cause) {
+        this(phase, userMessage, null, cause);
+    }
+
+    public QueryProposalException(QueryProposalPhase phase, String userMessage, String detail, Throwable cause) {
+        super(combine(userMessage, detail), cause);
+        this.phase = phase;
+        this.userMessage = userMessage;
+        this.detail = detail;
+    }
+
+    private static String combine(String userMessage, String detail) {
+        if (detail == null || detail.isBlank()) {
+            return userMessage;
+        }
+        return userMessage + ": " + detail;
+    }
+
+    public QueryProposalPhase getPhase() {
+        return phase;
+    }
+
+    public String getUserMessage() {
+        return userMessage;
+    }
+
+    /**
+     * どの検証項目で不合格となったか等の補足（ユーザー向け全文メッセージは {@link #getMessage()}）。
+     */
+    public String getDetail() {
+        return detail;
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/exception/QueryProposalPhase.java">
+package com.geo.analytics.application.exception;
+
+/**
+ * クエリ提案オーケストレーションのどの段階で失敗したかを区別する。
+ */
+public enum QueryProposalPhase {
+    SCRAPING,
+    AI_ANALYSIS,
+    VALIDATION
 }
 </file>
 
@@ -2634,6 +2811,13 @@ public class BatchPersistenceService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
+     */
+    private static Integer normalizedAiCitationPosition(Integer position) {
+        return (position != null && position > 0) ? position : null;
+    }
+
     private static final String JOB_COLS =
             "id, tenant_id, project_id, job_status, subscription_plan, "
             + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
@@ -2757,6 +2941,7 @@ public class BatchPersistenceService {
                                    String diagnosticMessage, List<String> recommendedActions,
                                    String modelInsightsJson,
                                    List<CompetitorScoreRow> competitorScoreRows) {
+        Integer persistedAiCitationPosition = normalizedAiCitationPosition(aiCitationPosition);
         Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
         UUID auditId;
         if (existingId.isPresent()) {
@@ -2777,7 +2962,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 6, overallScore);
                 ps.setString(7, resolvedEntityLabel);
                 ps.setInt(8, tokenCount);
-                ps.setObject(9, aiCitationPosition, Types.INTEGER);
+                ps.setObject(9, persistedAiCitationPosition, Types.INTEGER);
                 ps.setDouble(10, sentimentIntensity);
                 setNullableInt(ps, 11, visibilityStage);
                 ps.setString(12, calculationVersion);
@@ -2813,7 +2998,7 @@ public class BatchPersistenceService {
                 setNullableInt(ps, 11, overallScore);
                 ps.setString(12, resolvedEntityLabel);
                 ps.setInt(13, tokenCount);
-                ps.setObject(14, aiCitationPosition, Types.INTEGER);
+                ps.setObject(14, persistedAiCitationPosition, Types.INTEGER);
                 ps.setDouble(15, sentimentIntensity);
                 setNullableInt(ps, 16, visibilityStage);
                 ps.setString(17, calculationVersion);
@@ -2834,7 +3019,7 @@ public class BatchPersistenceService {
                         + "som_score, ai_citation_position, visibility_stage, match_status, noun_count) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         UUID.randomUUID(), auditId, row.competitorName(),
-                        row.somScore(), row.aiCitationPosition(), row.visibilityStage(),
+                        row.somScore(), normalizedAiCitationPosition(row.aiCitationPosition()), row.visibilityStage(),
                         row.matchStatus() != null ? row.matchStatus().name() : null, row.nounCount());
             }
         }
@@ -5185,7 +5370,7 @@ public class JobPersistenceService {
                 existing.setOverallScore(overallScore);
                 existing.setResolvedEntityLabel(resolvedEntityLabel);
                 existing.setTokenCount(tokenCount);
-                existing.setAiCitationPosition(aiCitationPosition);
+                existing.setAiCitationPosition(normalizedAiCitationPosition(aiCitationPosition));
                 existing.setSentimentIntensity(sentimentIntensity);
                 existing.setVisibilityStage(visibilityStage);
                 existing.setCalculationVersion(calculationVersion);
@@ -5212,7 +5397,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setOverallScore(overallScore);
                 auditHistoryEntity.setResolvedEntityLabel(resolvedEntityLabel);
                 auditHistoryEntity.setTokenCount(tokenCount);
-                auditHistoryEntity.setAiCitationPosition(aiCitationPosition);
+                auditHistoryEntity.setAiCitationPosition(normalizedAiCitationPosition(aiCitationPosition));
                 auditHistoryEntity.setSentimentIntensity(sentimentIntensity);
                 auditHistoryEntity.setVisibilityStage(visibilityStage);
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
@@ -5234,6 +5419,13 @@ public class JobPersistenceService {
         });
     }
 
+    /**
+     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
+     */
+    private static Integer normalizedAiCitationPosition(Integer position) {
+        return (position != null && position > 0) ? position : null;
+    }
+
     private static void applyCompetitorScores(AuditHistoryEntity audit, List<CompetitorScoreRow> rows) {
         audit.getCompetitorScores().clear();
         if (rows == null || rows.isEmpty()) {
@@ -5244,7 +5436,7 @@ public class JobPersistenceService {
             entity.setAuditHistory(audit);
             entity.setCompetitorName(row.competitorName());
             entity.setSomScore(row.somScore());
-            entity.setAiCitationPosition(row.aiCitationPosition());
+            entity.setAiCitationPosition(normalizedAiCitationPosition(row.aiCitationPosition()));
             entity.setVisibilityStage(row.visibilityStage());
             entity.setMatchStatus(row.matchStatus());
             entity.setNounCount(row.nounCount());
@@ -5284,6 +5476,29 @@ public class JobPersistenceService {
         ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
+        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, workspaceId, orgId);
+    }
+
+    /**
+     * 永続化済みのクエリ提案が属するワークスペース内でジョブを作成（または冪等キーで既存を返却）する。
+     */
+    @Transactional(readOnly = false)
+    public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey, UUID workspaceId) {
+        String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
+        ProjectManagementService.DefaultProjectResolution resolution =
+                projectManagementService.getOrCreateDefaultProjectForWorkspace(normalizedBrandName, workspaceId);
+        ProjectEntity projectEntity = resolution.project();
+        UUID resolvedWorkspaceId = projectEntity.getWorkspaceId();
+        UUID orgId = resolution.organizationId();
+        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, resolvedWorkspaceId, orgId);
+    }
+
+    private JobCreateOutcome runJobCreationWithProject(
+            String normalizedBrandName,
+            UUID idempotencyKey,
+            ProjectEntity projectEntity,
+            UUID workspaceId,
+            UUID organizationId) {
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
@@ -5291,7 +5506,7 @@ public class JobPersistenceService {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, workspaceId, null))
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, workspaceId, null))
                     .call(
                             () -> {
                                 try {
@@ -7278,6 +7493,7 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7287,6 +7503,11 @@ import java.util.UUID;
 
 @Service
 public class ProjectManagementService {
+
+    /**
+     * 既存ワークスペース向けにデフォルトブランド名プロジェクトを解決した結果（所属組織 ID を含む）。
+     */
+    public record DefaultProjectResolution(ProjectEntity project, UUID organizationId) {}
     private final WorkspaceRepository workspaceRepository;
     private final ProjectRepository projectRepository;
     @PersistenceContext
@@ -7346,6 +7567,31 @@ public class ProjectManagementService {
                 return projectRepository.saveAndFlush(projectEntity);
             });
         });
+    }
+
+    /**
+     * 指定ワークスペース内でブランド名に紐づくプロジェクトを取得または作成する。ワークスペース行は既に存在すること（自動作成しない）。
+     */
+    @Transactional
+    public DefaultProjectResolution getOrCreateDefaultProjectForWorkspace(String brandName, UUID workspaceId) {
+        Objects.requireNonNull(brandName, "brandName");
+        Objects.requireNonNull(workspaceId, "workspaceId");
+        WorkspaceEntity workspace = workspaceRepository
+                .findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("Workspace not found: " + workspaceId));
+        UUID orgId = workspace.getOrganizationId();
+        ProjectEntity project = TenantPlanScope.executeWithTenant(workspaceId, () -> projectRepository
+                .findByTenantIdAndName(workspaceId.toString(), brandName)
+                .orElseGet(() -> {
+                    ProjectEntity projectEntity = new ProjectEntity();
+                    projectEntity.setWorkspaceId(workspaceId);
+                    projectEntity.setName(brandName);
+                    projectEntity.setTargetUrl("");
+                    projectEntity.setCompetitorUrls(new ArrayList<>());
+                    forceSetTenantId(projectEntity, workspaceId);
+                    return projectRepository.saveAndFlush(projectEntity);
+                }));
+        return new DefaultProjectResolution(project, orgId);
     }
 }
 </file>
@@ -7751,6 +7997,402 @@ public class ProjectSettingsService {
             projectEntity.getSlackWebhookUrl(),
             projectEntity.getNotificationEmail(),
             projectEntity.getLastAuditAt());
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/service/QueryProposalService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.application.dto.ConvertProposalToJobOutcome;
+import com.geo.analytics.application.dto.DomainAnalysisResult;
+import com.geo.analytics.application.dto.QueryProposalProposeOutcome;
+import com.geo.analytics.application.dto.SuggestedQuery;
+import com.geo.analytics.application.dto.UserStrategicKnowledge;
+import com.geo.analytics.application.exception.QueryProposalException;
+import com.geo.analytics.application.exception.QueryProposalPhase;
+import com.geo.analytics.application.validator.QueryQualityValidator;
+import com.geo.analytics.domain.entity.DomainAnalysisSnapshotEntity;
+import com.geo.analytics.domain.entity.QueryProposalEntity;
+import com.geo.analytics.domain.entity.QueryProposalSuggestedQueryEntity;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.exception.ScrapingException;
+import com.geo.analytics.domain.port.UrlContentFetcher;
+import com.geo.analytics.domain.service.DomainAnalysisAiService;
+import com.geo.analytics.infrastructure.repository.DomainAnalysisSnapshotRepository;
+import com.geo.analytics.infrastructure.repository.QueryProposalRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * URL 由来の本文とユーザーの戦略知識を結合し、GEO 向けのペルソナ・クエリ案を AI に生成させるオーケストレーター。
+ */
+@Service
+public class QueryProposalService {
+
+    private static final Logger log = LoggerFactory.getLogger(QueryProposalService.class);
+
+    private static final String MDC_PHASE_KEY = "queryProposal.phase";
+
+    private static final int BRAND_NAME_MAX_LENGTH = 255;
+
+    private static final String AI_PERSONA_DIAGNOSTIC_PREFIX = "【AI提案ペルソナ】\n";
+
+    private static final Pattern UNEXPECTED_HTTP_STATUS = Pattern.compile(
+            "Unexpected HTTP status:\\s*(\\d{3})", Pattern.CASE_INSENSITIVE);
+
+    private final UrlContentFetcher urlContentFetcher;
+
+    private final DomainAnalysisAiService domainAnalysisAiService;
+
+    private final QueryQualityValidator queryQualityValidator;
+
+    private final DomainAnalysisSnapshotRepository domainAnalysisSnapshotRepository;
+
+    private final QueryProposalRepository queryProposalRepository;
+
+    private final JobPersistenceService jobPersistenceService;
+
+    private final JobQuerySubmissionService jobQuerySubmissionService;
+
+    private final EntityManager entityManager;
+
+    private final QueryProposalService self;
+
+    public QueryProposalService(
+            UrlContentFetcher urlContentFetcher,
+            DomainAnalysisAiService domainAnalysisAiService,
+            QueryQualityValidator queryQualityValidator,
+            DomainAnalysisSnapshotRepository domainAnalysisSnapshotRepository,
+            QueryProposalRepository queryProposalRepository,
+            JobPersistenceService jobPersistenceService,
+            JobQuerySubmissionService jobQuerySubmissionService,
+            EntityManager entityManager,
+            @Lazy QueryProposalService self) {
+        this.urlContentFetcher = Objects.requireNonNull(urlContentFetcher, "urlContentFetcher");
+        this.domainAnalysisAiService = Objects.requireNonNull(domainAnalysisAiService, "domainAnalysisAiService");
+        this.queryQualityValidator = Objects.requireNonNull(queryQualityValidator, "queryQualityValidator");
+        this.domainAnalysisSnapshotRepository =
+                Objects.requireNonNull(domainAnalysisSnapshotRepository, "domainAnalysisSnapshotRepository");
+        this.queryProposalRepository = Objects.requireNonNull(queryProposalRepository, "queryProposalRepository");
+        this.jobPersistenceService = Objects.requireNonNull(jobPersistenceService, "jobPersistenceService");
+        this.jobQuerySubmissionService = Objects.requireNonNull(jobQuerySubmissionService, "jobQuerySubmissionService");
+        this.entityManager = Objects.requireNonNull(entityManager, "entityManager");
+        this.self = Objects.requireNonNull(self, "self");
+    }
+
+    @Transactional
+    public DomainAnalysisResult propose(String url, UserStrategicKnowledge knowledge) {
+        return completeProposal(url, knowledge).analysis();
+    }
+
+    @Transactional
+    public QueryProposalProposeOutcome completeProposal(String url, UserStrategicKnowledge knowledge) {
+        Objects.requireNonNull(knowledge, "knowledge");
+        try {
+            MDC.put(MDC_PHASE_KEY, QueryProposalPhase.SCRAPING.name());
+            log.atInfo()
+                    .addKeyValue("hostHint", safeHostHint(url))
+                    .log("Query proposal phase={}", QueryProposalPhase.SCRAPING.name());
+
+            String scrapedText = fetchCleanTextWithOptionalRetry(url);
+
+            MDC.put(MDC_PHASE_KEY, QueryProposalPhase.AI_ANALYSIS.name());
+            log.atInfo()
+                    .addKeyValue("hostHint", safeHostHint(url))
+                    .log("Query proposal phase={}", QueryProposalPhase.AI_ANALYSIS.name());
+
+            DomainAnalysisResult result;
+            try {
+                result = domainAnalysisAiService.analyze(
+                        knowledge.businessDescription(),
+                        knowledge.targetAudience(),
+                        knowledge.strategicFocus(),
+                        scrapedText);
+            } catch (RuntimeException e) {
+                log.error(
+                        "AI analysis failed hostHint={} exceptionClass={} message={}",
+                        safeHostHint(url),
+                        e.getClass().getName(),
+                        e.getMessage(),
+                        e);
+                throw new QueryProposalException(QueryProposalPhase.AI_ANALYSIS, "AI analysis failed", e);
+            }
+
+            MDC.put(MDC_PHASE_KEY, QueryProposalPhase.VALIDATION.name());
+            log.atInfo()
+                    .addKeyValue("hostHint", safeHostHint(url))
+                    .log("Query proposal phase={}", QueryProposalPhase.VALIDATION.name());
+
+            try {
+                queryQualityValidator.validate(result);
+            } catch (QueryProposalException e) {
+                if (e.getPhase() == QueryProposalPhase.VALIDATION) {
+                    log.warn(
+                            "Query validation failed hostHint={} detail={}",
+                            safeHostHint(url),
+                            e.getDetail());
+                }
+                throw e;
+            }
+
+            UUID workspaceId = TenantContextHolder.requireContext().tenantId();
+            DomainAnalysisSnapshotEntity snapshot = new DomainAnalysisSnapshotEntity();
+            snapshot.setWorkspaceId(workspaceId);
+            snapshot.setSourceUrl(url);
+            snapshot.setInferredPersona(result.inferredPersona());
+            snapshot.setQueries(new ArrayList<>(result.queries()));
+            domainAnalysisSnapshotRepository.save(snapshot);
+
+            QueryProposalEntity proposalEntity = new QueryProposalEntity();
+            proposalEntity.setWorkspaceId(workspaceId);
+            proposalEntity.setUrl(url);
+            proposalEntity.setBusinessDescription(knowledge.businessDescription());
+            proposalEntity.setTargetAudience(knowledge.targetAudience());
+            proposalEntity.setStrategicFocus(knowledge.strategicFocus());
+            proposalEntity.setInferredPersona(result.inferredPersona());
+            List<QueryProposalSuggestedQueryEntity> rows = new ArrayList<>();
+            List<SuggestedQuery> queries = result.queries();
+            for (int i = 0; i < queries.size(); i++) {
+                SuggestedQuery sq = queries.get(i);
+                QueryProposalSuggestedQueryEntity row = new QueryProposalSuggestedQueryEntity();
+                row.setProposal(proposalEntity);
+                row.setQueryText(sq.queryText());
+                row.setIntent(sq.intent());
+                row.setSortOrder(i);
+                rows.add(row);
+            }
+            proposalEntity.setSuggestedQueries(rows);
+            QueryProposalEntity saved = queryProposalRepository.save(proposalEntity);
+
+            return new QueryProposalProposeOutcome(result, saved.getId());
+        } finally {
+            MDC.remove(MDC_PHASE_KEY);
+        }
+    }
+
+    /**
+     * 保存済みクエリ提案からジョブを生成し、新規作成時のみ提案クエリを登録して解析パイプラインへ載せる。
+     *
+     * @return ジョブ ID と、その呼び出しで新規ジョブが作られたかどうか
+     */
+    public ConvertProposalToJobOutcome convertProposalToJob(UUID proposalId, SubscriptionPlan plan) {
+        Objects.requireNonNull(proposalId, "proposalId");
+        Objects.requireNonNull(plan, "plan");
+        QueryProposalEntity proposal = self.loadProposalForJob(proposalId);
+        List<QueryProposalSuggestedQueryEntity> suggested = proposal.getSuggestedQueries();
+        if (suggested == null || suggested.isEmpty()) {
+            throw new IllegalStateException("Query proposal has no suggested queries: " + proposalId);
+        }
+        List<String> queryTexts =
+                suggested.stream().map(QueryProposalSuggestedQueryEntity::getQueryText).collect(Collectors.toList());
+        if (queryTexts.stream().anyMatch(t -> t == null || t.isBlank())) {
+            throw new IllegalStateException("Query proposal contains blank query text: " + proposalId);
+        }
+        String brandName = normalizeBrandName(brandNameFromProposalUrl(proposal.getUrl()));
+        UUID proposalWorkspaceId = proposal.getWorkspaceId();
+        var outcome = jobPersistenceService.createJobWithIdempotency(brandName, proposalId, proposalWorkspaceId);
+        var job = outcome.jobEntity();
+        UUID jobId = job.getId();
+        if (outcome.created()) {
+            String diagnostic = buildPersonaDiagnosticBlock(proposal);
+            jobPersistenceService.updateJobStrategyRollup(jobId, diagnostic, List.of());
+            jobQuerySubmissionService.submitQueries(jobId, queryTexts, plan);
+        }
+        return new ConvertProposalToJobOutcome(jobId, outcome.created());
+    }
+
+    @Transactional(readOnly = true)
+    public QueryProposalEntity loadProposalForJob(UUID proposalId) {
+        String tenantId = TenantContextHolder.requireContext().tenantId().toString();
+        List<QueryProposalEntity> list = entityManager
+                .createQuery(
+                        "SELECT DISTINCT p FROM QueryProposalEntity p LEFT JOIN FETCH p.suggestedQueries WHERE p.id = :id AND p.tenantId = :tid",
+                        QueryProposalEntity.class)
+                .setParameter("id", proposalId)
+                .setParameter("tid", tenantId)
+                .getResultList();
+        if (list.isEmpty()) {
+            throw new EntityNotFoundException("Query proposal not found: " + proposalId);
+        }
+        return list.get(0);
+    }
+
+    private static String brandNameFromProposalUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return "query-proposal";
+        }
+        try {
+            URI uri = new URI(url.trim());
+            String host = uri.getHost();
+            if (host != null && !host.isBlank()) {
+                return host;
+            }
+        } catch (URISyntaxException e) {
+            log.debug("brandNameFromProposalUrl parse failed url={}", truncate(url, 64));
+        }
+        return truncate(url.trim(), BRAND_NAME_MAX_LENGTH);
+    }
+
+    private static String normalizeBrandName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "query-proposal";
+        }
+        String s = raw.trim();
+        if (s.length() > BRAND_NAME_MAX_LENGTH) {
+            return s.substring(0, BRAND_NAME_MAX_LENGTH);
+        }
+        return s;
+    }
+
+    private static String buildPersonaDiagnosticBlock(QueryProposalEntity proposal) {
+        String persona = proposal.getInferredPersona() != null ? proposal.getInferredPersona().trim() : "";
+        StringBuilder sb = new StringBuilder(AI_PERSONA_DIAGNOSTIC_PREFIX);
+        if (!persona.isEmpty()) {
+            sb.append(persona);
+        }
+        List<QueryProposalSuggestedQueryEntity> rows = proposal.getSuggestedQueries();
+        if (rows != null && !rows.isEmpty()) {
+            sb.append("\n\n【提案クエリと意図】\n");
+            for (QueryProposalSuggestedQueryEntity row : rows) {
+                String q = row.getQueryText() != null ? row.getQueryText().trim() : "";
+                String intent = row.getIntent() != null ? row.getIntent().trim() : "";
+                sb.append("- ").append(q);
+                if (!intent.isEmpty()) {
+                    sb.append(" （意図: ").append(intent).append('）');
+                }
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private String fetchCleanTextWithOptionalRetry(String url) {
+        try {
+            return urlContentFetcher.fetchCleanText(url);
+        } catch (ScrapingException first) {
+            if (!isRetryableScrapingException(first)) {
+                throw new QueryProposalException(
+                        QueryProposalPhase.SCRAPING, "Failed to fetch URL content", first);
+            }
+            log.warn(
+                    "Scraping failed; retrying once hostHint={} exceptionClass={} message={}",
+                    safeHostHint(url),
+                    first.getClass().getName(),
+                    first.getMessage(),
+                    first);
+            try {
+                return urlContentFetcher.fetchCleanText(url);
+            } catch (ScrapingException second) {
+                throw new QueryProposalException(
+                        QueryProposalPhase.SCRAPING, "Failed to fetch URL content after retry", second);
+            }
+        }
+    }
+
+    private static boolean isRetryableScrapingException(ScrapingException e) {
+        if (isDefinitiveScrapingFailure(e)) {
+            return false;
+        }
+        if (hasIOExceptionInCauseChain(e)) {
+            return true;
+        }
+        return impliesTransientHttpFailure(e.getMessage());
+    }
+
+    private static boolean isDefinitiveScrapingFailure(ScrapingException e) {
+        String msg = e.getMessage();
+        if (msg == null) {
+            return false;
+        }
+        String m = msg.toLowerCase(Locale.ROOT);
+        if (m.contains("private ip")
+                || m.contains("invalid scheme")
+                || m.contains("user info")
+                || m.contains("invalid url syntax")
+                || m.contains("host is required")
+                || m.contains("invalid host")
+                || m.contains("too many redirects")
+                || m.contains("url must not be null")
+                || m.contains("redirect location")) {
+            return true;
+        }
+        Integer status = extractUnexpectedHttpStatus(msg);
+        if (status != null && status >= 400 && status < 500) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean impliesTransientHttpFailure(String rawMessage) {
+        if (rawMessage == null) {
+            return false;
+        }
+        String m = rawMessage.toLowerCase(Locale.ROOT);
+        if (m.contains("502") || m.contains("503") || m.contains("504")) {
+            return true;
+        }
+        Integer status = extractUnexpectedHttpStatus(rawMessage);
+        return status != null && status >= 500 && status < 600;
+    }
+
+    private static Integer extractUnexpectedHttpStatus(String message) {
+        Matcher matcher = UNEXPECTED_HTTP_STATUS.matcher(message);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static boolean hasIOExceptionInCauseChain(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof IOException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String safeHostHint(String url) {
+        if (url == null) {
+            return "(null)";
+        }
+        try {
+            URI uri = new URI(url);
+            String host = uri.getHost();
+            return host != null ? host : truncate(url, 64);
+        } catch (URISyntaxException e) {
+            return truncate(url, 64);
+        }
+    }
+
+    private static String truncate(String s, int maxChars) {
+        if (s.length() <= maxChars) {
+            return s;
+        }
+        return s.substring(0, maxChars) + "...";
     }
 }
 </file>
@@ -8646,6 +9288,267 @@ public class WormAuditExportBridge {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/validator/QueryQualityValidator.java">
+package com.geo.analytics.application.validator;
+
+import com.geo.analytics.application.dto.DomainAnalysisResult;
+import com.geo.analytics.application.dto.SuggestedQuery;
+import com.geo.analytics.application.exception.QueryProposalException;
+import com.geo.analytics.application.exception.QueryProposalPhase;
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.stereotype.Component;
+
+/**
+ * AI が生成した {@link DomainAnalysisResult} の品質を検証する。不合格時は {@link QueryProposalException}（{@code VALIDATION}）を送出する。
+ */
+@Component
+public class QueryQualityValidator {
+
+    static final int MIN_QUERY_COUNT = 5;
+
+    static final int MAX_QUERY_COUNT = 10;
+
+    static final int MIN_QUERY_CODE_POINTS = 5;
+
+    private static final int MIN_INFERRED_PERSONA_CODE_POINTS = 50;
+
+    /**
+     * 正規化 Levenshtein 距離 / max(長さ) がこの値以下なら「過度に類似」とみなす。
+     */
+    private static final double MAX_NORMALIZED_EDIT_RATIO = 0.15;
+
+    static final double JACCARD_TOO_SIMILAR = 0.70;
+
+    private static final int MIN_TOKEN_SET_FOR_JACCARD = 3;
+
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("\\p{L}[\\p{L}\\p{M}]*|\\p{N}+");
+
+    private static final List<String> META_PHRASES_LOWER = List.of(
+            "以下に",
+            "以下が",
+            "以下は",
+            "10個の質問",
+            "10件の質問",
+            "10 個の質問",
+            "ご要望通り",
+            "ご要望どおり",
+            "aiとして",
+            "language model",
+            "large language model",
+            "chatgpt",
+            "claude",
+            "json形式",
+            "```json",
+            "here are",
+            "here is",
+            "as an ai",
+            "as a language",
+            "i cannot",
+            "質問を列挙",
+            "以下の通り",
+            "こちらに",
+            "こちらが",
+            "こちらは",
+            "まとめました",
+            "リストにまとめ",
+            "一覧にしました",
+            "ご提案",
+            "ご提案いたします",
+            "をご提案",
+            "参考までに",
+            "念のため",
+            "チェックリスト",
+            "質問リスト",
+            "リストです",
+            "列挙",
+            "としてお答え",
+            "回答として",
+            "出力します",
+            "出力いたします");
+
+    public void validate(DomainAnalysisResult result) {
+        if (result == null) {
+            throw new QueryProposalException(
+                    QueryProposalPhase.VALIDATION, "Validation failed", "result is null", null);
+        }
+        List<SuggestedQuery> queries = result.queries();
+        int queryCount = queries.size();
+        if (queryCount < MIN_QUERY_COUNT || queryCount > MAX_QUERY_COUNT) {
+            throw new QueryProposalException(
+                    QueryProposalPhase.VALIDATION,
+                    "Validation failed",
+                    "queryCount must be between " + MIN_QUERY_COUNT + " and " + MAX_QUERY_COUNT + " was " + queryCount,
+                    null);
+        }
+
+        String personaTrimmed = result.inferredPersona().strip();
+        int personaCodePoints = personaTrimmed.codePointCount(0, personaTrimmed.length());
+        if (personaCodePoints < MIN_INFERRED_PERSONA_CODE_POINTS) {
+            throw new QueryProposalException(
+                    QueryProposalPhase.VALIDATION,
+                    "Validation failed",
+                    "inferredPersona too short (minimum "
+                            + MIN_INFERRED_PERSONA_CODE_POINTS
+                            + " code points after trim, was "
+                            + personaCodePoints
+                            + ")",
+                    null);
+        }
+        if (containsMetaPhrase(personaTrimmed)) {
+            throw new QueryProposalException(
+                    QueryProposalPhase.VALIDATION,
+                    "Validation failed",
+                    "meta phrase in inferredPersona",
+                    null);
+        }
+
+        List<String> normalizedQueries = new ArrayList<>(MAX_QUERY_COUNT);
+        for (int i = 0; i < queries.size(); i++) {
+            SuggestedQuery q = queries.get(i);
+            String text = q.queryText();
+            if (text.codePointCount(0, text.length()) <= MIN_QUERY_CODE_POINTS) {
+                throw new QueryProposalException(
+                        QueryProposalPhase.VALIDATION,
+                        "Validation failed",
+                        "queryText too short at index " + i + " (must exceed " + MIN_QUERY_CODE_POINTS + " code points)",
+                        null);
+            }
+            String intent = q.intent();
+            if (intent.isBlank()) {
+                throw new QueryProposalException(
+                        QueryProposalPhase.VALIDATION, "Validation failed", "empty intent at index " + i, null);
+            }
+            if (containsMetaPhrase(text) || containsMetaPhrase(intent)) {
+                throw new QueryProposalException(
+                        QueryProposalPhase.VALIDATION,
+                        "Validation failed",
+                        "meta phrase in query at index " + i,
+                        null);
+            }
+            String norm = normalize(text);
+            for (int j = 0; j < normalizedQueries.size(); j++) {
+                String prior = normalizedQueries.get(j);
+                if (norm.equals(prior)) {
+                    throw new QueryProposalException(
+                            QueryProposalPhase.VALIDATION,
+                            "Validation failed",
+                            "duplicate queryText at indices " + j + " and " + i,
+                            null);
+                }
+                if (areOverlySimilar(norm, prior)) {
+                    throw new QueryProposalException(
+                            QueryProposalPhase.VALIDATION,
+                            "Validation failed",
+                            "queries too similar (edit distance) at indices " + j + " and " + i,
+                            null);
+                }
+                Set<String> tokensA = extractTokens(norm);
+                Set<String> tokensB = extractTokens(prior);
+                if (!skipJaccardForSmallTokenSets(tokensA, tokensB)) {
+                    if (jaccard(tokensA, tokensB) >= JACCARD_TOO_SIMILAR) {
+                        throw new QueryProposalException(
+                                QueryProposalPhase.VALIDATION,
+                                "Validation failed",
+                                "queries too similar (Jaccard overlap) at indices " + j + " and " + i,
+                                null);
+                    }
+                }
+            }
+            normalizedQueries.add(norm);
+        }
+    }
+
+    /**
+     * 両セットのサイズがともに {@link #MIN_TOKEN_SET_FOR_JACCARD} 未満なら Jaccard チェックを行わない。
+     */
+    private static boolean skipJaccardForSmallTokenSets(Set<String> a, Set<String> b) {
+        return a.size() < MIN_TOKEN_SET_FOR_JACCARD && b.size() < MIN_TOKEN_SET_FOR_JACCARD;
+    }
+
+    /** 正規化済み質問本文から連続字母・結合記号および数字連結を抽出する。 */
+    static Set<String> extractTokens(String normalizedText) {
+        Set<String> tokens = new HashSet<>();
+        String s = normalizedText.toLowerCase(Locale.ROOT);
+        Matcher m = TOKEN_PATTERN.matcher(s);
+        while (m.find()) {
+            tokens.add(m.group());
+        }
+        return tokens;
+    }
+
+    static double jaccard(Set<String> a, Set<String> b) {
+        if (a.isEmpty() && b.isEmpty()) {
+            return 0.0;
+        }
+        int intersection = 0;
+        for (String t : a) {
+            if (b.contains(t)) {
+                intersection++;
+            }
+        }
+        int union = a.size() + b.size() - intersection;
+        if (union == 0) {
+            return 0.0;
+        }
+        return (double) intersection / union;
+    }
+
+    private static boolean containsMetaPhrase(String text) {
+        String n = normalize(text).toLowerCase(Locale.ROOT);
+        for (String phrase : META_PHRASES_LOWER) {
+            if (n.contains(phrase)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalize(String s) {
+        String nfkc = Normalizer.normalize(s, Normalizer.Form.NFKC);
+        return nfkc.replaceAll("\\s+", " ").trim();
+    }
+
+    static boolean areOverlySimilar(String a, String b) {
+        int[] ac = a.codePoints().toArray();
+        int[] bc = b.codePoints().toArray();
+        int maxLen = Math.max(ac.length, bc.length);
+        if (maxLen == 0) {
+            return false;
+        }
+        int d = levenshtein(ac, bc);
+        return (d / (double) maxLen) <= MAX_NORMALIZED_EDIT_RATIO;
+    }
+
+    private static int levenshtein(int[] a, int[] b) {
+        int n = a.length;
+        int m = b.length;
+        int[] prev = new int[m + 1];
+        int[] cur = new int[m + 1];
+        for (int j = 0; j <= m; j++) {
+            prev[j] = j;
+        }
+        for (int i = 1; i <= n; i++) {
+            cur[0] = i;
+            for (int j = 1; j <= m; j++) {
+                int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] tmp = prev;
+            prev = cur;
+            cur = tmp;
+        }
+        return prev[m];
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/ai/CitationValidator.java">
 package com.geo.analytics.domain.ai;
 
@@ -9345,6 +10248,93 @@ public abstract class BaseTenantEntity {
     }
     public void setWorkspaceId(UUID workspaceId) {
         this.tenantId = workspaceId.toString();
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/entity/DomainAnalysisSnapshotEntity.java">
+package com.geo.analytics.domain.entity;
+
+import com.geo.analytics.application.dto.SuggestedQuery;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Table(name = "domain_analysis_snapshots")
+public class DomainAnalysisSnapshotEntity extends BaseTenantEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "source_url", nullable = false, columnDefinition = "text")
+    private String sourceUrl;
+
+    @Column(name = "inferred_persona", nullable = false, columnDefinition = "text")
+    private String inferredPersona;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "queries", nullable = false, columnDefinition = "jsonb")
+    private List<SuggestedQuery> queries;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+    }
+
+    public DomainAnalysisSnapshotEntity() {}
+
+    public UUID getId() {
+        return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public String getSourceUrl() {
+        return sourceUrl;
+    }
+
+    public void setSourceUrl(String sourceUrl) {
+        this.sourceUrl = sourceUrl;
+    }
+
+    public String getInferredPersona() {
+        return inferredPersona;
+    }
+
+    public void setInferredPersona(String inferredPersona) {
+        this.inferredPersona = inferredPersona;
+    }
+
+    public List<SuggestedQuery> getQueries() {
+        return queries;
+    }
+
+    public void setQueries(List<SuggestedQuery> queries) {
+        this.queries = queries;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
     }
 }
 </file>
@@ -10362,6 +11352,216 @@ public class QueryEntity extends BaseTenantEntity {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/entity/QueryProposalEntity.java">
+package com.geo.analytics.domain.entity;
+
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+@Entity
+@Table(name = "query_proposals")
+public class QueryProposalEntity extends BaseTenantEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "url", nullable = false, length = 2083)
+    private String url;
+
+    @Column(name = "business_description", nullable = false, columnDefinition = "text")
+    private String businessDescription;
+
+    @Column(name = "target_audience", nullable = false, columnDefinition = "text")
+    private String targetAudience;
+
+    @Column(name = "strategic_focus", nullable = false, columnDefinition = "text")
+    private String strategicFocus;
+
+    @Column(name = "inferred_persona", nullable = false, columnDefinition = "text")
+    private String inferredPersona;
+
+    @OneToMany(mappedBy = "proposal", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("sortOrder ASC")
+    private List<QueryProposalSuggestedQueryEntity> suggestedQueries = new ArrayList<>();
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    public QueryProposalEntity() {}
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        if (suggestedQueries == null) {
+            suggestedQueries = new ArrayList<>();
+        }
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
+    }
+
+    public String getBusinessDescription() {
+        return businessDescription;
+    }
+
+    public void setBusinessDescription(String businessDescription) {
+        this.businessDescription = businessDescription;
+    }
+
+    public String getTargetAudience() {
+        return targetAudience;
+    }
+
+    public void setTargetAudience(String targetAudience) {
+        this.targetAudience = targetAudience;
+    }
+
+    public String getStrategicFocus() {
+        return strategicFocus;
+    }
+
+    public void setStrategicFocus(String strategicFocus) {
+        this.strategicFocus = strategicFocus;
+    }
+
+    public String getInferredPersona() {
+        return inferredPersona;
+    }
+
+    public void setInferredPersona(String inferredPersona) {
+        this.inferredPersona = inferredPersona;
+    }
+
+    public List<QueryProposalSuggestedQueryEntity> getSuggestedQueries() {
+        return suggestedQueries;
+    }
+
+    public void setSuggestedQueries(List<QueryProposalSuggestedQueryEntity> suggestedQueries) {
+        this.suggestedQueries = suggestedQueries != null ? suggestedQueries : new ArrayList<>();
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/entity/QueryProposalSuggestedQueryEntity.java">
+package com.geo.analytics.domain.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import java.util.UUID;
+
+@Entity
+@Table(name = "query_proposal_suggested_queries")
+public class QueryProposalSuggestedQueryEntity extends BaseTenantEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "proposal_id", nullable = false)
+    private QueryProposalEntity proposal;
+
+    @Column(name = "query_text", nullable = false, columnDefinition = "text")
+    private String queryText;
+
+    @Column(name = "intent", nullable = false, columnDefinition = "text")
+    private String intent;
+
+    @Column(name = "sort_order", nullable = false)
+    private int sortOrder;
+
+    public QueryProposalSuggestedQueryEntity() {}
+
+    @PrePersist
+    void alignTenantWithProposal() {
+        if (proposal != null) {
+            setWorkspaceId(proposal.getWorkspaceId());
+        }
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public QueryProposalEntity getProposal() {
+        return proposal;
+    }
+
+    public void setProposal(QueryProposalEntity proposal) {
+        this.proposal = proposal;
+    }
+
+    public String getQueryText() {
+        return queryText;
+    }
+
+    public void setQueryText(String queryText) {
+        this.queryText = queryText;
+    }
+
+    public String getIntent() {
+        return intent;
+    }
+
+    public void setIntent(String intent) {
+        this.intent = intent;
+    }
+
+    public int getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(int sortOrder) {
+        this.sortOrder = sortOrder;
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/entity/RagDomainRuleEntity.java">
 package com.geo.analytics.domain.entity;
 
@@ -11281,6 +12481,32 @@ public class RateLimitExceededException extends RuntimeException {
 
     public String getPlanName() {
         return planName;
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/exception/ScrapingException.java">
+package com.geo.analytics.domain.exception;
+
+/**
+ * URL からのコンテンツ取得・クリーニング等のスクレイピング契約に失敗した場合に送出される実行時例外。
+ */
+public class ScrapingException extends RuntimeException {
+
+    public ScrapingException() {
+        super();
+    }
+
+    public ScrapingException(String message) {
+        super(message);
+    }
+
+    public ScrapingException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public ScrapingException(Throwable cause) {
+        super(cause);
     }
 }
 </file>
@@ -12430,6 +13656,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12456,6 +13683,7 @@ public class SeoDataEvidenceProvider {
     private final int maxYearsWhenDateUnknown;
     private final double snippetDuplicateThreshold;
 
+    @Autowired
     public SeoDataEvidenceProvider(SimilarityScorer similarityScorer) {
         this(
                 similarityScorer,
@@ -17375,6 +18603,27 @@ public final class ZScorePurgeFilter {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/port/UrlContentFetcher.java">
+package com.geo.analytics.domain.port;
+
+import com.geo.analytics.domain.exception.ScrapingException;
+
+/**
+ * ドメインがインフラに課す、URL 由来のクリーンな本文テキスト取得の契約。
+ */
+public interface UrlContentFetcher {
+
+    /**
+     * 指定された URL から HTML を取得し、ノイズを除去した純粋なテキストを返す。
+     *
+     * @param url 取得対象の URL
+     * @return クリーニング後の本文テキスト
+     * @throws ScrapingException 取得またはテキスト化に失敗した場合
+     */
+    String fetchCleanText(String url);
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/port/WormAuditExportPort.java">
 package com.geo.analytics.domain.port;
 
@@ -17441,6 +18690,104 @@ public final class SemanticJudgmentEngine {
             return new SemanticJudgmentOutcome.Failure(message);
         }
     }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiModelNames.java">
+package com.geo.analytics.domain.service;
+
+/**
+ * LangChain4j {@link DomainAnalysisAiService} を Spring に宣言的登録する際の Bean 名（chatModel）を集約する。
+ */
+public final class DomainAnalysisAiModelNames {
+
+    /** {@link org.springframework.context.annotation.Bean} 名および {@code @AiService(chatModel = ...)} と一致させる。 */
+    public static final String GEMINI_DOMAIN_ANALYSIS_CHAT_MODEL = "geminiDomainAnalysisChatModel";
+
+    private DomainAnalysisAiModelNames() {}
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiService.java">
+package com.geo.analytics.domain.service;
+
+import com.geo.analytics.application.dto.DomainAnalysisResult;
+import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
+import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
+
+@AiService(
+        wiringMode = AiServiceWiringMode.EXPLICIT,
+        chatModel = DomainAnalysisAiModelNames.GEMINI_DOMAIN_ANALYSIS_CHAT_MODEL)
+public interface DomainAnalysisAiService {
+
+    @SystemMessage(
+            """
+            ## Role & Strategy (structural directive)
+
+            You are an expert GEO (Generative Engine Optimization) strategy consultant.
+            Your objective is to infer target personas from the user's inputs and generate high-intent queries that users would issue to AI-powered search engines, maximizing share-of-voice in generated answers where relevant.
+            **Absolute priority:** The `UserStrategicKnowledge` section in the user message is Ground Truth for strategy. `scrapedText` under ScrapedSiteContent is secondary evidence only—use it to support and flesh out that strategy when it aligns; never override Ground Truth.
+
+            ## 具体的ルール（入力の優先順位と整合）
+
+            - 「UserStrategicKnowledge」（事業概要・想定顧客・注力点）は不変の戦略前提として最優先。
+            - 「ScrapedSiteContent」はサイトから得た観測テキストに過ぎない。Knowledge を補強する用途にのみ用いる。
+            - Knowledge とサイト内容が矛盾する場合は、戦略上の前提（誰に・何を・どう価値を出すか）は必ず Knowledge に合わせる。サイト側の主張で Knowledge と対立するものは採らない。サイト由来のトーンや具体例は、Knowledge と両立する範囲でのみペルソナへ反映する。
+
+            ## 【出力形式】
+
+            - 指定の JSON スキーマに厳密に従う。追加キーは禁止。
+            - inferredPersona：Knowledge を軸に、サイト証拠で補えた具体性だけを付与した詳細なペルソナ像（プレーンテキスト）。
+            - queries：**5〜10 要素**。各要素は queryText（自然な話し言葉の質問文）と intent（その質問が SoV / 意思決定に効く理由）。
+
+            ## 【件数・品質ポリシー】
+
+            - 生成件数は **5〜10件** とする。
+            - 件数を埋めるために根拠の薄い質問や内容の捏造をしてはならない。戦略に合わない／証拠が乏しい場合は、無理に増やさず **およそ 5件程度** で終えてよい。
+            - 量より品質を優先する。
+
+            ## 【多様性（Diversity）とクエリ品質（GEO）】
+
+            - 語尾や表現を変えただけの**意味的重複**を徹底的に排除する。近い意図は 1件に統合してよい。
+            - **比較、費用、導入手順・手続き、リスク回避、その他ユーザーが決断に必要とする異なる種類の情報ニーズ**へ触れるように配分する（すべてを無理に1件ずつとは限らないが、単一視点への偏りだけは避ける）。
+            - Perplexity 等で実際に打ち込まれるだろう自然な質問文にする。
+            - SEO用のキーワードの羅列、カンマ区切りの単語のみ、ページタイトル丸写しに見える短文、検索オペレーターの乱用は禁止。
+            - 各 queryText は完結した質問文とし、intent でなぜ重要かを 1〜2 文で示す。
+
+            ## 【思考プロセス（出力に書かないが、応答前に必ず実行）】
+
+            1) Knowledge からペルソナの目的・不安・成功指標を要約する。
+            2) サイト証拠で補強できる具体のみ取り込み、矛盾する記述は捨てる。
+            3) 比較・費用・懸念・導入など、異なる情報ニーズの候補を列挙する。
+            4) それらを自然な会話調の質問に変換し、低品質なものはこの段階で切り捨て、意味的重複がないことを最終確認したうえで厳選し **5〜10件** に収める。
+            """)
+    @UserMessage(
+            """
+            ### UserStrategicKnowledge（最優先：Ground Truth）
+
+            #### businessDescription（事業概要）
+            {{businessDescription}}
+
+            #### targetAudience（想定顧客）
+            {{targetAudience}}
+
+            #### strategicFocus（特に注力する点）
+            {{strategicFocus}}
+
+            ### ScrapedSiteContent（証拠：Knowledge を補強するのみ）
+
+            {{scrapedText}}
+
+            上記に基づき、システム指示に従って JSON のみに相当する構造化結果を返してください。(queries: 5-10 high-quality items only)
+            """)
+    DomainAnalysisResult analyze(
+            @V("businessDescription") String businessDescription,
+            @V("targetAudience") String targetAudience,
+            @V("strategicFocus") String strategicFocus,
+            @V("scrapedText") String scrapedText);
 }
 </file>
 
@@ -19196,6 +20543,148 @@ public class GeoAnalyticsApplication {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/adapter/JsoupUrlContentFetcherAdapter.java">
+package com.geo.analytics.infrastructure.adapter;
+
+import com.geo.analytics.domain.exception.ScrapingException;
+import com.geo.analytics.domain.port.UrlContentFetcher;
+import com.geo.analytics.infrastructure.security.SsrfValidator;
+import com.geo.analytics.infrastructure.util.HtmlSanitizer;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.util.Objects;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * {@link UrlContentFetcher} の Jsoup 実装。SSRF 検証・通信制限・HTML 浄化を統合する。
+ */
+@Component
+public class JsoupUrlContentFetcherAdapter implements UrlContentFetcher {
+
+    private static final Logger log = LoggerFactory.getLogger(JsoupUrlContentFetcherAdapter.class);
+
+    private static final int TIMEOUT_MS = 5_000;
+
+    private static final int MAX_BODY_BYTES = 1_048_576;
+
+    private static final int MAX_REDIRECTS = 5;
+
+    private static final String USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    private final SsrfValidator ssrfValidator;
+
+    private final HtmlSanitizer htmlSanitizer;
+
+    public JsoupUrlContentFetcherAdapter(SsrfValidator ssrfValidator, HtmlSanitizer htmlSanitizer) {
+        this.ssrfValidator = Objects.requireNonNull(ssrfValidator, "ssrfValidator");
+        this.htmlSanitizer = Objects.requireNonNull(htmlSanitizer, "htmlSanitizer");
+    }
+
+    @Override
+    public String fetchCleanText(String url) {
+        String currentUrl = url;
+        int redirectsFollowed = 0;
+        try {
+            while (true) {
+                ssrfValidator.validate(currentUrl);
+
+                Connection.Response response = Jsoup.connect(currentUrl)
+                        .userAgent(USER_AGENT)
+                        .timeout(TIMEOUT_MS)
+                        .maxBodySize(MAX_BODY_BYTES)
+                        .followRedirects(false)
+                        .ignoreHttpErrors(true)
+                        .execute();
+
+                int code = response.statusCode();
+                if (code == 200) {
+                    Document doc = response.parse();
+                    return htmlSanitizer.sanitize(doc);
+                }
+                if (isRedirect(code)) {
+                    if (redirectsFollowed >= MAX_REDIRECTS) {
+                        throw new ScrapingException("Too many redirects (max " + MAX_REDIRECTS + ")");
+                    }
+                    String rawLocation = response.header("Location");
+                    if (rawLocation == null || rawLocation.isBlank()) {
+                        throw new ScrapingException("Redirect Location header is missing or empty");
+                    }
+                    URL base = response.url();
+                    currentUrl = resolveRedirectTarget(base, rawLocation.strip());
+                    redirectsFollowed++;
+                    continue;
+                }
+                throw new ScrapingException(
+                        "Unexpected HTTP status: " + code + " for URL " + currentUrl);
+            }
+        } catch (ScrapingException e) {
+            throw e;
+        } catch (IOException e) {
+            log.warn(
+                    "Fetch failed hostHint={} message={}",
+                    safeHostHint(url),
+                    e.getMessage());
+            throw new ScrapingException("Failed to fetch URL: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            log.warn("Unexpected error while fetching or sanitizing hostHint={}", safeHostHint(url), e);
+            throw new ScrapingException("Failed to process URL: " + e.getMessage(), e);
+        }
+    }
+
+    private static boolean isRedirect(int code) {
+        return code == 301
+                || code == 302
+                || code == 303
+                || code == 307
+                || code == 308;
+    }
+
+    /**
+     * {@code Location} を {@code response.url()} を基底とする絶対 URI へ解決する。
+     */
+    private static String resolveRedirectTarget(URL responseBaseUrl, String location) {
+        try {
+            URI base = responseBaseUrl.toURI();
+            URI resolved = base.resolve(new URI(location));
+            if (!resolved.isAbsolute()) {
+                throw new ScrapingException("Failed to resolve redirect to an absolute URL");
+            }
+            return resolved.toASCIIString();
+        } catch (URISyntaxException e) {
+            throw new ScrapingException("Invalid redirect Location: " + location, e);
+        }
+    }
+
+    private static String safeHostHint(String url) {
+        if (url == null) {
+            return "(null)";
+        }
+        try {
+            URI uri = new URI(url);
+            String host = uri.getHost();
+            return host != null ? host : truncate(url, 64);
+        } catch (URISyntaxException e) {
+            return truncate(url, 64);
+        }
+    }
+
+    private static String truncate(String s, int maxChars) {
+        if (s.length() <= maxChars) {
+            return s;
+        }
+        return s.substring(0, maxChars) + "...";
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/adapter/LocalWormAuditAdapter.java">
 package com.geo.analytics.infrastructure.adapter;
 
@@ -19833,6 +21322,59 @@ public record DirectorOnboardingJson(
             @JsonProperty("insight") String insight,
             @JsonProperty("conflict_reason") String conflictReason,
             @JsonProperty("evidence") String evidence) {}
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/ai/DomainAnalysisOutputSchema.java">
+package com.geo.analytics.infrastructure.ai;
+
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ResponseFormatType;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchema;
+
+public final class DomainAnalysisOutputSchema {
+
+    // LangChain4j 0.36.2: JsonArraySchema.Builder has no minItems/maxItems; length intent via description + prompt.
+    private static final String QUERIES_DESCRIPTION =
+            "A list of 5 to 10 high-quality, non-redundant queries that align with the provided strategy. "
+                    + "Quality is prioritized over quantity. Minimum 5, maximum 10.";
+
+    private DomainAnalysisOutputSchema() {}
+
+    public static ResponseFormat domainAnalysisResponseFormat() {
+        return ResponseFormat.builder()
+                .type(ResponseFormatType.JSON)
+                .jsonSchema(JsonSchema.builder()
+                        .name("domain_analysis")
+                        .rootElement(rootObjectSchema())
+                        .build())
+                .build();
+    }
+
+    private static JsonObjectSchema rootObjectSchema() {
+        return JsonObjectSchema.builder()
+                .addStringProperty("inferredPersona")
+                .addProperty(
+                        "queries",
+                        JsonArraySchema.builder()
+                                .description(QUERIES_DESCRIPTION)
+                                .items(suggestedQueryItemSchema())
+                                .build())
+                .required("inferredPersona", "queries")
+                .additionalProperties(false)
+                .build();
+    }
+
+    private static JsonObjectSchema suggestedQueryItemSchema() {
+        return JsonObjectSchema.builder()
+                .addStringProperty("queryText")
+                .addStringProperty("intent")
+                .required("queryText", "intent")
+                .additionalProperties(false)
+                .build();
+    }
 }
 </file>
 
@@ -21799,8 +23341,10 @@ import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
+import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
+import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
@@ -21878,6 +23422,18 @@ public class AiConfig {
             .maxOutputTokens(4096)
             .responseFormat(GeoOnboardingOutputSchema.geoOnboardingResponseFormat())
             .build();
+    }
+
+    @Bean(DomainAnalysisAiModelNames.GEMINI_DOMAIN_ANALYSIS_CHAT_MODEL)
+    public ChatLanguageModel geminiDomainAnalysisChatModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(8192)
+                .responseFormat(DomainAnalysisOutputSchema.domainAnalysisResponseFormat())
+                .build();
     }
 
     @Bean
@@ -22804,6 +24360,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
 public class DataSourceConfig {
@@ -22857,6 +24414,15 @@ public class DataSourceConfig {
     @Primary
     public PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
         return new JpaTransactionManager(entityManagerFactory);
+    }
+
+    /**
+     * 宣言的トランザクション外での短いトランザクション境界用（例: 仮想スレッド内からの credit settle）。
+     * {@link #transactionManager(EntityManagerFactory)} と同一の {@link PlatformTransactionManager} を束ねる。
+     */
+    @Bean
+    public TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+        return new TransactionTemplate(transactionManager);
     }
 
     @Bean
@@ -25842,6 +27408,16 @@ public interface AuditHistoryRepository extends JpaRepository<AuditHistoryEntity
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/repository/DomainAnalysisSnapshotRepository.java">
+package com.geo.analytics.infrastructure.repository;
+
+import com.geo.analytics.domain.entity.DomainAnalysisSnapshotEntity;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface DomainAnalysisSnapshotRepository extends JpaRepository<DomainAnalysisSnapshotEntity, UUID> {}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/repository/DomainAuthorityCacheRepository.java">
 package com.geo.analytics.infrastructure.repository;
 
@@ -25988,6 +27564,23 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, UUID> {
     @Modifying(clearAutomatically = true)
     @Query("update ProjectEntity p set p.lastAuditAt = :lastAuditAt where p.id = :id")
     void updateLastAuditAt(@Param("id") UUID id, @Param("lastAuditAt") LocalDateTime lastAuditAt);
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/repository/QueryProposalRepository.java">
+package com.geo.analytics.infrastructure.repository;
+
+import com.geo.analytics.domain.entity.QueryProposalEntity;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface QueryProposalRepository extends JpaRepository<QueryProposalEntity, UUID> {
+
+    Optional<QueryProposalEntity> findByTenantIdAndId(String tenantId, UUID id);
+
+    List<QueryProposalEntity> findByTenantIdOrderByCreatedAtDesc(String tenantId);
 }
 </file>
 
@@ -26396,10 +27989,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             securityExceptionResponseHandler.handle(request, response, mapJwtFailure(e));
             return;
         }
-        TenantIdentity jwtContext =
-                new TenantIdentity(parsed.organizationId(), null, parsed.userId());
+        // TenantContextFilter / TenantPlanScope が束ねた workspace を維持する（ScopedValue の内側束縛で消さない）
+        UUID mergedWorkspaceId =
+                TenantContextHolder.current().map(TenantIdentity::tenantId).orElse(null);
+        TenantIdentity mergedContext =
+                new TenantIdentity(parsed.organizationId(), mergedWorkspaceId, parsed.userId());
         try {
-            ScopedValue.where(TenantContextHolder.CONTEXT, jwtContext)
+            ScopedValue.where(TenantContextHolder.CONTEXT, mergedContext)
                     .run(
                             () -> {
                                 Boolean cachedValid = userSessionsCache.getIfPresent(parsed.sessionId());
@@ -26584,6 +28180,283 @@ public class SecurityExceptionResponseHandler {
             case ForbiddenApiException e -> ApiErrorResponse.of("forbidden", e.getMessage());
             default -> ApiErrorResponse.of("unknown", "予期しないエラーが発生しました。");
         };
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/security/SsrfValidator.java">
+package com.geo.analytics.infrastructure.security;
+
+import com.geo.analytics.domain.exception.ScrapingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.regex.Pattern;
+import org.springframework.stereotype.Component;
+
+/**
+ * SSRF 防止のため、名前解決を行わずに URL の危険な宛先（プライベート／ループバック等）を拒否する。
+ */
+@Component
+public class SsrfValidator {
+
+    private static final char FULLWIDTH_DOT = '\uFF0E';
+
+    private static final char FULLWIDTH_COLON = '\uFF1A';
+
+    /**
+     * 各オクテットが十進 0–255 のみ（先頭ゼロ付きの曖昧表記は許容しつつ数値範囲で検証）。
+     */
+    private static final Pattern IPV4_DECIMAL = Pattern.compile(
+            "^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)$");
+
+    private static final Pattern HOST_CHARSET = Pattern.compile("^[a-z0-9.:\\-\\[\\]]+$");
+
+    private static final Pattern DIGITS_AND_DOTS_ONLY = Pattern.compile("^[0-9.]+$");
+
+    private static final Pattern DIGITS_ONLY = Pattern.compile("^[0-9]+$");
+
+    public void validate(String targetUrl) {
+        if (targetUrl == null || targetUrl.isBlank()) {
+            throw new ScrapingException("URL must not be null or blank");
+        }
+        URI uri;
+        try {
+            uri = new URI(targetUrl);
+        } catch (URISyntaxException e) {
+            throw new ScrapingException("Invalid URL syntax", e);
+        }
+        if (uri.getUserInfo() != null) {
+            throw new ScrapingException("User info is not allowed");
+        }
+        String scheme = uri.getScheme();
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new ScrapingException("Invalid scheme");
+        }
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new ScrapingException("Host is required");
+        }
+        String normalized = normalizeHost(host);
+        assertHostCharset(normalized);
+        String work = unwrapIpv6Brackets(normalized);
+        assertHostCharset(work);
+
+        if (isBlockedHost(work)) {
+            throw new ScrapingException("Private IP access is blocked");
+        }
+    }
+
+    private static String normalizeHost(String host) {
+        StringBuilder sb = new StringBuilder(host.length());
+        for (int i = 0; i < host.length(); i++) {
+            char ch = host.charAt(i);
+            if (ch == FULLWIDTH_DOT) {
+                sb.append('.');
+            } else if (ch == FULLWIDTH_COLON) {
+                sb.append(':');
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString().toLowerCase(Locale.ROOT);
+    }
+
+    private static void assertHostCharset(String host) {
+        if (host.isEmpty() || !HOST_CHARSET.matcher(host).matches()) {
+            throw new ScrapingException("Invalid host format");
+        }
+    }
+
+    /**
+     * {@code [ipv6]} 形式のホストを内側の文字列に展開する。角括弧が無ければそのまま返す。入れ子は外側から繰り返し剥がす。
+     */
+    private static String unwrapIpv6Brackets(String host) {
+        String h = host;
+        while (h.length() >= 2 && h.charAt(0) == '[' && h.charAt(h.length() - 1) == ']') {
+            h = h.substring(1, h.length() - 1);
+        }
+        return h;
+    }
+
+    private static boolean isBlockedHost(String h) {
+        if (h.equals("localhost")) {
+            return true;
+        }
+        String embeddedV4 = extractEmbeddedIpv4(h);
+        if (embeddedV4 != null) {
+            if (!IPV4_DECIMAL.matcher(embeddedV4).matches()) {
+                throw new ScrapingException("Invalid IP format");
+            }
+            return isBlockedIpv4Octets(parseIpv4Octets(embeddedV4));
+        }
+        if (DIGITS_AND_DOTS_ONLY.matcher(h).matches()) {
+            if (DIGITS_ONLY.matcher(h).matches()) {
+                throw new ScrapingException("Invalid IP format");
+            }
+            if (!IPV4_DECIMAL.matcher(h).matches()) {
+                throw new ScrapingException("Invalid IP format");
+            }
+            return isBlockedIpv4Octets(parseIpv4Octets(h));
+        }
+        if (h.contains(":")) {
+            int[] expanded = tryExpandIpv6(stripIpv6ZoneId(h));
+            if (expanded == null) {
+                throw new ScrapingException("Invalid host format");
+            }
+            boolean allZero = true;
+            for (int x : expanded) {
+                if (x != 0) {
+                    allZero = false;
+                    break;
+                }
+            }
+            if (allZero) {
+                return true;
+            }
+            int h0 = expanded[0];
+            if (h0 >= 0xFE80 && h0 <= 0xFEBF) {
+                return true;
+            }
+            if (expanded[7] != 1) {
+                return false;
+            }
+            for (int j = 0; j < 7; j++) {
+                if (expanded[j] != 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * {@code ::ffff:192.0.2.1} または末尾 {@code :x.x.x.x} の IPv4 部分を返す。該当しなければ null。
+     */
+    private static String extractEmbeddedIpv4(String h) {
+        String hl = h.toLowerCase(Locale.ROOT);
+        if (hl.startsWith("::ffff:")) {
+            return h.substring(7);
+        }
+        if (!h.contains(".")) {
+            return null;
+        }
+        int i = h.lastIndexOf(':');
+        if (i < 0) {
+            return null;
+        }
+        return h.substring(i + 1);
+    }
+
+    private static int[] parseIpv4Octets(String dottedDecimal) {
+        String[] p = dottedDecimal.split("\\.", 4);
+        return new int[] {
+            Integer.parseInt(p[0]),
+            Integer.parseInt(p[1]),
+            Integer.parseInt(p[2]),
+            Integer.parseInt(p[3])
+        };
+    }
+
+    private static boolean isBlockedIpv4Octets(int a, int b, int c, int d) {
+        if (a == 127) {
+            return true;
+        }
+        if (a == 10) {
+            return true;
+        }
+        if (a == 0 && b == 0 && c == 0 && d == 0) {
+            return true;
+        }
+        if (a == 192 && b == 168) {
+            return true;
+        }
+        if (a == 169 && b == 254) {
+            return true;
+        }
+        return a == 172 && b >= 16 && b <= 31;
+    }
+
+    private static boolean isBlockedIpv4Octets(int[] o) {
+        return isBlockedIpv4Octets(o[0], o[1], o[2], o[3]);
+    }
+
+    private static String stripIpv6ZoneId(String host) {
+        int pct = host.indexOf('%');
+        if (pct < 0) {
+            return host;
+        }
+        return host.substring(0, pct);
+    }
+
+    /**
+     * RFC 5952 風の省略なし／単一 {@code ::} のみの IPv6 を 8 つの 16-bit 値に展開する。ドット含みは呼び出し側で除外する。
+     */
+    private static int[] tryExpandIpv6(String host) {
+        if (host.contains(".")) {
+            return null;
+        }
+        String h = host.toLowerCase(Locale.ROOT);
+        int cc = 0;
+        int pos = -1;
+        for (int i = 0; i < h.length() - 1; i++) {
+            if (h.charAt(i) == ':' && h.charAt(i + 1) == ':') {
+                cc++;
+                pos = i;
+            }
+        }
+        try {
+            if (cc == 0) {
+                String[] parts = h.split(":", -1);
+                if (parts.length != 8) {
+                    return null;
+                }
+                int[] v = new int[8];
+                for (int i = 0; i < 8; i++) {
+                    if (parts[i].isEmpty() || parts[i].length() > 4) {
+                        return null;
+                    }
+                    v[i] = Integer.parseInt(parts[i], 16);
+                }
+                return v;
+            }
+            if (cc != 1) {
+                return null;
+            }
+            String left = h.substring(0, pos);
+            String right = h.substring(pos + 2);
+            String[] leftParts = left.isEmpty() ? new String[0] : left.split(":", -1);
+            String[] rightParts = right.isEmpty() ? new String[0] : right.split(":", -1);
+            for (String p : leftParts) {
+                if (p.isEmpty() || p.length() > 4) {
+                    return null;
+                }
+            }
+            for (String p : rightParts) {
+                if (p.isEmpty() || p.length() > 4) {
+                    return null;
+                }
+            }
+            if (leftParts.length + rightParts.length >= 8) {
+                return null;
+            }
+            int missing = 8 - leftParts.length - rightParts.length;
+            int[] v = new int[8];
+            int idx = 0;
+            for (String p : leftParts) {
+                v[idx++] = Integer.parseInt(p, 16);
+            }
+            for (int j = 0; j < missing; j++) {
+                v[idx++] = 0;
+            }
+            for (String p : rightParts) {
+                v[idx++] = Integer.parseInt(p, 16);
+            }
+            return v;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
 </file>
@@ -27223,6 +29096,96 @@ public final class TenantPlanScope {
         } else {
             SecurityContextHolder.setContext(previous);
         }
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/infrastructure/util/HtmlSanitizer.java">
+package com.geo.analytics.infrastructure.util;
+
+import java.util.regex.Pattern;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.springframework.stereotype.Component;
+
+/**
+ * HTML の {@link Document} からノイズを除き、LLM 向けプレーンテキストへ変換する。ネットワーク I/O は行わない。
+ */
+@Component
+public class HtmlSanitizer {
+
+    private static final int MAX_OUTPUT_CODE_POINTS = 5_000;
+
+    private static final String TRUNCATION_SUFFIX = "（truncated...）";
+
+    private static final Pattern LINE_BREAK_RUN = Pattern.compile("(?:\\R)+");
+
+    private static final Pattern HORIZONTAL_SPACE_RUN = Pattern.compile("[ \t\u000B\f]+");
+
+    public String sanitize(Document doc) {
+        if (doc == null) {
+            throw new IllegalArgumentException("doc must not be null");
+        }
+        Document work = doc.clone();
+        work.select("script, style, nav, footer, header, aside, iframe, svg, noscript").remove();
+
+        String title = "";
+        Element titleEl = work.selectFirst("title");
+        if (titleEl != null) {
+            title = titleEl.text().trim();
+        }
+        String description = "";
+        Element metaDesc = work.selectFirst("meta[name=description i]");
+        if (metaDesc != null) {
+            description = metaDesc.attr("content").trim();
+        }
+
+        String prefix = "Title: " + title + " / Description: " + description;
+        String bodyText = "";
+        Element body = work.body();
+        if (body != null) {
+            bodyText = body.text();
+        }
+        String combined = prefix + "\n" + bodyText;
+        String normalized = normalizeWhitespace(combined);
+        return truncateToMaxCodePoints(normalized);
+    }
+
+    /**
+     * 連続改行（いずれの形式も）を単一の {@code \n} に、行内の連続空白を単一スペースに圧縮する。
+     */
+    private static String normalizeWhitespace(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String withSingleNl = LINE_BREAK_RUN.matcher(text).replaceAll("\n");
+        String[] lines = withSingleNl.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String collapsed = HORIZONTAL_SPACE_RUN.matcher(line).replaceAll(" ").trim();
+            if (!collapsed.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(collapsed);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String truncateToMaxCodePoints(String full) {
+        int suffixLen = TRUNCATION_SUFFIX.length();
+        int suffixCp = TRUNCATION_SUFFIX.codePointCount(0, suffixLen);
+        int totalCp = full.codePointCount(0, full.length());
+        if (totalCp <= MAX_OUTPUT_CODE_POINTS) {
+            return full;
+        }
+        int maxContentCp = MAX_OUTPUT_CODE_POINTS - suffixCp;
+        if (maxContentCp <= 0) {
+            return TRUNCATION_SUFFIX.substring(0, TRUNCATION_SUFFIX.offsetByCodePoints(0, MAX_OUTPUT_CODE_POINTS));
+        }
+        int end = full.offsetByCodePoints(0, maxContentCp);
+        return full.substring(0, end) + TRUNCATION_SUFFIX;
     }
 }
 </file>
@@ -27920,6 +29883,67 @@ public class PublicApiController {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/web/controller/QueryProposalController.java">
+package com.geo.analytics.web.controller;
+
+import com.geo.analytics.application.dto.ConvertProposalToJobOutcome;
+import com.geo.analytics.application.dto.UserStrategicKnowledge;
+import com.geo.analytics.application.service.QueryProposalService;
+import com.geo.analytics.web.dto.ConvertProposalToJobRequest;
+import com.geo.analytics.web.dto.ConvertProposalToJobResponse;
+import com.geo.analytics.web.dto.QueryProposalKnowledgeRequest;
+import com.geo.analytics.web.dto.QueryProposalRequest;
+import com.geo.analytics.web.dto.QueryProposalResponse;
+import jakarta.validation.Valid;
+import java.net.URI;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+@RestController
+@RequestMapping("/api/v1/proposals")
+public class QueryProposalController {
+
+    private final QueryProposalService queryProposalService;
+
+    public QueryProposalController(QueryProposalService queryProposalService) {
+        this.queryProposalService = queryProposalService;
+    }
+
+    @PostMapping
+    public ResponseEntity<QueryProposalResponse> propose(@Valid @RequestBody QueryProposalRequest request) {
+        QueryProposalKnowledgeRequest k = request.knowledge();
+        UserStrategicKnowledge knowledge = new UserStrategicKnowledge(
+                k.businessDescription(), k.targetAudience(), k.strategicFocus());
+        return ResponseEntity.ok(
+                QueryProposalResponse.from(
+                        queryProposalService.completeProposal(request.url(), knowledge)));
+    }
+
+    @PostMapping("/{id}/convert")
+    public ResponseEntity<ConvertProposalToJobResponse> convertProposalToJob(
+            @PathVariable UUID id, @Valid @RequestBody ConvertProposalToJobRequest request) {
+        ConvertProposalToJobOutcome outcome = queryProposalService.convertProposalToJob(id, request.plan());
+        UUID jobId = outcome.jobId();
+        URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/v1/jobs/{jobId}")
+                .buildAndExpand(jobId)
+                .toUri();
+        var body = new ConvertProposalToJobResponse(jobId);
+        if (!outcome.created()) {
+            return ResponseEntity.ok(body);
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).location(location).body(body);
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/web/controller/SyncVerificationController.java">
 package com.geo.analytics.web.controller;
 
@@ -28131,6 +30155,29 @@ public record CompetitorSharePoint(
     @JsonProperty("name") String name,
     @JsonProperty("share") Double share
 ) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/ConvertProposalToJobRequest.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import jakarta.validation.constraints.NotNull;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record ConvertProposalToJobRequest(@NotNull(message = "plan must not be null") SubscriptionPlan plan) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/ConvertProposalToJobResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import java.util.UUID;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record ConvertProposalToJobResponse(UUID jobId) {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/web/dto/CreateJobRequest.java">
@@ -28496,6 +30543,77 @@ public record ProjectSettingsResponse(
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/web/dto/QueryProposalKnowledgeRequest.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import jakarta.validation.constraints.Size;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record QueryProposalKnowledgeRequest(
+        @Size(max = 50_000) String businessDescription,
+        @Size(max = 50_000) String targetAudience,
+        @Size(max = 50_000) String strategicFocus) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/QueryProposalRequest.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record QueryProposalRequest(
+        @NotBlank @Size(max = 2083) String url,
+        @NotNull @Valid QueryProposalKnowledgeRequest knowledge) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/QueryProposalResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import com.geo.analytics.application.dto.DomainAnalysisResult;
+import com.geo.analytics.application.dto.QueryProposalProposeOutcome;
+import com.geo.analytics.application.dto.SuggestedQuery;
+import java.util.List;
+import java.util.UUID;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record QueryProposalResponse(
+        String inferredPersona, List<QueryProposalSuggestedQueryResponse> queries, UUID id) {
+
+    public static QueryProposalResponse from(QueryProposalProposeOutcome outcome) {
+        return from(outcome.analysis(), outcome.savedProposalId());
+    }
+
+    public static QueryProposalResponse from(DomainAnalysisResult result, UUID id) {
+        List<QueryProposalSuggestedQueryResponse> rows =
+                result.queries().stream().map(QueryProposalResponse::row).toList();
+        return new QueryProposalResponse(result.inferredPersona(), rows, id);
+    }
+
+    private static QueryProposalSuggestedQueryResponse row(SuggestedQuery q) {
+        return new QueryProposalSuggestedQueryResponse(q.queryText(), q.intent());
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/QueryProposalSuggestedQueryResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record QueryProposalSuggestedQueryResponse(String queryText, String intent) {}
+</file>
+
 <file path="src/main/java/com/geo/analytics/web/dto/ResultDetailRanking.java">
 package com.geo.analytics.web.dto;
 
@@ -28777,6 +30895,8 @@ import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.domain.exception.UnauthenticatedApiException;
 import com.geo.analytics.domain.exception.VersionMismatchException;
 import com.geo.analytics.infrastructure.lock.PostgresDistributedLockManager.LockAcquisitionException;
+import com.geo.analytics.application.exception.QueryProposalException;
+import com.geo.analytics.application.exception.QueryProposalPhase;
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
 import com.geo.analytics.web.dto.ApiErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -29010,6 +31130,45 @@ public class GlobalExceptionHandler {
                 ApiErrorResponse.of(
                         "database_unavailable",
                         "データベースへの接続が混み合っています。しばらくしてから再度お試しください。"));
+    }
+
+    @ExceptionHandler(QueryProposalException.class)
+    public ResponseEntity<ApiErrorResponse> handleQueryProposal(QueryProposalException exception) {
+        QueryProposalPhase phase = exception.getPhase();
+        final HttpStatus status;
+        final String errorCode;
+        if (phase == QueryProposalPhase.VALIDATION) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            errorCode = "query_proposal_validation_failed";
+        } else if (phase == QueryProposalPhase.SCRAPING) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            errorCode = "query_proposal_scraping_failed";
+        } else if (phase == QueryProposalPhase.AI_ANALYSIS) {
+            status = HttpStatus.SERVICE_UNAVAILABLE;
+            errorCode = "query_proposal_ai_failed";
+        } else {
+            throw new IllegalStateException("Unexpected QueryProposalPhase: " + phase);
+        }
+        String detail = exception.getDetail();
+        if (detail == null || detail.isBlank()) {
+            detail = exception.getUserMessage();
+        }
+        Map<String, Object> details = Map.of("phase", phase.name(), "detail", detail);
+        if (phase == QueryProposalPhase.AI_ANALYSIS) {
+            logger.error(
+                    "Query proposal AI phase failed errorCode={} message={}",
+                    errorCode,
+                    exception.getUserMessage(),
+                    exception);
+        } else {
+            logger.warn(
+                    "Query proposal failed phase={} errorCode={} message={}",
+                    phase.name(),
+                    errorCode,
+                    exception.getUserMessage(),
+                    exception.getCause());
+        }
+        return json(status, ApiErrorResponse.of(errorCode, exception.getUserMessage(), details));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -30336,6 +32495,188 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.math_debate_audit_events TO
 <file path="src/main/resources/db/migration/V112__wallet_transactions_note.sql">
 ALTER TABLE public.wallet_transactions
     ADD COLUMN IF NOT EXISTS note VARCHAR(2048);
+</file>
+
+<file path="src/main/resources/db/migration/V113__domain_analysis_snapshots.sql">
+-- GEO query proposal: persisted AI domain analysis (tenant-scoped, Envers-audited)
+CREATE TABLE public.domain_analysis_snapshots (
+    id UUID PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    source_url TEXT NOT NULL,
+    inferred_persona TEXT NOT NULL,
+    queries JSONB NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_domain_analysis_snapshots_tenant_created
+    ON public.domain_analysis_snapshots (tenant_id, created_at DESC);
+
+CREATE TABLE public.domain_analysis_snapshots_aud (
+    rev INTEGER NOT NULL,
+    revtype SMALLINT,
+    id UUID,
+    tenant_id VARCHAR(36),
+    source_url TEXT,
+    inferred_persona TEXT,
+    queries JSONB,
+    created_at TIMESTAMP,
+    CONSTRAINT fk_domain_analysis_snapshots_aud_rev FOREIGN KEY (rev) REFERENCES revinfo (rev),
+    CONSTRAINT pk_domain_analysis_snapshots_aud PRIMARY KEY (rev, id)
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.domain_analysis_snapshots TO api_worker, batch_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.domain_analysis_snapshots_aud TO api_worker, batch_worker;
+
+ALTER TABLE public.domain_analysis_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.domain_analysis_snapshots FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS domain_analysis_snapshots_api_worker_policy ON public.domain_analysis_snapshots;
+CREATE POLICY domain_analysis_snapshots_api_worker_policy ON public.domain_analysis_snapshots
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = domain_analysis_snapshots.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = domain_analysis_snapshots.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+
+ALTER TABLE public.domain_analysis_snapshots_aud ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.domain_analysis_snapshots_aud FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS domain_analysis_snapshots_aud_api_worker_policy ON public.domain_analysis_snapshots_aud;
+CREATE POLICY domain_analysis_snapshots_aud_api_worker_policy ON public.domain_analysis_snapshots_aud
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = domain_analysis_snapshots_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = domain_analysis_snapshots_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+</file>
+
+<file path="src/main/resources/db/migration/V114__query_proposals.sql">
+-- Query proposal aggregate: tenant-scoped parent/child, Envers-audited
+CREATE TABLE public.query_proposals (
+    id UUID PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    url VARCHAR(2083) NOT NULL,
+    business_description TEXT NOT NULL,
+    target_audience TEXT NOT NULL,
+    strategic_focus TEXT NOT NULL,
+    inferred_persona TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_query_proposals_tenant_created
+    ON public.query_proposals (tenant_id, created_at DESC);
+
+CREATE TABLE public.query_proposal_suggested_queries (
+    id UUID PRIMARY KEY,
+    tenant_id VARCHAR(36) NOT NULL,
+    proposal_id UUID NOT NULL,
+    query_text TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT fk_query_proposal_suggested_queries_proposal
+        FOREIGN KEY (proposal_id) REFERENCES public.query_proposals (id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_query_proposal_suggested_queries_proposal
+    ON public.query_proposal_suggested_queries (proposal_id);
+
+CREATE INDEX idx_query_proposal_suggested_queries_tenant_created
+    ON public.query_proposal_suggested_queries (tenant_id, proposal_id);
+
+CREATE TABLE public.query_proposals_aud (
+    rev INTEGER NOT NULL,
+    revtype SMALLINT,
+    id UUID,
+    tenant_id VARCHAR(36),
+    url VARCHAR(2083),
+    business_description TEXT,
+    target_audience TEXT,
+    strategic_focus TEXT,
+    inferred_persona TEXT,
+    created_at TIMESTAMP,
+    CONSTRAINT fk_query_proposals_aud_rev FOREIGN KEY (rev) REFERENCES revinfo (rev),
+    CONSTRAINT pk_query_proposals_aud PRIMARY KEY (rev, id)
+);
+
+CREATE TABLE public.query_proposal_suggested_queries_aud (
+    rev INTEGER NOT NULL,
+    revtype SMALLINT,
+    id UUID,
+    tenant_id VARCHAR(36),
+    proposal_id UUID,
+    query_text TEXT,
+    intent TEXT,
+    sort_order INTEGER,
+    CONSTRAINT fk_query_proposal_suggested_queries_aud_rev FOREIGN KEY (rev) REFERENCES revinfo (rev),
+    CONSTRAINT pk_query_proposal_suggested_queries_aud PRIMARY KEY (rev, id)
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.query_proposals TO api_worker, batch_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.query_proposal_suggested_queries TO api_worker, batch_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.query_proposals_aud TO api_worker, batch_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.query_proposal_suggested_queries_aud TO api_worker, batch_worker;
+
+ALTER TABLE public.query_proposals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.query_proposals FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS query_proposals_api_worker_policy ON public.query_proposals;
+CREATE POLICY query_proposals_api_worker_policy ON public.query_proposals
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposals.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposals.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+
+ALTER TABLE public.query_proposal_suggested_queries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.query_proposal_suggested_queries FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS query_proposal_suggested_queries_api_worker_policy ON public.query_proposal_suggested_queries;
+CREATE POLICY query_proposal_suggested_queries_api_worker_policy ON public.query_proposal_suggested_queries
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposal_suggested_queries.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposal_suggested_queries.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+
+ALTER TABLE public.query_proposals_aud ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.query_proposals_aud FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS query_proposals_aud_api_worker_policy ON public.query_proposals_aud;
+CREATE POLICY query_proposals_aud_api_worker_policy ON public.query_proposals_aud
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposals_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposals_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+
+ALTER TABLE public.query_proposal_suggested_queries_aud ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.query_proposal_suggested_queries_aud FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS query_proposal_suggested_queries_aud_api_worker_policy ON public.query_proposal_suggested_queries_aud;
+CREATE POLICY query_proposal_suggested_queries_aud_api_worker_policy ON public.query_proposal_suggested_queries_aud
+    FOR ALL TO api_worker
+    USING (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposal_suggested_queries_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        (SELECT w.organization_id FROM public.workspaces w WHERE w.id::text = query_proposal_suggested_queries_aud.tenant_id LIMIT 1)
+            = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
 </file>
 
 <file path="src/main/resources/db/migration/V2__organization_users_role_varchar.sql">
