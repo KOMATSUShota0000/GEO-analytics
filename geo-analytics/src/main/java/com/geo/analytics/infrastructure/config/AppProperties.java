@@ -16,6 +16,7 @@ public class AppProperties {
     private Notifications notifications = new Notifications();
     private Security security;
     private Oracle oracle;
+    private Branding branding = new Branding();
 
     public Crawler getCrawler() {
         return crawler;
@@ -71,6 +72,17 @@ public class AppProperties {
 
     public void setOracle(Oracle oracle) {
         this.oracle = oracle;
+    }
+
+    public Branding getBranding() {
+        if (branding == null) {
+            branding = new Branding();
+        }
+        return branding;
+    }
+
+    public void setBranding(Branding branding) {
+        this.branding = branding;
     }
 
     public static class Crawler {
@@ -465,6 +477,18 @@ public class AppProperties {
 
         public void setEnforceAppi2026(boolean enforceAppi2026) {
             this.enforceAppi2026 = enforceAppi2026;
+        }
+    }
+
+    public static class Branding {
+        private String storageRoot = "/tmp/geo-analytics/branding";
+
+        public String getStorageRoot() {
+            return storageRoot;
+        }
+
+        public void setStorageRoot(String storageRoot) {
+            this.storageRoot = storageRoot != null ? storageRoot : "/tmp/geo-analytics/branding";
         }
     }
 

@@ -10,6 +10,11 @@
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
+.strategy-dashboard-print-root,
+.strategy-dashboard-print-root * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 @page {
   size: A4 portrait;
   margin: 0;
@@ -20,6 +25,16 @@
     display: none !important;
   }
   .pdf-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .strategy-dashboard-print-root {
+    width: 794px !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  .strategy-chart-shell {
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -39,7 +54,7 @@
   width: 36px;
   height: 36px;
   border: 3px solid #e0e0e0;
-  border-top-color: #4f46e5;
+  border-top-color: var(--brand-color);
   border-radius: 50%;
   animation: app-boot-spin 0.8s linear infinite;
 }

@@ -1,7 +1,8 @@
-package com.geo.analytics.domain.ai;
+package com.geo.analytics.domain.prompt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.enums.IndustryType;
 import org.junit.jupiter.api.Test;
 
@@ -16,12 +17,14 @@ class DebatePersonaSystemPromptsTest {
     }
 
     @Test
-    void geoFacadeBlock_containsGeoFramingAndEnglishConstraints() {
+    void geoFacadeBlock_containsGeoNativeFraming() {
         String block = DebatePersonaSystemPrompts.geoFacadeBlock();
         assertThat(block).contains("GEO Facade");
+        assertThat(block).contains("AI可視性ランク");
+        assertThat(block).contains("AI推奨ポテンシャル");
         assertThat(block).contains("Brand Recommendation");
         assertThat(block).contains("Information Gain");
-        assertThat(block).contains("Do not frame outputs");
+        assertThat(block).contains("Constraints (English)");
     }
 
     @Test

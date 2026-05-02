@@ -46,6 +46,7 @@ frontend/index.html
 frontend/package.json
 frontend/postcss.config.js
 frontend/src/api/apiFetch.ts
+frontend/src/api/branding-api.ts
 frontend/src/api/downloadJobPdf.ts
 frontend/src/api/geoOnboardingApi.ts
 frontend/src/api/queryProposalApi.ts
@@ -54,20 +55,28 @@ frontend/src/App.tsx
 frontend/src/auth/authSession.ts
 frontend/src/auth/logout.ts
 frontend/src/auth/RequireAuthLayout.tsx
+frontend/src/branding/useBranding.ts
+frontend/src/branding/WorkspaceBrandingProvider.tsx
 frontend/src/components/AIStrategyProposalWizard.tsx
 frontend/src/components/AnalysisCharts.tsx
 frontend/src/components/AnalysisProgress.tsx
 frontend/src/components/LoadingCharacter.tsx
 frontend/src/components/onboarding/OnboardingMathVisualizer.tsx
 frontend/src/components/onboarding/OnboardingNarrationMonitor.tsx
+frontend/src/components/policy/LockedInsightCallout.tsx
 frontend/src/components/ProposalForm.tsx
 frontend/src/components/ProposalResultView.tsx
 frontend/src/components/SafeHtmlRenderer.tsx
+frontend/src/components/strategy/AbsoluteEvaluationSection.tsx
+frontend/src/components/strategy/GrowthTrajectoryChart.tsx
+frontend/src/components/strategy/RelativeEvaluationSection.tsx
+frontend/src/components/strategy/TrustAccumulationChart.tsx
 frontend/src/components/TierDiagnosisCard.tsx
 frontend/src/errors/GeoApiRequestError.ts
 frontend/src/hooks/useJobNotification.ts
 frontend/src/hooks/useJobStreaming.ts
 frontend/src/hooks/useOnboardingStream.ts
+frontend/src/hooks/useProjectAssetSnapshots.ts
 frontend/src/main.tsx
 frontend/src/pages/GeoOnboardingView.tsx
 frontend/src/pages/JobAnalysisPage.tsx
@@ -76,6 +85,7 @@ frontend/src/pages/LoginPage.tsx
 frontend/src/pages/PricingPage.tsx
 frontend/src/pages/ProjectSettingsPage.tsx
 frontend/src/pages/ReportPrintPage.tsx
+frontend/src/pages/StrategyDashboardPage.tsx
 frontend/src/types/analysis.ts
 frontend/src/types/auth.ts
 frontend/src/types/onboardingDebateStream.ts
@@ -427,6 +437,33 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
 
 // Re-export for call sites that already import tenant id from apiFetch
 export { DEFAULT_WORKSPACE_TENANT_ID } from "./tenantConstants";
+</file>
+
+<file path="frontend/src/api/branding-api.ts">
+import { apiFetch, responseJsonAsCamel } from "./apiFetch";
+
+export type WorkspaceBrandingPayload = {
+  toolName?: string | null;
+  brandColor?: string | null;
+  logoUrl?: string | null;
+};
+
+export async function fetchWorkspaceBranding(): Promise<WorkspaceBrandingPayload> {
+  const res = await apiFetch("/api/v1/workspaces/current/branding");
+  if (!res.ok) {
+    throw new Error(`branding ${res.status}`);
+  }
+  const raw = await responseJsonAsCamel(res);
+  return raw as WorkspaceBrandingPayload;
+}
+
+export async function fetchWorkspaceLogoBlob(): Promise<Blob> {
+  const res = await apiFetch("/api/v1/workspaces/current/branding/logo");
+  if (!res.ok) {
+    throw new Error(`logo ${res.status}`);
+  }
+  return res.blob();
+}
 </file>
 
 <file path="frontend/src/api/downloadJobPdf.ts">
@@ -856,6 +893,7 @@ import PricingPage from "./pages/PricingPage";
 import GeoOnboardingView from "./pages/GeoOnboardingView";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import ReportPrintPage from "./pages/ReportPrintPage";
+import StrategyDashboardPage from "./pages/StrategyDashboardPage";
 
 export default function App(): JSX.Element {
   return (
@@ -867,6 +905,7 @@ export default function App(): JSX.Element {
         <Route path="/reports/print/:jobId" element={<ReportPrintPage />} />
         <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
         <Route path="/projects/:projectId/onboarding" element={<GeoOnboardingView />} />
+        <Route path="/projects/:projectId/strategy" element={<StrategyDashboardPage />} />
         <Route path="/pricing" element={<PricingPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -1072,6 +1111,7 @@ export function clearClientState(): void {
 import { Box, CircularProgress } from "@mui/material";
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { WorkspaceBrandingProvider } from "../branding/WorkspaceBrandingProvider";
 import { getAccessToken, setAccessToken, tryRestoreSession } from "./authSession";
 
 type GateState = "loading" | "authed" | "anon";
@@ -1130,7 +1170,160 @@ export default function RequireAuthLayout(): JSX.Element {
   if (state === "anon") {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
-  return <Outlet />;
+  return (
+    <WorkspaceBrandingProvider>
+      <Outlet />
+    </WorkspaceBrandingProvider>
+  );
+}
+</file>
+
+<file path="frontend/src/branding/useBranding.ts">
+import { useContext } from "react";
+import { BrandingContext, type BrandingContextValue } from "./WorkspaceBrandingProvider";
+
+export function useBranding(): BrandingContextValue {
+  const ctx = useContext(BrandingContext);
+  if (ctx === null) {
+    throw new Error("useBranding must be used within WorkspaceBrandingProvider");
+  }
+  return ctx;
+}
+</file>
+
+<file path="frontend/src/branding/WorkspaceBrandingProvider.tsx">
+import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { fetchWorkspaceBranding, fetchWorkspaceLogoBlob } from "../api/branding-api";
+
+const DEFAULT_TOOL_NAME = "Geo Analytics";
+const DEFAULT_BRAND_COLOR = "#4f46e5";
+
+export type BrandingContextValue = {
+  toolName: string;
+  brandColor: string;
+  logoBlobUrl: string | null;
+};
+
+export const BrandingContext = createContext<BrandingContextValue | null>(null);
+
+export function WorkspaceBrandingProvider({ children }: { children: ReactNode }): JSX.Element {
+  const [toolName, setToolName] = useState(DEFAULT_TOOL_NAME);
+  const [brandColor, setBrandColor] = useState(DEFAULT_BRAND_COLOR);
+  const [logoBlobUrl, setLogoBlobUrl] = useState<string | null>(null);
+  const logoObjectUrlRef = useRef<string | null>(null);
+
+  const revokeLogoUrl = useCallback(() => {
+    if (logoObjectUrlRef.current !== null) {
+      URL.revokeObjectURL(logoObjectUrlRef.current);
+      logoObjectUrlRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--brand-color", brandColor);
+  }, [brandColor]);
+
+  useEffect(() => {
+    document.title = `${toolName} · Dashboard`;
+  }, [toolName]);
+
+  const theme = useMemo(
+    () =>
+      createTheme({
+        palette: {
+          primary: {
+            main: brandColor,
+          },
+        },
+      }),
+    [brandColor],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    revokeLogoUrl();
+    setLogoBlobUrl(null);
+
+    void (async () => {
+      try {
+        const data = await fetchWorkspaceBranding();
+        if (cancelled) return;
+        const tn =
+          typeof data.toolName === "string" && data.toolName.trim().length > 0
+            ? data.toolName.trim()
+            : DEFAULT_TOOL_NAME;
+        const bc =
+          typeof data.brandColor === "string" && data.brandColor.trim().length > 0
+            ? data.brandColor.trim()
+            : DEFAULT_BRAND_COLOR;
+        setToolName(tn);
+        setBrandColor(bc);
+
+        const logoUrlField = typeof data.logoUrl === "string" ? data.logoUrl.trim() : "";
+        if (logoUrlField.length === 0) {
+          return;
+        }
+        try {
+          const blob = await fetchWorkspaceLogoBlob();
+          if (cancelled) return;
+          revokeLogoUrl();
+          const url = URL.createObjectURL(blob);
+          if (cancelled) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          logoObjectUrlRef.current = url;
+          setLogoBlobUrl(url);
+        } catch {
+          if (!cancelled) {
+            revokeLogoUrl();
+            setLogoBlobUrl(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setToolName(DEFAULT_TOOL_NAME);
+          setBrandColor(DEFAULT_BRAND_COLOR);
+          revokeLogoUrl();
+          setLogoBlobUrl(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      revokeLogoUrl();
+      setLogoBlobUrl(null);
+    };
+  }, [revokeLogoUrl]);
+
+  const contextValue = useMemo<BrandingContextValue>(
+    () => ({
+      toolName,
+      brandColor,
+      logoBlobUrl,
+    }),
+    [toolName, brandColor, logoBlobUrl],
+  );
+
+  return (
+    <BrandingContext.Provider value={contextValue}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {children}
+      </ThemeProvider>
+    </BrandingContext.Provider>
+  );
 }
 </file>
 
@@ -1881,22 +2074,6 @@ import { Box, Stack, Typography } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import type { DebateStreamPersona, OnboardingNarrationLogEntry } from "../../types/onboardingDebateStream";
 
-const FACADE_REPLACEMENTS: Array<{ pattern: RegExp; text: string }> = [
-  { pattern: /検索エンジン/g, text: "AI推奨インターフェース" },
-  { pattern: /SEO/gi, text: "AI検索での見え方（GEO）" },
-  { pattern: /検索順位/g, text: "AI検索推奨率" },
-  { pattern: /順位付け/g, text: "推奨のされやすさ" },
-  { pattern: /ランキング/g, text: "推奨スコア" },
-];
-
-function toGeoFacadeCopy(raw: string): string {
-  let s = raw;
-  for (const { pattern, text } of FACADE_REPLACEMENTS) {
-    s = s.replace(pattern, text);
-  }
-  return s;
-}
-
 function personaLabel(persona: DebateStreamPersona | null): string {
   switch (persona) {
     case "ANALYST":
@@ -1993,7 +2170,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
   return (
     <Stack spacing={1.75} sx={{ maxHeight: 360, overflowY: "auto", pr: 0.5 }}>
       <Typography variant="subtitle2" color="text.secondary" fontWeight={700}>
-        ディベート実況（AI検索推奨率に効く構造と独自性）
+        ディベート実況（GEO／AI可視性ランクとAI推奨ポテンシャルに効く構造と独自性）
       </Typography>
       {stablePrevious.map((row) => (
         <Box
@@ -2015,7 +2192,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
             {personaLabel(row.persona)}
           </Typography>
           <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-            {toGeoFacadeCopy(row.message)}
+            {row.message}
           </Typography>
         </Box>
       ))}
@@ -2040,7 +2217,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
           <Typography variant="caption" color="primary" display="block" fontWeight={700} sx={{ mb: 0.35 }}>
             {personaLabel(last.persona)}
           </Typography>
-          <TypingLine text={toGeoFacadeCopy(last.message)} intervalMs={personaTypingMs(last.persona)} />
+          <TypingLine text={last.message} intervalMs={personaTypingMs(last.persona)} />
         </Box>
       )}
       {entries.length === 0 && (
@@ -2050,6 +2227,30 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
       )}
     </Stack>
   );
+}
+</file>
+
+<file path="frontend/src/components/policy/LockedInsightCallout.tsx">
+import { Lock } from "lucide-react";
+
+export interface LockedInsightCalloutProps {
+  message: string;
+}
+
+export function LockedInsightCallout({ message }: LockedInsightCalloutProps): JSX.Element {
+  const trimmed = message.trimStart();
+  if (trimmed.startsWith("🔒")) {
+    return (
+      <div
+        role="note"
+        className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-slate-900 shadow-sm"
+      >
+        <Lock className="mt-0.5 h-5 w-5 shrink-0 text-amber-800" strokeWidth={2} aria-hidden />
+        <p className="text-sm leading-relaxed">{trimmed}</p>
+      </div>
+    );
+  }
+  return <p className="text-sm leading-relaxed text-slate-700">{message}</p>;
 }
 </file>
 
@@ -2486,6 +2687,325 @@ export function SafeHtmlRenderer({ html, className, sanitizeConfig }: SafeHtmlRe
     return DOMPurify.sanitize(html, cfg);
   }, [html, sanitizeConfig]);
   return <div className={className} dangerouslySetInnerHTML={{ __html: sanitized }} />;
+}
+</file>
+
+<file path="frontend/src/components/strategy/AbsoluteEvaluationSection.tsx">
+import type { AssetSnapshotChartPoint } from "../../hooks/useProjectAssetSnapshots";
+import { GrowthTrajectoryChart } from "./GrowthTrajectoryChart";
+import { TrustAccumulationChart } from "./TrustAccumulationChart";
+
+export interface AbsoluteEvaluationSectionProps {
+  data: AssetSnapshotChartPoint[];
+  brandColor: string;
+  isPdfMode: boolean;
+}
+
+export function AbsoluteEvaluationSection({
+  data,
+  brandColor,
+  isPdfMode,
+}: AbsoluteEvaluationSectionProps): JSX.Element {
+  return (
+    <section className="pdf-avoid-break mb-10">
+      <div className="mb-6 border-b border-slate-200/80 pb-3">
+        <h2 className="text-lg font-semibold tracking-tight text-slate-900">絶対評価</h2>
+        <p className="mt-0.5 text-xs font-light text-slate-500">GEO Readiness と資産蓄積の推移</p>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <GrowthTrajectoryChart data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
+        <TrustAccumulationChart data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
+      </div>
+    </section>
+  );
+}
+</file>
+
+<file path="frontend/src/components/strategy/GrowthTrajectoryChart.tsx">
+import { TrendingUp } from "lucide-react";
+import { useMemo } from "react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { formatAuditDate } from "../../types/analysis";
+import type { AssetSnapshotChartPoint } from "../../hooks/useProjectAssetSnapshots";
+
+function computeReadinessYMin(values: number[]): number {
+  const finite = values.filter((n) => Number.isFinite(n));
+  if (finite.length === 0) {
+    return 0;
+  }
+  const minScore = Math.min(...finite);
+  const padded = Math.floor(minScore / 5) * 5 - 5;
+  return Math.max(0, padded);
+}
+
+function ChartPlaceholder(): JSX.Element {
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200/90 bg-gradient-to-b from-slate-50/40 to-white px-6 text-center">
+      <p className="max-w-sm text-sm font-light tracking-wide text-slate-500">データ蓄積中…</p>
+    </div>
+  );
+}
+
+export interface GrowthTrajectoryChartProps {
+  data: AssetSnapshotChartPoint[];
+  brandColor: string;
+  isPdfMode: boolean;
+}
+
+export function GrowthTrajectoryChart({
+  data,
+  brandColor,
+  isPdfMode,
+}: GrowthTrajectoryChartProps): JSX.Element {
+  const anim = !isPdfMode;
+  const yMin = useMemo(
+    () => computeReadinessYMin(data.map((d) => d.geoReadinessScore)),
+    [data],
+  );
+  const ok = data.length >= 1;
+
+  return (
+    <div className="strategy-chart-shell pdf-avoid-break rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/40 to-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
+          style={{ color: brandColor, backgroundColor: "rgba(255,255,255,0.9)" }}
+        >
+          <TrendingUp className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+        </span>
+        <h3 className="text-sm font-semibold tracking-tight text-slate-800">GEO Readiness の成長軌跡</h3>
+      </div>
+      {ok ? (
+        <div className="h-[280px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 6" stroke="rgba(148,163,184,0.35)" vertical={false} />
+              <XAxis
+                dataKey="snapshotDate"
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                tickFormatter={(v: string) => formatAuditDate(v)}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                domain={[yMin, 100]}
+                width={40}
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: "12px",
+                  border: "1px solid rgba(226,232,240,0.9)",
+                  boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                }}
+                labelFormatter={(v: string) => formatAuditDate(String(v))}
+              />
+              <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+              <Line
+                type="monotone"
+                dataKey="geoReadinessScore"
+                name="GEO Readiness"
+                stroke={brandColor}
+                strokeWidth={2}
+                dot={{ r: isPdfMode ? 3 : 4 }}
+                activeDot={{ r: isPdfMode ? 4 : 5 }}
+                isAnimationActive={anim}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <ChartPlaceholder />
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/components/strategy/RelativeEvaluationSection.tsx">
+type BenchmarkRow = {
+  label: string;
+  selfLabel: string;
+  competitorLabel: string;
+  gap: boolean;
+};
+
+const MOCK_ROWS: BenchmarkRow[] = [
+  {
+    label: "AI言及シェア（モック）",
+    selfLabel: "42%",
+    competitorLabel: "58%",
+    gap: true,
+  },
+  {
+    label: "構造化シグナル密度（モック）",
+    selfLabel: "良好",
+    competitorLabel: "良好",
+    gap: false,
+  },
+  {
+    label: "エンティティ解像度（モック）",
+    selfLabel: "要強化",
+    competitorLabel: "高",
+    gap: true,
+  },
+];
+
+export function RelativeEvaluationSection(): JSX.Element {
+  return (
+    <section className="pdf-avoid-break mb-10">
+      <div className="mb-6 border-b border-slate-200/80 pb-3">
+        <h2 className="text-lg font-semibold tracking-tight text-slate-900">相対評価（ベンチマーク）</h2>
+        <p className="mt-0.5 text-xs font-light text-slate-500">
+          自社と競合の比較データは今後のフェーズで連携予定です。
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50/90">
+              <th className="px-4 py-3 font-semibold text-slate-700">指標</th>
+              <th className="px-4 py-3 font-semibold text-slate-700">自社</th>
+              <th className="px-4 py-3 font-semibold text-slate-700">競合</th>
+              <th className="px-4 py-3 font-semibold text-slate-700">ギャップ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {MOCK_ROWS.map((row) => (
+              <tr
+                key={row.label}
+                className={
+                  row.gap
+                    ? "border-b border-red-100 bg-red-50/90 text-red-900 last:border-0"
+                    : "border-b border-slate-100 text-slate-800 last:border-0"
+                }
+              >
+                <td className="px-4 py-3 font-medium">{row.label}</td>
+                <td className={`px-4 py-3 tabular-nums ${row.gap ? "text-red-950" : ""}`}>{row.selfLabel}</td>
+                <td className={`px-4 py-3 tabular-nums ${row.gap ? "text-red-950" : ""}`}>{row.competitorLabel}</td>
+                <td className={`px-4 py-3 font-semibold ${row.gap ? "text-red-700" : "text-emerald-700"}`}>
+                  {row.gap ? "要注意" : "拮抗"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+</file>
+
+<file path="frontend/src/components/strategy/TrustAccumulationChart.tsx">
+import { Layers } from "lucide-react";
+import { useId } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { formatAuditDate } from "../../types/analysis";
+import type { AssetSnapshotChartPoint } from "../../hooks/useProjectAssetSnapshots";
+
+function ChartPlaceholder(): JSX.Element {
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200/90 bg-gradient-to-b from-slate-50/40 to-white px-6 text-center">
+      <p className="max-w-sm text-sm font-light tracking-wide text-slate-500">データ蓄積中…</p>
+    </div>
+  );
+}
+
+export interface TrustAccumulationChartProps {
+  data: AssetSnapshotChartPoint[];
+  brandColor: string;
+  isPdfMode: boolean;
+}
+
+export function TrustAccumulationChart({
+  data,
+  brandColor,
+  isPdfMode,
+}: TrustAccumulationChartProps): JSX.Element {
+  const anim = !isPdfMode;
+  const gid = useId().replace(/:/g, "");
+  const ok = data.length >= 1;
+
+  return (
+    <div className="strategy-chart-shell pdf-avoid-break rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50/40 to-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
+          style={{ color: brandColor, backgroundColor: "rgba(255,255,255,0.9)" }}
+        >
+          <Layers className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+        </span>
+        <h3 className="text-sm font-semibold tracking-tight text-slate-800">ローカルトラスト蓄積</h3>
+      </div>
+      {ok ? (
+        <div className="h-[280px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`${gid}-trust`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={brandColor} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={brandColor} stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 6" stroke="rgba(148,163,184,0.35)" vertical={false} />
+              <XAxis
+                dataKey="snapshotDate"
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                tickFormatter={(v: string) => formatAuditDate(v)}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                width={44}
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => String(Math.round(v))}
+              />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: "12px",
+                  border: "1px solid rgba(226,232,240,0.9)",
+                  boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                }}
+                labelFormatter={(v: string) => formatAuditDate(String(v))}
+              />
+              <Area
+                type="monotone"
+                dataKey="localTrustCount"
+                name="累積トラスト"
+                stroke={brandColor}
+                strokeWidth={2}
+                fill={`url(#${gid}-trust)`}
+                isAnimationActive={anim}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <ChartPlaceholder />
+      )}
+    </div>
+  );
 }
 </file>
 
@@ -3496,6 +4016,78 @@ export function useOnboardingStream(): UseOnboardingStreamResult {
 }
 </file>
 
+<file path="frontend/src/hooks/useProjectAssetSnapshots.ts">
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
+
+export type AssetSnapshotChartPoint = {
+  snapshotDate: string;
+  geoReadinessScore: number;
+  localTrustCount: number;
+};
+
+export type UseProjectAssetSnapshotsResult = {
+  data: AssetSnapshotChartPoint[];
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
+};
+
+export function useProjectAssetSnapshots(
+  projectId: string,
+  from: string,
+  to: string,
+): UseProjectAssetSnapshotsResult {
+  const [data, setData] = useState<AssetSnapshotChartPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    const pid = projectId.trim();
+    if (pid.length === 0) {
+      setData([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const url = `/api/v1/projects/${encodeURIComponent(pid)}/asset-snapshots?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      const response = await apiFetch(url);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `HTTP ${response.status}`);
+      }
+      const body = (await responseJsonAsCamel(response)) as { data?: unknown };
+      const raw = body.data;
+      const list = Array.isArray(raw) ? raw : [];
+      const next: AssetSnapshotChartPoint[] = list.map((row: unknown) => {
+        const o = row as Record<string, unknown>;
+        return {
+          snapshotDate: String(o.snapshotDate ?? ""),
+          geoReadinessScore: Number(o.geoReadinessScore ?? 0),
+          localTrustCount: Number(o.localTrustCount ?? 0),
+        };
+      });
+      setData(next);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, from, to]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  return { data, loading, error, reload };
+}
+</file>
+
 <file path="frontend/src/main.tsx">
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -3522,7 +4114,6 @@ import {
   CardContent,
   CircularProgress,
   Container,
-  CssBaseline,
   FormControl,
   IconButton,
   InputLabel,
@@ -3532,9 +4123,7 @@ import {
   Snackbar,
   Stack,
   TextField,
-  ThemeProvider,
   Typography,
-  createTheme,
 } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
@@ -3549,7 +4138,6 @@ import { OnboardingMathVisualizer } from "../components/onboarding/OnboardingMat
 import { OnboardingNarrationMonitor } from "../components/onboarding/OnboardingNarrationMonitor";
 import { useOnboardingStream } from "../hooks/useOnboardingStream";
 
-const theme = createTheme();
 const industries: { value: string; label: string }[] = [
   { value: "YMYL", label: "YMYL分野" },
   { value: "LOCAL", label: "ローカルビジネス" },
@@ -3708,18 +4296,16 @@ export default function GeoOnboardingView(): JSX.Element {
 
   if (!projectId) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
+      <>
         <Container>
           <Typography>プロジェクトIDが不正です</Typography>
         </Container>
-      </ThemeProvider>
+      </>
     );
   }
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="md" className="py-8">
         <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
           GEOオンボーディング
@@ -3968,7 +4554,7 @@ export default function GeoOnboardingView(): JSX.Element {
           message={toast ?? ""}
         />
       </Container>
-    </ThemeProvider>
+    </>
   );
 }
 </file>
@@ -4790,7 +5376,6 @@ import {
   CardHeader,
   Chip,
   Container,
-  CssBaseline,
   Dialog,
   DialogActions,
   DialogContent,
@@ -4799,22 +5384,20 @@ import {
   Snackbar,
   Stack,
   TextField,
-  ThemeProvider,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
-  createTheme,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { convertProposalToJob } from "../api/queryProposalApi";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { useBranding } from "../branding/useBranding";
 import { AIStrategyProposalWizard } from "../components/AIStrategyProposalWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
 import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
-
-const theme = createTheme();
 
 const CONVERT_NAVIGATE_DELAY_MS = 600;
 
@@ -4836,6 +5419,8 @@ function isThresholdError(message: string): boolean {
 
 export default function JobCreationPage(): JSX.Element {
   const navigate = useNavigate();
+  const muiTheme = useTheme();
+  const { toolName, logoBlobUrl } = useBranding();
   const navigateTimeoutRef = useRef<number | null>(null);
   const [brandName, setBrandName] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
@@ -4954,9 +5539,16 @@ export default function JobCreationPage(): JSX.Element {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="md" sx={{ py: 4 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+          {logoBlobUrl !== null ? (
+            <Box component="img" src={logoBlobUrl} alt="" sx={{ height: 36, width: "auto", display: "block" }} />
+          ) : null}
+          <Typography variant="subtitle1" fontWeight={700}>
+            {toolName}
+          </Typography>
+        </Box>
         <Box
           sx={{
             display: "flex",
@@ -5124,13 +5716,13 @@ export default function JobCreationPage(): JSX.Element {
                   submitting
                     ? {
                         py: 1.5,
-                        background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                        background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
                         color: "#fff",
-                        boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
+                        boxShadow: `0 8px 24px ${muiTheme.palette.primary.main}59`,
                         "&.Mui-disabled": {
                           color: "rgba(255,255,255,0.95)",
                           opacity: 1,
-                          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                          background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
                         },
                       }
                     : { py: 1.5 }
@@ -5186,7 +5778,7 @@ export default function JobCreationPage(): JSX.Element {
           </DialogActions>
         </Dialog>
       </Container>
-    </ThemeProvider>
+    </>
   );
 }
 </file>
@@ -5362,22 +5954,18 @@ import {
   Box,
   Button,
   Container,
-  CssBaseline,
   FormControlLabel,
   Snackbar,
   Stack,
   Switch,
   TextField,
-  ThemeProvider,
   Typography,
-  createTheme,
 } from "@mui/material";
 import { ArrowLeft, PlusCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
 
-const theme = createTheme();
 const SLACK_PREFIX = "https://hooks.slack.com/";
 const EMAIL_RE =
   /^[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
@@ -5515,8 +6103,7 @@ export default function ProjectSettingsPage(): JSX.Element {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="sm" sx={{ py: 4 }}>
         <nav
           className="mb-5 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/90 pb-4"
@@ -5601,7 +6188,7 @@ export default function ProjectSettingsPage(): JSX.Element {
           </Alert>
         </Snackbar>
       </Container>
-    </ThemeProvider>
+    </>
   );
 }
 </file>
@@ -6075,6 +6662,119 @@ export default function ReportPrintPage(): JSX.Element {
         </section>
       )}
       {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/src/pages/StrategyDashboardPage.tsx">
+import { useBranding } from "../branding/useBranding";
+import { AbsoluteEvaluationSection } from "../components/strategy/AbsoluteEvaluationSection";
+import { RelativeEvaluationSection } from "../components/strategy/RelativeEvaluationSection";
+import { LockedInsightCallout } from "../components/policy/LockedInsightCallout";
+import { useProjectAssetSnapshots } from "../hooks/useProjectAssetSnapshots";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+
+function localIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function defaultRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(from.getDate() - 90);
+  return { from: localIsoDate(from), to: localIsoDate(to) };
+}
+
+function usePrintSnapshot(): boolean {
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("print");
+    const onMq = () => setPrinting(mq.matches);
+    const before = () => setPrinting(true);
+    const after = () => setPrinting(false);
+    mq.addEventListener("change", onMq);
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    return () => {
+      mq.removeEventListener("change", onMq);
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+    };
+  }, []);
+  return printing;
+}
+
+export default function StrategyDashboardPage(): JSX.Element {
+  const { projectId = "" } = useParams<{ projectId: string }>();
+  const { toolName, logoBlobUrl, brandColor } = useBranding();
+  const range = useMemo(() => defaultRange(), []);
+  const { data, loading, error } = useProjectAssetSnapshots(projectId, range.from, range.to);
+  const isPdfMode = usePrintSnapshot();
+
+  const printedAt = useMemo(() => new Date().toLocaleString("ja-JP"), []);
+
+  return (
+    <div className="min-h-screen bg-slate-50/80 pb-16 pt-8">
+      <div
+        className="strategy-dashboard-print-root mx-auto px-4 text-slate-900"
+        style={{
+          width: "min(100%, 794px)",
+          maxWidth: "100%",
+          printColorAdjust: "exact",
+          WebkitPrintColorAdjust: "exact",
+        }}
+      >
+        <nav className="pdf-no-print mb-6 text-sm text-slate-600">
+          <Link to="/" className="text-sky-700 underline-offset-2 hover:underline">
+            ホーム
+          </Link>
+          <span className="mx-2">/</span>
+          <span className="text-slate-800">戦略ダッシュボード</span>
+        </nav>
+
+        <header className="pdf-avoid-break mb-10 rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-4">
+              {logoBlobUrl != null && logoBlobUrl.length > 0 ? (
+                <img src={logoBlobUrl} alt="" className="h-14 w-14 shrink-0 object-contain" />
+              ) : (
+                <div className="h-14 w-14 shrink-0 rounded-xl border border-slate-200 bg-slate-50" aria-hidden />
+              )}
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{toolName}</p>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">戦略ダッシュボード</h1>
+                <p className="mt-2 text-sm font-semibold text-slate-800">公式提案書</p>
+                <p className="mt-1 text-xs text-slate-600">印刷日時 {printedAt}</p>
+              </div>
+            </div>
+            <div className="pdf-no-print rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              <p>
+                対象期間 {range.from} 〜 {range.to}
+              </p>
+              <p className="mt-1 break-all">プロジェクト ID {projectId}</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="pdf-no-print mb-6 rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
+          <LockedInsightCallout message="🔒 基礎スコアが上位プランで開示されます（プレースホルダ）。" />
+        </div>
+
+        {loading && <p className="pdf-no-print mb-6 text-sm text-slate-600">読み込み中…</p>}
+        {error != null && (
+          <div className="pdf-no-print mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {error}
+          </div>
+        )}
+
+        <AbsoluteEvaluationSection data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
+        <RelativeEvaluationSection />
+      </div>
     </div>
   );
 }
@@ -7072,6 +7772,9 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      colors: {
+        brand: "var(--brand-color)",
+      },
       keyframes: {
         shimmer: {
           "0%": { transform: "translateX(-100%)" },

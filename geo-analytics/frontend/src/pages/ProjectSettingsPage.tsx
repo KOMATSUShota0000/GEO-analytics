@@ -3,22 +3,18 @@ import {
   Box,
   Button,
   Container,
-  CssBaseline,
   FormControlLabel,
   Snackbar,
   Stack,
   Switch,
   TextField,
-  ThemeProvider,
   Typography,
-  createTheme,
 } from "@mui/material";
 import { ArrowLeft, PlusCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
 
-const theme = createTheme();
 const SLACK_PREFIX = "https://hooks.slack.com/";
 const EMAIL_RE =
   /^[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
@@ -156,8 +152,7 @@ export default function ProjectSettingsPage(): JSX.Element {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="sm" sx={{ py: 4 }}>
         <nav
           className="mb-5 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/90 pb-4"
@@ -242,6 +237,6 @@ export default function ProjectSettingsPage(): JSX.Element {
           </Alert>
         </Snackbar>
       </Container>
-    </ThemeProvider>
+    </>
   );
 }

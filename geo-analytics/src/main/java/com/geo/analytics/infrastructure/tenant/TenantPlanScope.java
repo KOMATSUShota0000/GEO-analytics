@@ -2,6 +2,7 @@ package com.geo.analytics.infrastructure.tenant;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import java.lang.ScopedValue;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -102,6 +103,46 @@ public final class TenantPlanScope {
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static void executeWithTenantOrganizationAndPlan(
+            UUID tenantId, UUID organizationId, SubscriptionPlan plan, Runnable runnable) {
+        Objects.requireNonNull(tenantId);
+        Objects.requireNonNull(organizationId);
+        Objects.requireNonNull(plan);
+        UUID uid = TenantContextHolder.current().map(TenantIdentity::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .run(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        runnable.run();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static <T, X extends Throwable> T executeWithTenantOrganizationAndPlan(
+            UUID tenantId, UUID organizationId, SubscriptionPlan plan, Supplier<T> supplier) throws X {
+        Objects.requireNonNull(tenantId);
+        Objects.requireNonNull(organizationId);
+        Objects.requireNonNull(plan);
+        UUID uid = TenantContextHolder.current().map(TenantIdentity::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
                     .call(() -> {

@@ -1,6 +1,7 @@
 import { Box, CircularProgress } from "@mui/material";
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { WorkspaceBrandingProvider } from "../branding/WorkspaceBrandingProvider";
 import { getAccessToken, setAccessToken, tryRestoreSession } from "./authSession";
 
 type GateState = "loading" | "authed" | "anon";
@@ -59,5 +60,9 @@ export default function RequireAuthLayout(): JSX.Element {
   if (state === "anon") {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
-  return <Outlet />;
+  return (
+    <WorkspaceBrandingProvider>
+      <Outlet />
+    </WorkspaceBrandingProvider>
+  );
 }

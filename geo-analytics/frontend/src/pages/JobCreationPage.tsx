@@ -8,7 +8,6 @@ import {
   CardHeader,
   Chip,
   Container,
-  CssBaseline,
   Dialog,
   DialogActions,
   DialogContent,
@@ -17,22 +16,20 @@ import {
   Snackbar,
   Stack,
   TextField,
-  ThemeProvider,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
-  createTheme,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { convertProposalToJob } from "../api/queryProposalApi";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { useBranding } from "../branding/useBranding";
 import { AIStrategyProposalWizard } from "../components/AIStrategyProposalWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
 import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
-
-const theme = createTheme();
 
 const CONVERT_NAVIGATE_DELAY_MS = 600;
 
@@ -54,6 +51,8 @@ function isThresholdError(message: string): boolean {
 
 export default function JobCreationPage(): JSX.Element {
   const navigate = useNavigate();
+  const muiTheme = useTheme();
+  const { toolName, logoBlobUrl } = useBranding();
   const navigateTimeoutRef = useRef<number | null>(null);
   const [brandName, setBrandName] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
@@ -172,9 +171,16 @@ export default function JobCreationPage(): JSX.Element {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="md" sx={{ py: 4 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+          {logoBlobUrl !== null ? (
+            <Box component="img" src={logoBlobUrl} alt="" sx={{ height: 36, width: "auto", display: "block" }} />
+          ) : null}
+          <Typography variant="subtitle1" fontWeight={700}>
+            {toolName}
+          </Typography>
+        </Box>
         <Box
           sx={{
             display: "flex",
@@ -342,13 +348,13 @@ export default function JobCreationPage(): JSX.Element {
                   submitting
                     ? {
                         py: 1.5,
-                        background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                        background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
                         color: "#fff",
-                        boxShadow: "0 8px 24px rgba(79, 70, 229, 0.35)",
+                        boxShadow: `0 8px 24px ${muiTheme.palette.primary.main}59`,
                         "&.Mui-disabled": {
                           color: "rgba(255,255,255,0.95)",
                           opacity: 1,
-                          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0284c7 100%)",
+                          background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
                         },
                       }
                     : { py: 1.5 }
@@ -404,6 +410,6 @@ export default function JobCreationPage(): JSX.Element {
           </DialogActions>
         </Dialog>
       </Container>
-    </ThemeProvider>
+    </>
   );
 }

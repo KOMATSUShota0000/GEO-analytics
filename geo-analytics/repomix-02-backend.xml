@@ -82,6 +82,7 @@ src/main/java/com/geo/analytics/application/event/UserSessionEvictedEvent.java
 src/main/java/com/geo/analytics/application/exception/QueryProposalException.java
 src/main/java/com/geo/analytics/application/exception/QueryProposalPhase.java
 src/main/java/com/geo/analytics/application/listener/UserSessionCacheEvictionListener.java
+src/main/java/com/geo/analytics/application/pipeline/GeoAssetSnapshotPipeline.java
 src/main/java/com/geo/analytics/application/port/AiVerificationPort.java
 src/main/java/com/geo/analytics/application/port/JobStatusBroadcastPublisher.java
 src/main/java/com/geo/analytics/application/port/ModelTypedAiVerificationPort.java
@@ -97,6 +98,7 @@ src/main/java/com/geo/analytics/application/service/AsyncPdfReportService.java
 src/main/java/com/geo/analytics/application/service/AsyncSgeMeasurementService.java
 src/main/java/com/geo/analytics/application/service/AuthService.java
 src/main/java/com/geo/analytics/application/service/BatchPersistenceService.java
+src/main/java/com/geo/analytics/application/service/BrandingService.java
 src/main/java/com/geo/analytics/application/service/CreditVaultService.java
 src/main/java/com/geo/analytics/application/service/DebateMathAuditService.java
 src/main/java/com/geo/analytics/application/service/DebateOnboardingOrchestrator.java
@@ -108,6 +110,8 @@ src/main/java/com/geo/analytics/application/service/GapAnalysisService.java
 src/main/java/com/geo/analytics/application/service/GapBatchSubmissionService.java
 src/main/java/com/geo/analytics/application/service/GeminiBatchExecutorService.java
 src/main/java/com/geo/analytics/application/service/GeminiResultProcessor.java
+src/main/java/com/geo/analytics/application/service/GeoAssetSnapshotQueryService.java
+src/main/java/com/geo/analytics/application/service/GeoAssetSnapshotService.java
 src/main/java/com/geo/analytics/application/service/JobPersistenceService.java
 src/main/java/com/geo/analytics/application/service/JobQuerySubmissionService.java
 src/main/java/com/geo/analytics/application/service/JobStreamRegistryService.java
@@ -138,10 +142,10 @@ src/main/java/com/geo/analytics/application/service/SyncVerificationService.java
 src/main/java/com/geo/analytics/application/service/TokenProfitBudgetResolver.java
 src/main/java/com/geo/analytics/application/service/WorkspacePlanResolver.java
 src/main/java/com/geo/analytics/application/service/WormAuditExportBridge.java
+src/main/java/com/geo/analytics/application/snapshot/JobAuditMetricsExtractor.java
 src/main/java/com/geo/analytics/application/validator/QueryQualityValidator.java
 src/main/java/com/geo/analytics/domain/ai/CitationValidator.java
 src/main/java/com/geo/analytics/domain/ai/DebatePersona.java
-src/main/java/com/geo/analytics/domain/ai/DebatePersonaSystemPrompts.java
 src/main/java/com/geo/analytics/domain/audit/ImmutableAuditRevisionPayload.java
 src/main/java/com/geo/analytics/domain/audit/UserRevisionListener.java
 src/main/java/com/geo/analytics/domain/entity/AuditHistoryEntity.java
@@ -149,6 +153,7 @@ src/main/java/com/geo/analytics/domain/entity/AuditRevisionEntity.java
 src/main/java/com/geo/analytics/domain/entity/BaseTenantEntity.java
 src/main/java/com/geo/analytics/domain/entity/DomainAnalysisSnapshotEntity.java
 src/main/java/com/geo/analytics/domain/entity/DomainAuthorityCacheEntity.java
+src/main/java/com/geo/analytics/domain/entity/GeoAssetSnapshotEntity.java
 src/main/java/com/geo/analytics/domain/entity/JobCompetitorScoreEntity.java
 src/main/java/com/geo/analytics/domain/entity/JobEntity.java
 src/main/java/com/geo/analytics/domain/entity/MathDebateAuditEventEntity.java
@@ -264,6 +269,11 @@ src/main/java/com/geo/analytics/domain/phase10/ZibExpectationCalculator.java
 src/main/java/com/geo/analytics/domain/phase10/ZScorePurgeFilter.java
 src/main/java/com/geo/analytics/domain/port/UrlContentFetcher.java
 src/main/java/com/geo/analytics/domain/port/WormAuditExportPort.java
+src/main/java/com/geo/analytics/domain/prompt/DebatePersonaSystemPrompts.java
+src/main/java/com/geo/analytics/domain/scoring/DefaultScoringService.java
+src/main/java/com/geo/analytics/domain/scoring/ScoreBreakdown.java
+src/main/java/com/geo/analytics/domain/scoring/ScoringService.java
+src/main/java/com/geo/analytics/domain/scoring/WeightedScoreInput.java
 src/main/java/com/geo/analytics/domain/semantic/SemanticJudgmentEngine.java
 src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiModelNames.java
 src/main/java/com/geo/analytics/domain/service/DomainAnalysisAiService.java
@@ -360,6 +370,7 @@ src/main/java/com/geo/analytics/infrastructure/ratelimit/SerpApiGlobalRequestGat
 src/main/java/com/geo/analytics/infrastructure/repository/AuditHistoryRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/DomainAnalysisSnapshotRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/DomainAuthorityCacheRepository.java
+src/main/java/com/geo/analytics/infrastructure/repository/GeoAssetSnapshotRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/JobRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/MathDebateAuditEventRepository.java
 src/main/java/com/geo/analytics/infrastructure/repository/OrganizationRepository.java
@@ -408,11 +419,14 @@ src/main/java/com/geo/analytics/web/controller/PublicApiController.java
 src/main/java/com/geo/analytics/web/controller/QueryProposalController.java
 src/main/java/com/geo/analytics/web/controller/SyncVerificationController.java
 src/main/java/com/geo/analytics/web/controller/VerificationController.java
+src/main/java/com/geo/analytics/web/controller/WorkspaceBrandingController.java
 src/main/java/com/geo/analytics/web/controller/WorkspaceController.java
 src/main/java/com/geo/analytics/web/controller/WorkspaceSubscriptionController.java
 src/main/java/com/geo/analytics/web/dto/AddQueriesRequest.java
 src/main/java/com/geo/analytics/web/dto/AnalyticsSummaryResponse.java
 src/main/java/com/geo/analytics/web/dto/ApiErrorResponse.java
+src/main/java/com/geo/analytics/web/dto/AssetSnapshotChartPoint.java
+src/main/java/com/geo/analytics/web/dto/AssetSnapshotsChartResponse.java
 src/main/java/com/geo/analytics/web/dto/ChangeSubscriptionRequest.java
 src/main/java/com/geo/analytics/web/dto/CompetitorSharePoint.java
 src/main/java/com/geo/analytics/web/dto/ConvertProposalToJobRequest.java
@@ -439,6 +453,7 @@ src/main/java/com/geo/analytics/web/dto/StreamErrorPayload.java
 src/main/java/com/geo/analytics/web/dto/SyncVerifyRequest.java
 src/main/java/com/geo/analytics/web/dto/TrendDataPoint.java
 src/main/java/com/geo/analytics/web/dto/VerifyStreamEvent.java
+src/main/java/com/geo/analytics/web/dto/WorkspaceBrandingResponse.java
 src/main/java/com/geo/analytics/web/exception/GlobalExceptionHandler.java
 src/main/resources/application-dev.yml
 src/main/resources/application-prod.yml
@@ -467,12 +482,12 @@ src/main/resources/db/migration/V111__add_domain_authority_and_math_audit.sql
 src/main/resources/db/migration/V112__wallet_transactions_note.sql
 src/main/resources/db/migration/V113__domain_analysis_snapshots.sql
 src/main/resources/db/migration/V114__query_proposals.sql
+src/main/resources/db/migration/V115__geo_asset_snapshots_and_org_branding.sql
 src/main/resources/db/migration/V2__organization_users_role_varchar.sql
 src/main/resources/db/migration/V3__setup_roles_and_grants.sql
 src/main/resources/db/migration/V4__auth_select_policy.sql
 src/main/resources/db/rls/tenant_isolation.sql
 src/test/java/com/geo/analytics/application/security/PromptInjectionValidatorTest.java
-src/test/java/com/geo/analytics/domain/ai/DebatePersonaSystemPromptsTest.java
 src/test/java/com/geo/analytics/domain/gatekeeper/DictionaryGatekeeperTest.java
 src/test/java/com/geo/analytics/domain/inclusion/InclusionProbabilityCalculatorTest.java
 src/test/java/com/geo/analytics/domain/logic/CalibrationCalculatorTest.java
@@ -512,6 +527,8 @@ src/test/java/com/geo/analytics/domain/phase10/ZibAggregationOrchestratorTest.ja
 src/test/java/com/geo/analytics/domain/phase10/ZibAggregationUpdaterTest.java
 src/test/java/com/geo/analytics/domain/phase10/ZibExpectationCalculatorTest.java
 src/test/java/com/geo/analytics/domain/phase10/ZScorePurgeFilterTest.java
+src/test/java/com/geo/analytics/domain/prompt/DebatePersonaSystemPromptsTest.java
+src/test/java/com/geo/analytics/domain/scoring/ScoringServiceTest.java
 src/test/java/com/geo/analytics/domain/semantic/SemanticJudgmentEngineTest.java
 src/test/java/com/geo/analytics/domain/service/GeoVisibilityCalculatorServiceTest.java
 src/test/java/com/geo/analytics/domain/service/InformationTheoryBasedAggregatorTest.java
@@ -527,6 +544,7 @@ src/test/java/com/geo/analytics/infrastructure/security/JwtAuthenticationFilterT
 src/test/java/com/geo/analytics/infrastructure/security/RefreshTokenCookieFactoryTest.java
 src/test/java/com/geo/analytics/infrastructure/security/SecurityConcurrencyTest.java
 src/test/java/com/geo/analytics/infrastructure/security/TokenServiceTest.java
+src/test/java/com/geo/analytics/web/dto/AssetSnapshotsChartResponseSerializationTest.java
 </directory_structure>
 
 <files>
@@ -1632,6 +1650,72 @@ public class UserSessionCacheEvictionListener {
                 .asMap()
                 .keySet()
                 .removeIf(key -> key.orgId().equals(targetOrgId));
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/pipeline/GeoAssetSnapshotPipeline.java">
+package com.geo.analytics.application.pipeline;
+
+import com.geo.analytics.application.service.GeoAssetSnapshotService;
+import com.geo.analytics.domain.entity.GeoAssetSnapshotEntity;
+import com.geo.analytics.domain.entity.WorkspaceEntity;
+import com.geo.analytics.domain.event.ProjectAuditCompletedEvent;
+import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class GeoAssetSnapshotPipeline {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GeoAssetSnapshotPipeline.class);
+
+    private final WorkspaceRepository workspaceRepository;
+    private final GeoAssetSnapshotService geoAssetSnapshotService;
+
+    public GeoAssetSnapshotPipeline(WorkspaceRepository workspaceRepository, GeoAssetSnapshotService geoAssetSnapshotService) {
+        this.workspaceRepository = workspaceRepository;
+        this.geoAssetSnapshotService = geoAssetSnapshotService;
+    }
+
+    @EventListener
+    public void onProjectAuditCompleted(ProjectAuditCompletedEvent projectAuditCompletedEvent) {
+        UUID jobId = projectAuditCompletedEvent.jobId();
+        UUID projectId = projectAuditCompletedEvent.projectId();
+        UUID workspaceId = projectAuditCompletedEvent.workspaceId();
+        Thread.ofVirtual()
+                .start(() -> {
+                    WorkspaceEntity workspace = workspaceRepository.findById(workspaceId).orElse(null);
+                    if (workspace == null) {
+                        LOG.warn("GeoAssetSnapshotPipeline skip workspace missing workspaceId={} jobId={}", workspaceId, jobId);
+                        return;
+                    }
+                    UUID organizationId = workspace.getOrganizationId();
+                    LOG.info(
+                            "GeoAssetSnapshotPipeline virtualThread bind workspaceId={} organizationId={} jobId={}",
+                            workspaceId,
+                            organizationId,
+                            jobId);
+                    TenantPlanScope.executeWithTenantOrganizationAndPlan(
+                            workspaceId,
+                            organizationId,
+                            workspace.getSubscriptionPlan(),
+                            () -> {
+                                LOG.info(
+                                        "GeoAssetSnapshotPipeline scoped tenant context organizationId={}",
+                                        TenantContextHolder.getOrganizationId().orElse(null));
+                                GeoAssetSnapshotEntity saved = geoAssetSnapshotService.createSnapshot(jobId, projectId, workspaceId);
+                                LOG.info(
+                                        "GeoAssetSnapshotPipeline saved snapshot id={} organizationId={}",
+                                        saved.getId(),
+                                        saved.getOrganizationId());
+                            });
+                });
     }
 }
 </file>
@@ -3247,6 +3331,111 @@ public class BatchPersistenceService {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/service/BrandingService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.domain.entity.OrganizationEntity;
+import com.geo.analytics.infrastructure.config.AppProperties;
+import com.geo.analytics.infrastructure.repository.OrganizationRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.web.dto.WorkspaceBrandingResponse;
+import java.io.FileNotFoundException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.UUID;
+import org.springframework.core.io.PathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class BrandingService {
+
+    private static final String LOGO_URL = "/api/v1/workspaces/current/branding/logo";
+
+    private final OrganizationRepository organizationRepository;
+    private final AppProperties appProperties;
+
+    public BrandingService(OrganizationRepository organizationRepository, AppProperties appProperties) {
+        this.organizationRepository = organizationRepository;
+        this.appProperties = appProperties;
+    }
+
+    @Transactional(readOnly = true)
+    public WorkspaceBrandingResponse getBranding() {
+        UUID orgId = TenantContextHolder.getOrganizationId()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        OrganizationEntity org = organizationRepository
+                .findByIdAndDeletedAtIsNull(orgId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        return new WorkspaceBrandingResponse(org.getToolName(), org.getBrandColor(), LOGO_URL);
+    }
+
+    @Transactional(readOnly = true)
+    public Resource loadLogoResource() throws FileNotFoundException {
+        UUID orgId = TenantContextHolder.getOrganizationId()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        OrganizationEntity org = organizationRepository
+                .findByIdAndDeletedAtIsNull(orgId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        String logoFilePath = org.getLogoFilePath();
+        if (logoFilePath == null || logoFilePath.isBlank()) {
+            throw new FileNotFoundException("logo");
+        }
+        Path resolved = validateAndResolveRelativeLogoPath(logoFilePath);
+        if (!java.nio.file.Files.isRegularFile(resolved)) {
+            throw new FileNotFoundException(resolved.toString());
+        }
+        return new PathResource(resolved);
+    }
+
+    private Path normalizedStorageRoot() {
+        String root = appProperties.getBranding().getStorageRoot();
+        return Paths.get(root).toAbsolutePath().normalize();
+    }
+
+    private Path validateAndResolveRelativeLogoPath(String logoFilePath) {
+        String trimmed = logoFilePath.trim();
+        if (trimmed.contains("..")) {
+            throw new SecurityException();
+        }
+        if (!trimmed.isEmpty() && (trimmed.charAt(0) == '/' || trimmed.charAt(0) == '\\')) {
+            throw new SecurityException();
+        }
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (trimmed.charAt(i) == '\u0000') {
+                throw new SecurityException();
+            }
+        }
+        Path root = normalizedStorageRoot();
+        Path relative = Paths.get(trimmed);
+        if (relative.isAbsolute()) {
+            throw new SecurityException();
+        }
+        Path normalizedRel = relative.normalize();
+        if (normalizedRel.getNameCount() == 0) {
+            throw new SecurityException();
+        }
+        for (Path name : normalizedRel) {
+            String seg = name.toString();
+            if (seg.isEmpty() || seg.equals(".") || seg.equals("..")) {
+                throw new SecurityException();
+            }
+            if (seg.indexOf('/') >= 0 || seg.indexOf('\\') >= 0) {
+                throw new SecurityException();
+            }
+        }
+        Path resolved = root.resolve(normalizedRel).normalize();
+        if (!resolved.startsWith(root)) {
+            throw new SecurityException();
+        }
+        return resolved;
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/application/service/CreditVaultService.java">
 package com.geo.analytics.application.service;
 
@@ -3543,7 +3732,7 @@ import com.geo.analytics.application.dto.GeoOnboardingLlmResult;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.domain.ai.CitationValidator;
 import com.geo.analytics.domain.ai.DebatePersona;
-import com.geo.analytics.domain.ai.DebatePersonaSystemPrompts;
+import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.logic.CalibrationCalculator;
@@ -5174,6 +5363,147 @@ public class GeminiResultProcessor {
                 "Could not extract text from batch output for key: " + outputRecord.key());
         }
         return textNode.asText();
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/service/GeoAssetSnapshotQueryService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.domain.entity.GeoAssetSnapshotEntity;
+import com.geo.analytics.infrastructure.repository.GeoAssetSnapshotRepository;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
+import com.geo.analytics.web.dto.AssetSnapshotChartPoint;
+import com.geo.analytics.web.dto.AssetSnapshotsChartResponse;
+import jakarta.persistence.EntityNotFoundException;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional(readOnly = true)
+public class GeoAssetSnapshotQueryService {
+
+    private final JdbcTemplate jdbcTemplate;
+    private final GeoAssetSnapshotRepository geoAssetSnapshotRepository;
+
+    public GeoAssetSnapshotQueryService(JdbcTemplate jdbcTemplate, GeoAssetSnapshotRepository geoAssetSnapshotRepository) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.geoAssetSnapshotRepository = geoAssetSnapshotRepository;
+    }
+
+    public AssetSnapshotsChartResponse getChartData(UUID projectId, LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            throw new IllegalArgumentException("from and to are required");
+        }
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("from must not be after to");
+        }
+        UUID workspaceId = resolveWorkspaceId(projectId);
+        UUID currentTenant =
+                TenantContextHolder.getTenantId().orElseThrow(() -> new EntityNotFoundException("project"));
+        if (!workspaceId.equals(currentTenant)) {
+            throw new EntityNotFoundException("project");
+        }
+        List<AssetSnapshotChartPoint> points = TenantPlanScope.executeWithTenant(workspaceId, () -> mapSnapshots(projectId, from, to));
+        return new AssetSnapshotsChartResponse(points);
+    }
+
+    private List<AssetSnapshotChartPoint> mapSnapshots(UUID projectId, LocalDate from, LocalDate to) {
+        List<GeoAssetSnapshotEntity> entities =
+                geoAssetSnapshotRepository.findByProjectIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(projectId, from, to);
+        List<AssetSnapshotChartPoint> out = new ArrayList<>(entities.size());
+        for (GeoAssetSnapshotEntity entity : entities) {
+            out.add(new AssetSnapshotChartPoint(
+                    entity.getSnapshotDate().toString(),
+                    entity.getReadinessScore(),
+                    entity.getLocalTrustCount()));
+        }
+        return out;
+    }
+
+    private UUID resolveWorkspaceId(UUID projectId) {
+        List<String> rows = jdbcTemplate.query(
+                "SELECT tenant_id FROM projects WHERE id = ?",
+                ps -> ps.setObject(1, projectId),
+                (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty()) {
+            throw new EntityNotFoundException("project");
+        }
+        String tenantId = rows.get(0);
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new EntityNotFoundException("project");
+        }
+        return UUID.fromString(tenantId);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/application/service/GeoAssetSnapshotService.java">
+package com.geo.analytics.application.service;
+
+import com.geo.analytics.application.snapshot.JobAuditMetricsExtractor;
+import com.geo.analytics.application.snapshot.JobAuditMetricsExtractor.SnapshotMetricInputs;
+import com.geo.analytics.domain.entity.GeoAssetSnapshotEntity;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.WorkspaceEntity;
+import com.geo.analytics.domain.scoring.ScoreBreakdown;
+import com.geo.analytics.domain.scoring.ScoringService;
+import com.geo.analytics.infrastructure.repository.GeoAssetSnapshotRepository;
+import com.geo.analytics.infrastructure.repository.JobRepository;
+import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import jakarta.persistence.EntityNotFoundException;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional
+public class GeoAssetSnapshotService {
+
+    private final JobRepository jobRepository;
+    private final WorkspaceRepository workspaceRepository;
+    private final GeoAssetSnapshotRepository geoAssetSnapshotRepository;
+    private final ScoringService scoringService;
+    private final JobAuditMetricsExtractor jobAuditMetricsExtractor;
+
+    public GeoAssetSnapshotService(
+            JobRepository jobRepository,
+            WorkspaceRepository workspaceRepository,
+            GeoAssetSnapshotRepository geoAssetSnapshotRepository,
+            ScoringService scoringService,
+            JobAuditMetricsExtractor jobAuditMetricsExtractor) {
+        this.jobRepository = jobRepository;
+        this.workspaceRepository = workspaceRepository;
+        this.geoAssetSnapshotRepository = geoAssetSnapshotRepository;
+        this.scoringService = scoringService;
+        this.jobAuditMetricsExtractor = jobAuditMetricsExtractor;
+    }
+
+    public GeoAssetSnapshotEntity createSnapshot(UUID jobId, UUID projectId, UUID workspaceId) {
+        WorkspaceEntity workspace =
+                workspaceRepository.findById(workspaceId).orElseThrow(() -> new EntityNotFoundException("workspace"));
+        JobEntity job = jobRepository.findById(jobId).orElseThrow(() -> new EntityNotFoundException("job"));
+        if (!projectId.equals(job.getProjectId()) || !workspaceId.equals(job.getWorkspaceId())) {
+            throw new IllegalStateException("job project or workspace mismatch");
+        }
+        SnapshotMetricInputs metrics = jobAuditMetricsExtractor.extract(jobId);
+        ScoreBreakdown breakdown = scoringService.calculateFinalScore(
+                metrics.aiAuditPercent(), metrics.meoTrustPercent(), metrics.machineReadabilityPercent());
+        GeoAssetSnapshotEntity entity = new GeoAssetSnapshotEntity();
+        entity.setOrganizationId(workspace.getOrganizationId());
+        entity.setProjectId(projectId);
+        entity.setSnapshotDate(LocalDate.now(ZoneId.of("Asia/Tokyo")));
+        entity.setReadinessScore(breakdown.geoReadinessScore());
+        entity.setLocalTrustCount(metrics.localTrustCount());
+        return geoAssetSnapshotRepository.save(entity);
     }
 }
 </file>
@@ -9288,6 +9618,44 @@ public class WormAuditExportBridge {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/application/snapshot/JobAuditMetricsExtractor.java">
+package com.geo.analytics.application.snapshot;
+
+import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.stereotype.Component;
+
+@Component
+public class JobAuditMetricsExtractor {
+
+    public record SnapshotMetricInputs(
+            double aiAuditPercent, double meoTrustPercent, double machineReadabilityPercent, long localTrustCount) {}
+
+    private final AuditHistoryRepository auditHistoryRepository;
+
+    public JobAuditMetricsExtractor(AuditHistoryRepository auditHistoryRepository) {
+        this.auditHistoryRepository = auditHistoryRepository;
+    }
+
+    public SnapshotMetricInputs extract(UUID jobId) {
+        List<AuditHistoryEntity> rows = auditHistoryRepository.findByJobId(jobId);
+        double sum = 0.0;
+        int n = 0;
+        for (AuditHistoryEntity row : rows) {
+            Double s = row.getSomScore();
+            if (s != null && !Double.isNaN(s) && !Double.isInfinite(s)) {
+                sum += s;
+                n++;
+            }
+        }
+        double ai = n > 0 ? Math.clamp(sum / (double) n, 0.0, 100.0) : 0.0;
+        return new SnapshotMetricInputs(ai, 0.0, 0.0, 0L);
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/application/validator/QueryQualityValidator.java">
 package com.geo.analytics.application.validator;
 
@@ -9602,303 +9970,6 @@ public enum DebatePersona {
     }
     public String getLabel() {
         return label;
-    }
-}
-</file>
-
-<file path="src/main/java/com/geo/analytics/domain/ai/DebatePersonaSystemPrompts.java">
-package com.geo.analytics.domain.ai;
-
-import com.geo.analytics.domain.enums.IndustryType;
-import java.util.Locale;
-import java.util.Objects;
-
-public final class DebatePersonaSystemPrompts {
-
-    private static final String ANALYST_BASE =
-            """
-            あなたはGEO（Generative Engine Optimization：生成AI上の情報最適化）文脈における「情報の番人」アナリストである。
-            与えられたウェブページ由来のテキストから、後続の議論が引用できるよう、次の原則に厳密に従うこと。
-            出力は箇条書きと短い段落を中心にし、推測・誇張・想像で補わない。根拠のない判断は「不明」と書く。
-            コンテキスト内に <competitor_seo_data> ブロックがある場合、それは外部スニペット由来の参考である。<scraped_data>（分析対象ページの本文）とは出所が異なる。対象サイトの事実束を組み立てる主根拠は常に <scraped_data> とし、競合ブロックは市場・ベンチマーク文脈の補助としてのみ用い、混同しないこと。
-            抽出するのは次のカテゴリに限定する。各項目は原文にそのまま根拠がある内容のみを書く。
-            事実とデータ: 数値、日付、固有名詞、サービス名、所在地、実績表現が原文に存在する場合のみ列挙する。
-            製品・サービスの説明: 公式に述べられている機能・特徴のみ。推測で付け足さない。
-            利用者向けの表現: 原文に現れるトーンやターゲットを示すフレーズを短く抜粋する。
-            禁止事項: 原文にないベンチマーク比較、他社名の断定、医学・法務・投資に関する断定的助言の捏造。
-            あなたの役割は「積み上げた事実の束」であり、独自の賛辞やキャッチコピーは書かない。
-            """;
-
-    private static final String SKEPTIC_BASE =
-            """
-            あなたはGEO文脈における「毒舌な競合」スケプティックである。丁寧語は使うが、論点は容赦なく突く。
-            アナリストやイノベーターが提示した主張を、次の観点から短く批判せよ。古典的なWeb検索流入や順位ゲームの話には落とさない。
-            独自性の欠如: 「どの同業者にも当てはまる」「一般論に過ぎる」と感じる点を指摘する。
-            論理の飛躍: 原文の根拠から飛んだ結論を突き止め、どこが飛躍か一行で示す。
-            根拠の弱さ: 数値や具体例がない主張に「ふわっとしている」とラベルを付ける。
-            客観と主観の混同: 事実と解釈が混ざっている箇所を分けて指摘する。
-            トーン: 人格攻撃は禁止。対象は「主張の内容」に限定する。
-            出力は各論点につき最大3行。最後に「特に危険なのは」として最優先で潰すべき一点を一行でまとめよ。
-            """;
-
-    private static final String INNOVATOR_BASE =
-            """
-            あなたはGEO文脈における「思考代弁者」イノベーターである。キーワード詰め込みや古典的な検索流入稼ぎではなく、生成AIがユーザーの回答で引用・言及したくなるような独自の強みや切り口を探る。
-            根拠の引用は <scraped_data> 内の原文のみとする。<competitor_seo_data> がコンテキストに現れても、引用・主張の根拠には用いない（外部スニペットの誤混入を防ぐフェイルセーフ）。
-            絶対制約（Cite Before You Speak）: 独自の意見・比喩・提案の前に、必ず原文から短いフレーズを証拠として示すこと。
-            形式は厳密に次のいずれかで行うこと。半角括弧とラベル「引用」を使う。
-            [引用: 原文のフレーズ]
-            全角コロンも許容する。[引用：原文のフレーズ]
-            引用ブロックの直後に、その引用に基づく独自の見解を述べる。引用なしの段落を出さない。
-            各主張ブロックは「引用行1行＋意見2〜5行」を目安とする。引用は原文に実在する文言の抜粋のみ。意訳で作った文を引用としてはならない。
-            尖った視点を歓迎するが、原文にない事実は盛らない。飛躍する場合は「仮説」であると明示する。
-            禁止: 引用形式の省略、空の引用、キーワードだけをならべた薄い文章。
-            """;
-
-    private static final String DIRECTOR_BASE =
-            """
-            あなたはGEO文脈における「目利き・オーケストレーター」ディレクターである。アナリストの事実束、スケプティックの批判、イノベーターの引用付き提案をまとめ、次の2種の成果に構造化する。
-            盤石な合意案: 三人の主張のうち、事実根拠が重なり、スケプティックの否定が乗り越えられていない、もしくは批判が軽微な点を「合意に値する強み」として2〜4項目述べる。各項目に根拠となった発言者と要約を添える。
-            マイノリティ・レポート: 多数派の合意に入らなかった、しかし原文に拠り所があり、捨てるに忍びない尖った主張を1〜3候補挙げる。各候補について「採択されなかった主な理由（スケプティック含む）」と「化ける条件（どんな文脈なら有効か）」を短く書く。生成AIの回答における「引用価値」の観点で評価する。
-            ハルシネーション禁止: 議論ログや原文にない事実を捏造しない。不明な点は明記する。
-            次フェーズ向け: 出力の最後に、後続のJSON化で使うキー名の目安（例: consensus_strengths, minority_reports 各要素の insight, conflictReason, evidence）にマッピングしやすい箇条書きで示す。JSON本体の生成は次の工程に任せ、ここでは日本語の説明に徹する。
-            数学的スコアも参照する: 直前のシステム指示で与えられる「情報利得」および「較正後信頼度（スカラー）」を、人間の主張の補完であるが最重要の客観指標として扱い、盤石な合意案とマイノリティ・レポートの取捨に反映すること。
-            """;
-
-    private DebatePersonaSystemPrompts() {}
-
-    /**
-     * GEO Facade: モデル出力および主張の言い換えを、古典的検索マーケ語彙から生成AI回答文脈へ矯正する共通制約。
-     */
-    public static String geoFacadeBlock() {
-        return """
-                【GEO Facade — 語彙と目的の拘束】
-                本タスクの目的は「生成AIがユーザーに提示する回答・概要（AI Overview 等）において、ブランドや情報が適切に引用・言及・推奨される条件」を整理することである。
-                出力および主張の言い換えにおいて、次の語・概念を使わないこと（説明に不可欠な最小限を除き、原則ゼロ）:
-                「SEO」「検索エンジン最適化」「検索エンジン」「検索順位」「ランキング」「検索ボリューム」「オーガニックトラフィック」「SERP」「検索結果での位置づけ」「キーワードボリューム」等の、古典的Web検索流入中心のフレーミング。
-
-                代わりに次を用いること:
-                「生成AI上の回答」「AIによる情報提示」「AI Overview / AI 要約に載りやすい事実と根拠」「AIからのブランド推奨（Brand Recommendation）」「回答内での引用価値」「情報利得（Information Gain）」「不確実性の低減に資する具体性」等。
-
-                Constraints (English): Do not frame outputs in legacy search-marketing terms (e.g. "SEO", "search ranking", "search volume", "SERP", "organic traffic"). Rephrase using generative-AI answer surfaces, citation likelihood, brand recommendation in AI responses, and information gain.
-
-                注: 内部データに外部スニペット由来の参考を含む場合でも、議論の結論表現は上記 GEO 文脈に合わせること。
-
-                """;
-    }
-
-    public static String basePrompt(DebatePersona debatePersona) {
-        return switch (debatePersona) {
-            case ANALYST -> ANALYST_BASE;
-            case SKEPTIC -> SKEPTIC_BASE;
-            case INNOVATOR -> INNOVATOR_BASE;
-            case DIRECTOR -> DIRECTOR_BASE;
-        };
-    }
-
-    /**
-     * 業種ヒントに応じた追補指示。{@code industryType} が null の場合は {@link IndustryType#OTHER} 相当の扱いを呼び出し側で行うか、ここで OTHER として扱う。
-     */
-    public static String industryOverlay(DebatePersona persona, IndustryType industryType) {
-        IndustryType t = industryType == null ? IndustryType.OTHER : industryType;
-        return switch (t) {
-            case YMYL -> ymylOverlay(persona);
-            case EC -> ecOverlay(persona);
-            case B2B -> b2bOverlay(persona);
-            case B2C -> b2cOverlay(persona);
-            case LOCAL -> localOverlay(persona);
-            case OTHER -> otherOverlay(persona);
-        };
-    }
-
-    private static String ymylOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST, SKEPTIC ->
-                    """
-
-                    【業種コンテキスト: YMYL】
-                    健康・金融・安全・法務など高リスク領域として扱う。E-E-A-T（経験・専門性・権威性・信頼性）の観点から極めて厳格に検証せよ。
-                    免責表示・根拠・出典の明示の有無、誇大広告や断定的効果・投資助言に見える表現を重点的に疑え。原文にない効果・保証の暗示は「危険」とラベルする。
-                    """;
-            case INNOVATOR ->
-                    """
-
-                    【業種コンテキスト: YMYL】
-                    断言や煽りは避け、引用に裏付けられた事実からの段階的な示唆に留める。医療・投資・法解釈の断定は禁止。
-                    """;
-            case DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: YMYL】
-                    合意案・マイノリティ案の採否において、信頼性・コンプライアンス上のリスクを最優先で考慮すること。
-                    """;
-        };
-    }
-
-    private static String ecOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST ->
-                    """
-
-                    【業種コンテキスト: EC / 通販】
-                    価格・送料・返品・保証・在庫・成分・サイズ等の表記は原文の記載に忠実に抜き出し、足りない情報は「不明」とする。
-                    """;
-            case SKEPTIC ->
-                    """
-
-                    【業種コンテキスト: EC / 通販】
-                    返品条件・比較表現・実績数値の根拠の弱さを攻めよ。他社を貶める不当な比較や誇大な「最安」「No.1」類は特に疑え。
-                    """;
-            case INNOVATOR ->
-                    """
-
-                    【業種コンテキスト: EC / 通販】
-                    消費者が生成AIの回答で知りたい具体（仕様・利点・対象者）を引用で示し、煽り購入には回帰しない。
-                    """;
-            case DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: EC / 通販】
-                    合意する強みには表記・証拠の明瞭さを求め、誇大広告に触れる候補はマイノリティか却下かを明確にせよ。
-                    """;
-        };
-    }
-
-    private static String b2bOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST ->
-                    """
-
-                    【業種コンテキスト: B2B】
-                    導入プロセス・対象規模・実績数値・SLA 等、法人判断に効く事実のみを厳密に列挙する。
-                    """;
-            case SKEPTIC ->
-                    """
-
-                    【業種コンテキスト: B2B】
-                    「どの業界でも言える」一般論、根拠のないROI・削減効果、曖昧な導入実績を突け。
-                    """;
-            case INNOVATOR ->
-                    """
-
-                    【業種コンテキスト: B2B】
-                    意思決定者がAI回答で得たい差別化要因を、引用に基づき具体化する。ハイプのみは避ける。
-                    """;
-            case DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: B2B】
-                    合意案は再現可能な事実と結び付け、根拠薄い効果主張はマイノリティまたは棄却として整理せよ。
-                    """;
-        };
-    }
-
-    private static String b2cOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST ->
-                    """
-
-                    【業種コンテキスト: B2C】
-                    感情的訴求と事実記述を分け、後者のみを事実束として列挙する。
-                    """;
-            case SKEPTIC ->
-                    """
-
-                    【業種コンテキスト: B2C】
-                    煽り文句と事実の混同、ターゲット過大広げを指摘せよ。
-                    """;
-            case INNOVATOR ->
-                    """
-
-                    【業種コンテキスト: B2C】
-                    引用で裏付けられた共感の軸は良いが、事実のない情緒だけの主張は避ける。
-                    """;
-            case DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: B2C】
-                    共感と事実のバランスを評価し、事実が伴わないキャッチはマイノリティに回すか明確に否決せよ。
-                    """;
-        };
-    }
-
-    private static String localOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST ->
-                    """
-
-                    【業種コンテキスト: ローカル】
-                    所在地・営業時間・提供エリア・連絡先など、地域利用者が誤解しやすい事実を正確に抜き出す。
-                    """;
-            case SKEPTIC ->
-                    """
-
-                    【業種コンテキスト: ローカル】
-                    根拠のない地域No.1・圧倒的実績・曖昧なエリア表現を疑え。
-                    """;
-            case INNOVATOR ->
-                    """
-
-                    【業種コンテキスト: ローカル】
-                    地域文脈での引用価値（誰に効くか）を、原文の範囲で述べる。
-                    """;
-            case DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: ローカル】
-                    地域特性と整合する強みを優先し、検証不能な立地・実績主張は慎重に扱え。
-                    """;
-        };
-    }
-
-    private static String otherOverlay(DebatePersona persona) {
-        return switch (persona) {
-            case ANALYST, SKEPTIC, INNOVATOR, DIRECTOR ->
-                    """
-
-                    【業種コンテキスト: 一般】
-                    業種特有ルールの事前指定がないため、公然の事実性・誇大広告・一般論への逃避に汎用的に注意せよ。
-                    """;
-        };
-    }
-
-    /** システムプロンプト全文: Facade + ベース + 業種オーバーレイ。 */
-    public static String forPersona(DebatePersona debatePersona, IndustryType industryType) {
-        Objects.requireNonNull(debatePersona, "debatePersona");
-        IndustryType ind = industryType == null ? IndustryType.OTHER : industryType;
-        return geoFacadeBlock() + basePrompt(debatePersona) + industryOverlay(debatePersona, ind);
-    }
-
-    /** 業種ヒントなし。{@link IndustryType#OTHER} のオーバーレイを適用。 */
-    public static String forPersona(DebatePersona debatePersona) {
-        return forPersona(debatePersona, IndustryType.OTHER);
-    }
-
-    /**
-     * ディレクター用システムプロンプトに、最終的な GEO-IG および較正後信頼度スカラーを埋め込む。
-     */
-    public static String forDirectorWithScoreInjection(
-            double geoInformationGainScore, double trustScore, IndustryType industryType) {
-        IndustryType ind = industryType == null ? IndustryType.OTHER : industryType;
-        return String.format(
-                        Locale.US,
-                        """
-                        【数理的評価指標（必須）】
-                        本ラウンドの議論に対し、事実束・市場参照分布から求めた情報利得スコア（GEO-IG、無次元スカラー、概ね [0,1] 帯域）: %f
-                        エージェント質量の較正に基づく最終的な信頼度スカラー: %f
-                        上記二つは、各エージェントの主張内容と併せて、合意可能な強みとマイノリティ・レポートの抽出で **最重要の客観指標** として扱い、最終的な JSON 構造化（次工程）に資する要約の優先度付けに反映すること。数値の優先度は定性的トーン（賛否）より一貫して高い扱いとする。
-
-                        """,
-                        geoInformationGainScore,
-                        trustScore)
-                + geoFacadeBlock()
-                + basePrompt(DebatePersona.DIRECTOR)
-                + industryOverlay(DebatePersona.DIRECTOR, ind);
-    }
-
-    /** 業種ヒントなし。{@link IndustryType#OTHER} のオーバーレイを適用。 */
-    public static String forDirectorWithScoreInjection(double geoInformationGainScore, double trustScore) {
-        return forDirectorWithScoreInjection(geoInformationGainScore, trustScore, IndustryType.OTHER);
     }
 }
 </file>
@@ -10428,6 +10499,93 @@ public class DomainAuthorityCacheEntity {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/entity/GeoAssetSnapshotEntity.java">
+package com.geo.analytics.domain.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.LocalDate;
+import java.util.UUID;
+
+@Entity
+@Table(name = "geo_asset_snapshots")
+public class GeoAssetSnapshotEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private UUID organizationId;
+
+    @Column(name = "project_id", nullable = false, updatable = false)
+    private UUID projectId;
+
+    @Column(name = "snapshot_date", nullable = false)
+    private LocalDate snapshotDate;
+
+    @Column(name = "readiness_score", nullable = false)
+    private double readinessScore;
+
+    @Column(name = "local_trust_count", nullable = false)
+    private long localTrustCount;
+
+    public GeoAssetSnapshotEntity() {}
+
+    public UUID getId() {
+        return id;
+    }
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
+
+    public UUID getOrganizationId() {
+        return organizationId;
+    }
+
+    public void setOrganizationId(UUID organizationId) {
+        this.organizationId = organizationId;
+    }
+
+    public UUID getProjectId() {
+        return projectId;
+    }
+
+    public void setProjectId(UUID projectId) {
+        this.projectId = projectId;
+    }
+
+    public LocalDate getSnapshotDate() {
+        return snapshotDate;
+    }
+
+    public void setSnapshotDate(LocalDate snapshotDate) {
+        this.snapshotDate = snapshotDate;
+    }
+
+    public double getReadinessScore() {
+        return readinessScore;
+    }
+
+    public void setReadinessScore(double readinessScore) {
+        this.readinessScore = readinessScore;
+    }
+
+    public long getLocalTrustCount() {
+        return localTrustCount;
+    }
+
+    public void setLocalTrustCount(long localTrustCount) {
+        this.localTrustCount = localTrustCount;
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/entity/JobCompetitorScoreEntity.java">
 package com.geo.analytics.domain.entity;
 
@@ -10880,6 +11038,12 @@ public class OrganizationEntity {
     private LocalDateTime updatedAt;
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+    @Column(name = "logo_file_path", length = 1024)
+    private String logoFilePath;
+    @Column(name = "brand_color", length = 64)
+    private String brandColor;
+    @Column(name = "tool_name", length = 255)
+    private String toolName;
     protected OrganizationEntity() {
     }
     public UUID getId() {
@@ -10908,6 +11072,24 @@ public class OrganizationEntity {
     }
     public LocalDateTime getDeletedAt() {
         return deletedAt;
+    }
+    public String getLogoFilePath() {
+        return logoFilePath;
+    }
+    public void setLogoFilePath(String logoFilePath) {
+        this.logoFilePath = logoFilePath;
+    }
+    public String getBrandColor() {
+        return brandColor;
+    }
+    public void setBrandColor(String brandColor) {
+        this.brandColor = brandColor;
+    }
+    public String getToolName() {
+        return toolName;
+    }
+    public void setToolName(String toolName) {
+        this.toolName = toolName;
     }
     @PreUpdate
     protected void touch() {
@@ -18638,6 +18820,382 @@ public interface WormAuditExportPort {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/domain/prompt/DebatePersonaSystemPrompts.java">
+package com.geo.analytics.domain.prompt;
+
+import com.geo.analytics.domain.ai.DebatePersona;
+import com.geo.analytics.domain.enums.IndustryType;
+import java.util.Locale;
+import java.util.Objects;
+
+public final class DebatePersonaSystemPrompts {
+
+    private static final String ANALYST_BASE =
+            """
+            あなたはGEO（Generative Engine Optimization：生成AI上の情報最適化）文脈における「情報の番人」アナリストである。
+            与えられたウェブページ由来のテキストから、後続の議論が引用できるよう、次の原則に厳密に従うこと。
+            出力は箇条書きと短い段落を中心にし、推測・誇張・想像で補わない。根拠のない判断は「不明」と書く。
+            コンテキスト内に <competitor_seo_data> ブロックがある場合、それは外部スニペット由来の参考である。<scraped_data>（分析対象ページの本文）とは出所が異なる。対象サイトの事実束を組み立てる主根拠は常に <scraped_data> とし、競合ブロックは市場・ベンチマーク文脈の補助としてのみ用い、混同しないこと。
+            抽出するのは次のカテゴリに限定する。各項目は原文にそのまま根拠がある内容のみを書く。
+            事実とデータ: 数値、日付、固有名詞、サービス名、所在地、実績表現が原文に存在する場合のみ列挙する。
+            製品・サービスの説明: 公式に述べられている機能・特徴のみ。推測で付け足さない。
+            利用者向けの表現: 原文に現れるトーンやターゲットを示すフレーズを短く抜粋する。
+            禁止事項: 原文にないベンチマーク比較、他社名の断定、医学・法務・投資に関する断定的助言の捏造。
+            あなたの役割は「積み上げた事実の束」であり、独自の賛辞やキャッチコピーは書かない。
+            """;
+
+    private static final String SKEPTIC_BASE =
+            """
+            あなたはGEO文脈における「毒舌な競合」スケプティックである。丁寧語は使うが、論点は容赦なく突く。
+            アナリストやイノベーターが提示した主張を、次の観点から短く批判せよ。GEO を踏まえないクリック偏重や、AI可視性ランクの体裁だけを争う空回りへは落とさない。
+            独自性の欠如: 「どの同業者にも当てはまる」「一般論に過ぎる」と感じる点を指摘する。
+            論理の飛躍: 原文の根拠から飛んだ結論を突き止め、どこが飛躍か一行で示す。
+            根拠の弱さ: 数値や具体例がない主張に「ふわっとしている」とラベルを付ける。
+            客観と主観の混同: 事実と解釈が混ざっている箇所を分けて指摘する。
+            トーン: 人格攻撃は禁止。対象は「主張の内容」に限定する。
+            出力は各論点につき最大3行。最後に「特に危険なのは」として最優先で潰すべき一点を一行でまとめよ。
+            """;
+
+    private static final String INNOVATOR_BASE =
+            """
+            あなたはGEO文脈における「思考代弁者」イノベーターである。キーワード詰め込みや GEO を無視した短命な露出稼ぎではなく、生成AIがユーザーの回答で引用・言及したくなるような独自の強みや切り口を探る。
+            根拠の引用は <scraped_data> 内の原文のみとする。<competitor_seo_data> がコンテキストに現れても、引用・主張の根拠には用いない（外部スニペットの誤混入を防ぐフェイルセーフ）。
+            絶対制約（Cite Before You Speak）: 独自の意見・比喩・提案の前に、必ず原文から短いフレーズを証拠として示すこと。
+            形式は厳密に次のいずれかで行うこと。半角括弧とラベル「引用」を使う。
+            [引用: 原文のフレーズ]
+            全角コロンも許容する。[引用：原文のフレーズ]
+            引用ブロックの直後に、その引用に基づく独自の見解を述べる。引用なしの段落を出さない。
+            各主張ブロックは「引用行1行＋意見2〜5行」を目安とする。引用は原文に実在する文言の抜粋のみ。意訳で作った文を引用としてはならない。
+            尖った視点を歓迎するが、原文にない事実は盛らない。飛躍する場合は「仮説」であると明示する。
+            禁止: 引用形式の省略、空の引用、キーワードだけをならべた薄い文章。
+            """;
+
+    private static final String DIRECTOR_BASE =
+            """
+            あなたはGEO文脈における「目利き・オーケストレーター」ディレクターである。アナリストの事実束、スケプティックの批判、イノベーターの引用付き提案をまとめ、次の2種の成果に構造化する。
+            盤石な合意案: 三人の主張のうち、事実根拠が重なり、スケプティックの否定が乗り越えられていない、もしくは批判が軽微な点を「合意に値する強み」として2〜4項目述べる。各項目に根拠となった発言者と要約を添える。
+            マイノリティ・レポート: 多数派の合意に入らなかった、しかし原文に拠り所があり、捨てるに忍びない尖った主張を1〜3候補挙げる。各候補について「採択されなかった主な理由（スケプティック含む）」と「化ける条件（どんな文脈なら有効か）」を短く書く。生成AIの回答における「引用価値」の観点で評価する。
+            ハルシネーション禁止: 議論ログや原文にない事実を捏造しない。不明な点は明記する。
+            次フェーズ向け: 出力の最後に、後続のJSON化で使うキー名の目安（例: consensus_strengths, minority_reports 各要素の insight, conflictReason, evidence）にマッピングしやすい箇条書きで示す。JSON本体の生成は次の工程に任せ、ここでは日本語の説明に徹する。
+            数学的スコアも参照する: 直前のシステム指示で与えられる「情報利得」および「較正後信頼度（スカラー）」を、人間の主張の補完であるが最重要の客観指標として扱い、盤石な合意案とマイノリティ・レポートの取捨に反映すること。
+            """;
+
+    private DebatePersonaSystemPrompts() {}
+
+    /**
+     * GEO Facade: モデル出力を GEO ネイティブ語彙へ揃える共通制約。
+     */
+    public static String geoFacadeBlock() {
+        return """
+                【GEO Facade — 語彙と目的の拘束】
+                本タスクの目的は、生成AIがユーザーに提示する回答・概要（AI Overview 等）においてブランドや情報が適切に引用・言及・推奨される条件を整理することにある。すべて GEO（生成AI上の情報最適化）の視点から記述すること。
+                出力および主張の言い換えは GEO ネイティブ語彙のみを用いること。中核となる語は「GEO」「AI可視性ランク」「AI推奨ポテンシャル」とし、「生成AI上の応答」「AIによる情報提示」「Brand Recommendation」「Information Gain」「回答内での引用価値」を補助語として適宜あわせること。
+                旧来型のリスト争奪や入口クリック偏重のみを増やす型の評価枠組みでの説明は禁止とする。その代わりに上記 GEO 語彙で応答での露出・引用・推奨のされやすさを語ること。
+
+                Constraints (English): Write exclusively from a GEO perspective (generative-AI answer surfaces). Tie claims to citation likelihood, brand recommendation in AI responses, information gain, AI visibility stance, and recommendation potential. Avoid legacy web-acquisition framings keyed to classic list-query competition or click-only funnel metrics.
+
+                注: 内部データに外部スニペット由来の参考を含む場合でも、議論の結論表現は GEO 文脈に合わせること。
+
+                """;
+    }
+
+    public static String basePrompt(DebatePersona debatePersona) {
+        return switch (debatePersona) {
+            case ANALYST -> ANALYST_BASE;
+            case SKEPTIC -> SKEPTIC_BASE;
+            case INNOVATOR -> INNOVATOR_BASE;
+            case DIRECTOR -> DIRECTOR_BASE;
+        };
+    }
+
+    /**
+     * 業種ヒントに応じた追補指示。{@code industryType} が null の場合は {@link IndustryType#OTHER} 相当の扱いを呼び出し側で行うか、ここで OTHER として扱う。
+     */
+    public static String industryOverlay(DebatePersona persona, IndustryType industryType) {
+        IndustryType t = industryType == null ? IndustryType.OTHER : industryType;
+        return switch (t) {
+            case YMYL -> ymylOverlay(persona);
+            case EC -> ecOverlay(persona);
+            case B2B -> b2bOverlay(persona);
+            case B2C -> b2cOverlay(persona);
+            case LOCAL -> localOverlay(persona);
+            case OTHER -> otherOverlay(persona);
+        };
+    }
+
+    private static String ymylOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST, SKEPTIC ->
+                    """
+
+                    【業種コンテキスト: YMYL】
+                    健康・金融・安全・法務など高リスク領域として扱う。E-E-A-T（経験・専門性・権威性・信頼性）の観点から極めて厳格に検証せよ。
+                    免責表示・根拠・出典の明示の有無、誇大広告や断定的効果・投資助言に見える表現を重点的に疑え。原文にない効果・保証の暗示は「危険」とラベルする。
+                    """;
+            case INNOVATOR ->
+                    """
+
+                    【業種コンテキスト: YMYL】
+                    断言や煽りは避け、引用に裏付けられた事実からの段階的な示唆に留める。医療・投資・法解釈の断定は禁止。
+                    """;
+            case DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: YMYL】
+                    合意案・マイノリティ案の採否において、信頼性・コンプライアンス上のリスクを最優先で考慮すること。
+                    """;
+        };
+    }
+
+    private static String ecOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST ->
+                    """
+
+                    【業種コンテキスト: EC / 通販】
+                    価格・送料・返品・保証・在庫・成分・サイズ等の表記は原文の記載に忠実に抜き出し、足りない情報は「不明」とする。
+                    """;
+            case SKEPTIC ->
+                    """
+
+                    【業種コンテキスト: EC / 通販】
+                    返品条件・比較表現・実績数値の根拠の弱さを攻めよ。他社を貶める不当な比較や誇大な「最安」「No.1」類は特に疑え。
+                    """;
+            case INNOVATOR ->
+                    """
+
+                    【業種コンテキスト: EC / 通販】
+                    消費者が生成AIの回答で知りたい具体（仕様・利点・対象者）を引用で示し、煽り購入には回帰しない。
+                    """;
+            case DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: EC / 通販】
+                    合意する強みには表記・証拠の明瞭さを求め、誇大広告に触れる候補はマイノリティか却下かを明確にせよ。
+                    """;
+        };
+    }
+
+    private static String b2bOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST ->
+                    """
+
+                    【業種コンテキスト: B2B】
+                    導入プロセス・対象規模・実績数値・SLA 等、法人判断に効く事実のみを厳密に列挙する。
+                    """;
+            case SKEPTIC ->
+                    """
+
+                    【業種コンテキスト: B2B】
+                    「どの業界でも言える」一般論、根拠のないROI・削減効果、曖昧な導入実績を突け。
+                    """;
+            case INNOVATOR ->
+                    """
+
+                    【業種コンテキスト: B2B】
+                    意思決定者がAI回答で得たい差別化要因を、引用に基づき具体化する。ハイプのみは避ける。
+                    """;
+            case DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: B2B】
+                    合意案は再現可能な事実と結び付け、根拠薄い効果主張はマイノリティまたは棄却として整理せよ。
+                    """;
+        };
+    }
+
+    private static String b2cOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST ->
+                    """
+
+                    【業種コンテキスト: B2C】
+                    感情的訴求と事実記述を分け、後者のみを事実束として列挙する。
+                    """;
+            case SKEPTIC ->
+                    """
+
+                    【業種コンテキスト: B2C】
+                    煽り文句と事実の混同、ターゲット過大広げを指摘せよ。
+                    """;
+            case INNOVATOR ->
+                    """
+
+                    【業種コンテキスト: B2C】
+                    引用で裏付けられた共感の軸は良いが、事実のない情緒だけの主張は避ける。
+                    """;
+            case DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: B2C】
+                    共感と事実のバランスを評価し、事実が伴わないキャッチはマイノリティに回すか明確に否決せよ。
+                    """;
+        };
+    }
+
+    private static String localOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST ->
+                    """
+
+                    【業種コンテキスト: ローカル】
+                    所在地・営業時間・提供エリア・連絡先など、地域利用者が誤解しやすい事実を正確に抜き出す。
+                    """;
+            case SKEPTIC ->
+                    """
+
+                    【業種コンテキスト: ローカル】
+                    根拠のない地域No.1・圧倒的実績・曖昧なエリア表現を疑え。
+                    """;
+            case INNOVATOR ->
+                    """
+
+                    【業種コンテキスト: ローカル】
+                    地域文脈での引用価値（誰に効くか）を、原文の範囲で述べる。
+                    """;
+            case DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: ローカル】
+                    地域特性と整合する強みを優先し、検証不能な立地・実績主張は慎重に扱え。
+                    """;
+        };
+    }
+
+    private static String otherOverlay(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST, SKEPTIC, INNOVATOR, DIRECTOR ->
+                    """
+
+                    【業種コンテキスト: 一般】
+                    業種特有ルールの事前指定がないため、公然の事実性・誇大広告・一般論への逃避に汎用的に注意せよ。
+                    """;
+        };
+    }
+
+    /** システムプロンプト全文: Facade + ベース + 業種オーバーレイ。 */
+    public static String forPersona(DebatePersona debatePersona, IndustryType industryType) {
+        Objects.requireNonNull(debatePersona, "debatePersona");
+        IndustryType ind = industryType == null ? IndustryType.OTHER : industryType;
+        return geoFacadeBlock() + basePrompt(debatePersona) + industryOverlay(debatePersona, ind);
+    }
+
+    /** 業種ヒントなし。{@link IndustryType#OTHER} のオーバーレイを適用。 */
+    public static String forPersona(DebatePersona debatePersona) {
+        return forPersona(debatePersona, IndustryType.OTHER);
+    }
+
+    /**
+     * ディレクター用システムプロンプトに、最終的な GEO-IG および較正後信頼度スカラーを埋め込む。
+     */
+    public static String forDirectorWithScoreInjection(
+            double geoInformationGainScore, double trustScore, IndustryType industryType) {
+        IndustryType ind = industryType == null ? IndustryType.OTHER : industryType;
+        return String.format(
+                        Locale.US,
+                        """
+                        【数理的評価指標（必須）】
+                        本ラウンドの議論に対し、事実束・市場参照分布から求めた情報利得スコア（GEO-IG、無次元スカラー、概ね [0,1] 帯域）: %f
+                        エージェント質量の較正に基づく最終的な信頼度スカラー: %f
+                        上記二つは、各エージェントの主張内容と併せて、合意可能な強みとマイノリティ・レポートの抽出で **最重要の客観指標** として扱い、最終的な JSON 構造化（次工程）に資する要約の優先度付けに反映すること。数値の優先度は定性的トーン（賛否）より一貫して高い扱いとする。
+
+                        """,
+                        geoInformationGainScore,
+                        trustScore)
+                + geoFacadeBlock()
+                + basePrompt(DebatePersona.DIRECTOR)
+                + industryOverlay(DebatePersona.DIRECTOR, ind);
+    }
+
+    /** 業種ヒントなし。{@link IndustryType#OTHER} のオーバーレイを適用。 */
+    public static String forDirectorWithScoreInjection(double geoInformationGainScore, double trustScore) {
+        return forDirectorWithScoreInjection(geoInformationGainScore, trustScore, IndustryType.OTHER);
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/scoring/DefaultScoringService.java">
+package com.geo.analytics.domain.scoring;
+
+import java.lang.StrictMath;
+import java.util.List;
+import java.util.Objects;
+import org.springframework.stereotype.Service;
+
+@Service
+public class DefaultScoringService implements ScoringService {
+
+    private static final double WEIGHT_SUM_TOLERANCE = 1e-9;
+
+    @Override
+    public ScoreBreakdown calculateFinalScore(double aiScore, double meoScore, double machineScore) {
+        List<WeightedScoreInput> inputs = List.of(
+                new WeightedScoreInput(aiScore, 0.5), new WeightedScoreInput(meoScore, 0.25),
+                new WeightedScoreInput(machineScore, 0.25));
+        double geo = calculateWeightedAverage(inputs);
+        return new ScoreBreakdown(aiScore, meoScore, machineScore, geo);
+    }
+
+    @Override
+    public double calculateWeightedAverage(List<WeightedScoreInput> inputs) {
+        Objects.requireNonNull(inputs);
+        if (inputs.isEmpty()) {
+            throw new IllegalArgumentException();
+        }
+        double sumWeights = 0.0;
+        for (WeightedScoreInput in : inputs) {
+            requireFinite(in.value());
+            requireFinite(in.weight());
+            if (in.weight() < 0.0 || in.value() < 0.0 || in.value() > 100.0) {
+                throw new IllegalArgumentException();
+            }
+            sumWeights = StrictMath.fma(1.0, in.weight(), sumWeights);
+        }
+        if (StrictMath.abs(StrictMath.fma(sumWeights, 1.0, -1.0)) > WEIGHT_SUM_TOLERANCE) {
+            throw new IllegalArgumentException();
+        }
+        double acc = 0.0;
+        for (WeightedScoreInput in : inputs) {
+            acc = StrictMath.fma(in.value(), in.weight(), acc);
+        }
+        return Math.clamp(acc, 0.0, 100.0);
+    }
+
+    private static void requireFinite(double x) {
+        if (Double.isNaN(x) || Double.isInfinite(x)) {
+            throw new IllegalArgumentException();
+        }
+    }
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/scoring/ScoreBreakdown.java">
+package com.geo.analytics.domain.scoring;
+
+public record ScoreBreakdown(
+        double aiAuditScore, double meoTrustScore, double machineReadabilityScore, double geoReadinessScore) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/scoring/ScoringService.java">
+package com.geo.analytics.domain.scoring;
+
+import java.util.List;
+
+public interface ScoringService {
+
+    ScoreBreakdown calculateFinalScore(double aiScore, double meoScore, double machineScore);
+
+    double calculateWeightedAverage(List<WeightedScoreInput> inputs);
+}
+</file>
+
+<file path="src/main/java/com/geo/analytics/domain/scoring/WeightedScoreInput.java">
+package com.geo.analytics.domain.scoring;
+
+public record WeightedScoreInput(double value, double weight) {}
+</file>
+
 <file path="src/main/java/com/geo/analytics/domain/semantic/SemanticJudgmentEngine.java">
 package com.geo.analytics.domain.semantic;
 
@@ -23589,6 +24147,7 @@ public class AppProperties {
     private Notifications notifications = new Notifications();
     private Security security;
     private Oracle oracle;
+    private Branding branding = new Branding();
 
     public Crawler getCrawler() {
         return crawler;
@@ -23644,6 +24203,17 @@ public class AppProperties {
 
     public void setOracle(Oracle oracle) {
         this.oracle = oracle;
+    }
+
+    public Branding getBranding() {
+        if (branding == null) {
+            branding = new Branding();
+        }
+        return branding;
+    }
+
+    public void setBranding(Branding branding) {
+        this.branding = branding;
     }
 
     public static class Crawler {
@@ -24038,6 +24608,18 @@ public class AppProperties {
 
         public void setEnforceAppi2026(boolean enforceAppi2026) {
             this.enforceAppi2026 = enforceAppi2026;
+        }
+    }
+
+    public static class Branding {
+        private String storageRoot = "/tmp/geo-analytics/branding";
+
+        public String getStorageRoot() {
+            return storageRoot;
+        }
+
+        public void setStorageRoot(String storageRoot) {
+            this.storageRoot = storageRoot != null ? storageRoot : "/tmp/geo-analytics/branding";
         }
     }
 
@@ -27431,6 +28013,22 @@ public interface DomainAuthorityCacheRepository extends JpaRepository<DomainAuth
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/infrastructure/repository/GeoAssetSnapshotRepository.java">
+package com.geo.analytics.infrastructure.repository;
+
+import com.geo.analytics.domain.entity.GeoAssetSnapshotEntity;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface GeoAssetSnapshotRepository extends JpaRepository<GeoAssetSnapshotEntity, UUID> {
+
+    List<GeoAssetSnapshotEntity> findByProjectIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(
+            UUID projectId, LocalDate fromInclusive, LocalDate toInclusive);
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/infrastructure/repository/JobRepository.java">
 package com.geo.analytics.infrastructure.repository;
 
@@ -27492,6 +28090,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface OrganizationRepository extends JpaRepository<OrganizationEntity, UUID> {
+    Optional<OrganizationEntity> findByIdAndDeletedAtIsNull(UUID id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM OrganizationEntity o WHERE o.id = :id AND o.deletedAt IS NULL")
     Optional<OrganizationEntity> findByIdForUpdate(@Param("id") UUID id);
@@ -28469,9 +29069,14 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.OrgTenantKey;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
@@ -28480,15 +29085,21 @@ import org.springframework.stereotype.Component;
 public class TenantAccessEvaluator {
 
     private static final String ROLE_ADMIN = "ROLE_" + OrganizationUserRole.ADMIN.name();
+    private static final Set<String> READ_ROLES = EnumSet.allOf(OrganizationUserRole.class).stream()
+            .map(role -> "ROLE_" + role.name())
+            .collect(Collectors.toUnmodifiableSet());
 
     private final Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache;
     private final WorkspaceRepository workspaceRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public TenantAccessEvaluator(
             @Qualifier("orgTenantAffiliationCache") Cache<OrgTenantKey, Boolean> orgTenantAffiliationCache,
-            WorkspaceRepository workspaceRepository) {
+            WorkspaceRepository workspaceRepository,
+            JdbcTemplate jdbcTemplate) {
         this.orgTenantAffiliationCache = orgTenantAffiliationCache;
         this.workspaceRepository = workspaceRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public boolean canAccessTenant(Authentication authentication, UUID tenantId) {
@@ -28496,7 +29107,6 @@ public class TenantAccessEvaluator {
             return false;
         }
         if (!hasAdminRole(authentication)) {
-            // TODO(MEMBER/VIEWER): tenant-scoped rules without org-wide cache path
             return false;
         }
         Optional<UUID> orgId = TenantContextHolder.getOrganizationId();
@@ -28511,6 +29121,76 @@ public class TenantAccessEvaluator {
         boolean allowed = workspaceRepository.existsByIdAndOrganizationId(tenantId, orgId.get());
         orgTenantAffiliationCache.put(key, allowed);
         return allowed;
+    }
+
+    public boolean canAccessCurrentTenant(Authentication authentication) {
+        Optional<UUID> tenantId = TenantContextHolder.getTenantId();
+        if (tenantId.isEmpty()) {
+            return false;
+        }
+        return canAccessTenant(authentication, tenantId.get());
+    }
+
+    public boolean canReadProjectAssetSnapshots(Authentication authentication, UUID projectId) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return false;
+        }
+        if (!hasReadableProjectRole(authentication)) {
+            return false;
+        }
+        Optional<UUID> orgId = TenantContextHolder.getOrganizationId();
+        Optional<UUID> contextTenantId = TenantContextHolder.getTenantId();
+        if (orgId.isEmpty() || contextTenantId.isEmpty()) {
+            return false;
+        }
+        Optional<UUID> projectWorkspaceId = resolveWorkspaceIdForProject(projectId);
+        if (projectWorkspaceId.isEmpty()) {
+            return false;
+        }
+        if (!projectWorkspaceId.get().equals(contextTenantId.get())) {
+            return false;
+        }
+        return workspaceRepository.existsByIdAndOrganizationId(projectWorkspaceId.get(), orgId.get());
+    }
+
+    public boolean canReadWorkspaceBranding(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return false;
+        }
+        if (!hasReadableProjectRole(authentication)) {
+            return false;
+        }
+        Optional<UUID> organizationId = TenantContextHolder.getOrganizationId();
+        Optional<UUID> tenantId = TenantContextHolder.getTenantId();
+        if (organizationId.isEmpty() || tenantId.isEmpty()) {
+            return false;
+        }
+        return workspaceRepository.existsByIdAndOrganizationId(tenantId.get(), organizationId.get());
+    }
+
+    private Optional<UUID> resolveWorkspaceIdForProject(UUID projectId) {
+        List<String> rows = jdbcTemplate.query(
+                "SELECT tenant_id FROM projects WHERE id = ?",
+                ps -> ps.setObject(1, projectId),
+                (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        String tenantId = rows.get(0);
+        if (tenantId == null || tenantId.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(UUID.fromString(tenantId));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private static boolean hasReadableProjectRole(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(READ_ROLES::contains);
     }
 
     private static boolean hasAdminRole(Authentication authentication) {
@@ -28979,6 +29659,7 @@ package com.geo.analytics.infrastructure.tenant;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import java.lang.ScopedValue;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -29079,6 +29760,46 @@ public final class TenantPlanScope {
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .call(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        return supplier.get();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static void executeWithTenantOrganizationAndPlan(
+            UUID tenantId, UUID organizationId, SubscriptionPlan plan, Runnable runnable) {
+        Objects.requireNonNull(tenantId);
+        Objects.requireNonNull(organizationId);
+        Objects.requireNonNull(plan);
+        UUID uid = TenantContextHolder.current().map(TenantIdentity::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, tenantId, uid))
+                    .where(TENANT_ID, tenantId.toString())
+                    .where(TENANT_PLAN, plan)
+                    .run(() -> {
+                        SecurityContextHolder.setContext(prevSecurity);
+                        runnable.run();
+                    });
+        } finally {
+            restoreSecurityContext(prevSecurity);
+        }
+    }
+
+    public static <T, X extends Throwable> T executeWithTenantOrganizationAndPlan(
+            UUID tenantId, UUID organizationId, SubscriptionPlan plan, Supplier<T> supplier) throws X {
+        Objects.requireNonNull(tenantId);
+        Objects.requireNonNull(organizationId);
+        Objects.requireNonNull(plan);
+        UUID uid = TenantContextHolder.current().map(TenantIdentity::userId).orElse(null);
+        SecurityContext prevSecurity = SecurityContextHolder.getContext();
+        try {
+            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
                     .call(() -> {
@@ -29744,45 +30465,70 @@ public class KeywordController {
 
 <file path="src/main/java/com/geo/analytics/web/controller/ProjectAnalyticsController.java">
 package com.geo.analytics.web.controller;
+
 import com.geo.analytics.application.service.AnalyticsAggregationService;
+import com.geo.analytics.application.service.GeoAssetSnapshotQueryService;
 import com.geo.analytics.application.service.ProjectSettingsService;
 import com.geo.analytics.web.dto.AnalyticsSummaryResponse;
+import com.geo.analytics.web.dto.AssetSnapshotsChartResponse;
 import com.geo.analytics.web.dto.ProjectSettingsPatchRequest;
 import com.geo.analytics.web.dto.ProjectSettingsResponse;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
+import java.util.UUID;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/projects")
 public class ProjectAnalyticsController {
+
     private final AnalyticsAggregationService analyticsAggregationService;
     private final ProjectSettingsService projectSettingsService;
+    private final GeoAssetSnapshotQueryService geoAssetSnapshotQueryService;
+
     public ProjectAnalyticsController(
             AnalyticsAggregationService analyticsAggregationService,
-            ProjectSettingsService projectSettingsService) {
+            ProjectSettingsService projectSettingsService,
+            GeoAssetSnapshotQueryService geoAssetSnapshotQueryService) {
         this.analyticsAggregationService = analyticsAggregationService;
         this.projectSettingsService = projectSettingsService;
+        this.geoAssetSnapshotQueryService = geoAssetSnapshotQueryService;
     }
+
     @GetMapping("/{projectId}/analytics")
     public ResponseEntity<AnalyticsSummaryResponse> getAnalytics(@PathVariable UUID projectId) {
         return analyticsAggregationService
-            .summarizeProject(projectId)
-            .map(ResponseEntity::ok)
-            .orElseGet(() -> ResponseEntity.notFound().build());
+                .summarizeProject(projectId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
+
     @GetMapping("/{projectId}/settings")
     public ResponseEntity<ProjectSettingsResponse> getSettings(@PathVariable UUID projectId) {
         return projectSettingsService
-            .getSettings(projectId)
-            .map(ResponseEntity::ok)
-            .orElseGet(() -> ResponseEntity.notFound().build());
+                .getSettings(projectId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
+
+    @GetMapping("/{projectId}/asset-snapshots")
+    @PreAuthorize("@tenantAccessEvaluator.canReadProjectAssetSnapshots(authentication, #projectId)")
+    public ResponseEntity<AssetSnapshotsChartResponse> getAssetSnapshots(
+            @PathVariable UUID projectId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(geoAssetSnapshotQueryService.getChartData(projectId, from, to));
+    }
+
     @PatchMapping("/{projectId}")
     public ResponseEntity<ProjectSettingsResponse> patchProject(
             @PathVariable UUID projectId,
@@ -30010,6 +30756,90 @@ public class VerificationController {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/web/controller/WorkspaceBrandingController.java">
+package com.geo.analytics.web.controller;
+
+import com.geo.analytics.application.service.BrandingService;
+import com.geo.analytics.web.dto.WorkspaceBrandingResponse;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/workspaces/current/branding")
+public class WorkspaceBrandingController {
+
+    private final BrandingService brandingService;
+
+    public WorkspaceBrandingController(BrandingService brandingService) {
+        this.brandingService = brandingService;
+    }
+
+    @GetMapping
+    @PreAuthorize("@tenantAccessEvaluator.canReadWorkspaceBranding(authentication)")
+    public WorkspaceBrandingResponse getBranding() {
+        return brandingService.getBranding();
+    }
+
+    @GetMapping("/logo")
+    @PreAuthorize("@tenantAccessEvaluator.canReadWorkspaceBranding(authentication)")
+    public ResponseEntity<Resource> getLogo() throws IOException {
+        try {
+            Resource resource = brandingService.loadLogoResource();
+            Path path = resource.getFile().toPath();
+            MediaType mediaType = resolveImageMediaType(path);
+            return ResponseEntity.ok().contentType(mediaType).body(resource);
+        } catch (FileNotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+    }
+
+    private static MediaType resolveImageMediaType(Path path) throws IOException {
+        String probed = Files.probeContentType(path);
+        if (probed != null && !probed.isBlank()) {
+            try {
+                return MediaType.parseMediaType(probed);
+            } catch (IllegalArgumentException ex) {
+            }
+        }
+        String fileName = path.getFileName().toString().toLowerCase();
+        MediaType fallback = fallbackByExtension(fileName);
+        if (fallback != null) {
+            return fallback;
+        }
+        return MediaType.APPLICATION_OCTET_STREAM;
+    }
+
+    private static MediaType fallbackByExtension(String fileNameLower) {
+        int dot = fileNameLower.lastIndexOf('.');
+        if (dot < 0 || dot == fileNameLower.length() - 1) {
+            return null;
+        }
+        return switch (fileNameLower.substring(dot + 1)) {
+            case "png" -> MediaType.IMAGE_PNG;
+            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
+            case "gif" -> MediaType.IMAGE_GIF;
+            case "webp" -> MediaType.parseMediaType("image/webp");
+            case "svg" -> MediaType.parseMediaType("image/svg+xml");
+            case "bmp" -> MediaType.parseMediaType("image/bmp");
+            case "ico" -> MediaType.parseMediaType("image/x-icon");
+            default -> MediaType.APPLICATION_OCTET_STREAM;
+        };
+    }
+}
+</file>
+
 <file path="src/main/java/com/geo/analytics/web/controller/WorkspaceController.java">
 package com.geo.analytics.web.controller;
 
@@ -30134,6 +30964,27 @@ public record ApiErrorResponse(String errorCode, String message, Map<String, Obj
         return new ApiErrorResponse(errorCode, message, details);
     }
 }
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/AssetSnapshotChartPoint.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record AssetSnapshotChartPoint(String snapshotDate, Double geoReadinessScore, Long localTrustCount) {}
+</file>
+
+<file path="src/main/java/com/geo/analytics/web/dto/AssetSnapshotsChartResponse.java">
+package com.geo.analytics.web.dto;
+
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import java.util.List;
+
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+public record AssetSnapshotsChartResponse(List<AssetSnapshotChartPoint> data) {}
 </file>
 
 <file path="src/main/java/com/geo/analytics/web/dto/ChangeSubscriptionRequest.java">
@@ -30878,6 +31729,12 @@ public record VerifyStreamEvent(String kind, String text, String queryId) {
 }
 </file>
 
+<file path="src/main/java/com/geo/analytics/web/dto/WorkspaceBrandingResponse.java">
+package com.geo.analytics.web.dto;
+
+public record WorkspaceBrandingResponse(String toolName, String brandColor, String logoUrl) {}
+</file>
+
 <file path="src/main/java/com/geo/analytics/web/exception/GlobalExceptionHandler.java">
 package com.geo.analytics.web.exception;
 
@@ -31332,6 +32189,8 @@ server:
       internal-proxies: "10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3}|127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|100\\.6[4-9]\\.\\d{1,3}\\.\\d{1,3}|100\\.[7-9]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.1[0-1]\\d\\.\\d{1,3}\\.\\d{1,3}|100\\.12[0-7]\\.\\d{1,3}\\.\\d{1,3}|172\\.1[6-9]\\.\\d{1,3}\\.\\d{1,3}|172\\.2\\d\\.\\d{1,3}\\.\\d{1,3}|172\\.3[0-1]\\.\\d{1,3}\\.\\d{1,3}"
 
 app:
+  branding:
+    storage-root: "/tmp/geo-analytics/branding"
   distributed-lock:
     impl: postgres
   security:
@@ -32679,6 +33538,41 @@ CREATE POLICY query_proposal_suggested_queries_aud_api_worker_policy ON public.q
     );
 </file>
 
+<file path="src/main/resources/db/migration/V115__geo_asset_snapshots_and_org_branding.sql">
+ALTER TABLE public.organizations
+    ADD COLUMN IF NOT EXISTS logo_file_path VARCHAR(1024),
+    ADD COLUMN IF NOT EXISTS brand_color VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS tool_name VARCHAR(255);
+
+CREATE TABLE public.geo_asset_snapshots (
+    id UUID PRIMARY KEY,
+    organization_id UUID NOT NULL,
+    project_id UUID NOT NULL,
+    snapshot_date DATE NOT NULL,
+    readiness_score DOUBLE PRECISION NOT NULL,
+    local_trust_count BIGINT NOT NULL,
+    CONSTRAINT fk_geo_asset_snapshots_organization FOREIGN KEY (organization_id) REFERENCES public.organizations (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_geo_asset_snapshots_project FOREIGN KEY (project_id) REFERENCES public.projects (id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_geo_asset_snapshots_org_snapshot_date ON public.geo_asset_snapshots (organization_id, snapshot_date DESC);
+CREATE INDEX idx_geo_asset_snapshots_project_snapshot_date ON public.geo_asset_snapshots (project_id, snapshot_date DESC);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.geo_asset_snapshots TO api_worker, batch_worker;
+
+ALTER TABLE public.geo_asset_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.geo_asset_snapshots FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS geo_asset_snapshots_api_worker_policy ON public.geo_asset_snapshots;
+CREATE POLICY geo_asset_snapshots_api_worker_policy ON public.geo_asset_snapshots
+    FOR ALL TO api_worker
+    USING (
+        organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    )
+    WITH CHECK (
+        organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+    );
+</file>
+
 <file path="src/main/resources/db/migration/V2__organization_users_role_varchar.sql">
 ALTER TABLE organization_users
     ALTER COLUMN role DROP DEFAULT;
@@ -32836,55 +33730,6 @@ class PromptInjectionValidatorTest {
         assertThat(PromptInjectionValidator.parseSafe("")).isFalse();
         assertThat(PromptInjectionValidator.parseSafe("MAYBE")).isFalse();
         assertThat(PromptInjectionValidator.parseSafe(null)).isFalse();
-    }
-}
-</file>
-
-<file path="src/test/java/com/geo/analytics/domain/ai/DebatePersonaSystemPromptsTest.java">
-package com.geo.analytics.domain.ai;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-import com.geo.analytics.domain.enums.IndustryType;
-import org.junit.jupiter.api.Test;
-
-class DebatePersonaSystemPromptsTest {
-
-    @Test
-    void forDirectorWithScoreInjectionContainsNumericContext() {
-        String s = DebatePersonaSystemPrompts.forDirectorWithScoreInjection(0.12, 0.88);
-        assertThat(s).contains("0.120000");
-        assertThat(s).contains("0.880000");
-        assertThat(s).contains("目利き");
-    }
-
-    @Test
-    void geoFacadeBlock_containsGeoFramingAndEnglishConstraints() {
-        String block = DebatePersonaSystemPrompts.geoFacadeBlock();
-        assertThat(block).contains("GEO Facade");
-        assertThat(block).contains("Brand Recommendation");
-        assertThat(block).contains("Information Gain");
-        assertThat(block).contains("Do not frame outputs");
-    }
-
-    @Test
-    void ymylSkepticPrompt_containsEEAT() {
-        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC, IndustryType.YMYL);
-        assertThat(s).contains("E-E-A-T");
-        assertThat(s).contains("YMYL");
-    }
-
-    @Test
-    void ecAnalystPrompt_containsReturnPolicyContext() {
-        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, IndustryType.EC);
-        assertThat(s).contains("EC");
-        assertThat(s).contains("返品");
-    }
-
-    @Test
-    void forPersona_nullIndustry_fallsBackToOtherOverlay() {
-        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, null);
-        assertThat(s).contains("業種コンテキスト: 一般");
     }
 }
 </file>
@@ -36990,6 +37835,237 @@ class ZScorePurgeFilterTest {
 }
 </file>
 
+<file path="src/test/java/com/geo/analytics/domain/prompt/DebatePersonaSystemPromptsTest.java">
+package com.geo.analytics.domain.prompt;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.geo.analytics.domain.ai.DebatePersona;
+import com.geo.analytics.domain.enums.IndustryType;
+import org.junit.jupiter.api.Test;
+
+class DebatePersonaSystemPromptsTest {
+
+    @Test
+    void forDirectorWithScoreInjectionContainsNumericContext() {
+        String s = DebatePersonaSystemPrompts.forDirectorWithScoreInjection(0.12, 0.88);
+        assertThat(s).contains("0.120000");
+        assertThat(s).contains("0.880000");
+        assertThat(s).contains("目利き");
+    }
+
+    @Test
+    void geoFacadeBlock_containsGeoNativeFraming() {
+        String block = DebatePersonaSystemPrompts.geoFacadeBlock();
+        assertThat(block).contains("GEO Facade");
+        assertThat(block).contains("AI可視性ランク");
+        assertThat(block).contains("AI推奨ポテンシャル");
+        assertThat(block).contains("Brand Recommendation");
+        assertThat(block).contains("Information Gain");
+        assertThat(block).contains("Constraints (English)");
+    }
+
+    @Test
+    void ymylSkepticPrompt_containsEEAT() {
+        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC, IndustryType.YMYL);
+        assertThat(s).contains("E-E-A-T");
+        assertThat(s).contains("YMYL");
+    }
+
+    @Test
+    void ecAnalystPrompt_containsReturnPolicyContext() {
+        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, IndustryType.EC);
+        assertThat(s).contains("EC");
+        assertThat(s).contains("返品");
+    }
+
+    @Test
+    void forPersona_nullIndustry_fallsBackToOtherOverlay() {
+        String s = DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, null);
+        assertThat(s).contains("業種コンテキスト: 一般");
+    }
+}
+</file>
+
+<file path="src/test/java/com/geo/analytics/domain/scoring/ScoringServiceTest.java">
+package com.geo.analytics.domain.scoring;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.lang.StrictMath;
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.SplittableRandom;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class ScoringServiceTest {
+
+    private DefaultScoringService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new DefaultScoringService();
+    }
+
+    @Test
+    void calculateFinalScore_allZeros() {
+        ScoreBreakdown b = service.calculateFinalScore(0.0, 0.0, 0.0);
+        assertEquals(0.0, b.geoReadinessScore(), 0.0);
+        assertEquals(0.0, b.aiAuditScore(), 0.0);
+        assertEquals(0.0, b.meoTrustScore(), 0.0);
+        assertEquals(0.0, b.machineReadabilityScore(), 0.0);
+    }
+
+    @Test
+    void calculateFinalScore_allHundreds() {
+        ScoreBreakdown b = service.calculateFinalScore(100.0, 100.0, 100.0);
+        assertEquals(100.0, b.geoReadinessScore(), 0.0);
+    }
+
+    @Test
+    void calculateFinalScore_uniformMid() {
+        ScoreBreakdown b = service.calculateFinalScore(50.0, 50.0, 50.0);
+        assertEquals(50.0, b.geoReadinessScore(), 0.0);
+    }
+
+    @Test
+    void calculateFinalScore_weightedMix() {
+        ScoreBreakdown b = service.calculateFinalScore(80.0, 60.0, 40.0);
+        double expected = StrictMath.fma(80.0, 0.5, StrictMath.fma(60.0, 0.25, StrictMath.fma(40.0, 0.25, 0.0)));
+        assertEquals(Math.clamp(expected, 0.0, 100.0), b.geoReadinessScore(), 0.0);
+    }
+
+    @Test
+    void calculateFinalScore_rejectsNaNAi() {
+        assertThrows(IllegalArgumentException.class, () -> service.calculateFinalScore(Double.NaN, 50.0, 50.0));
+    }
+
+    @Test
+    void calculateFinalScore_rejectsInfinityMeo() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.calculateFinalScore(50.0, Double.POSITIVE_INFINITY, 50.0));
+    }
+
+    @Test
+    void calculateFinalScore_rejectsNaNMachine() {
+        assertThrows(IllegalArgumentException.class, () -> service.calculateFinalScore(50.0, 50.0, Double.NaN));
+    }
+
+    @Test
+    void calculateWeightedAverage_rejectsNegativeValue() {
+        List<WeightedScoreInput> inputs = List.of(new WeightedScoreInput(-1.0, 1.0));
+        assertThrows(IllegalArgumentException.class, () -> service.calculateWeightedAverage(inputs));
+    }
+
+    @Test
+    void calculateWeightedAverage_rejectsAboveHundred() {
+        List<WeightedScoreInput> inputs = List.of(new WeightedScoreInput(100.0000001, 1.0));
+        assertThrows(IllegalArgumentException.class, () -> service.calculateWeightedAverage(inputs));
+    }
+
+    @Test
+    void calculateWeightedAverage_rejectsBadWeightSum() {
+        List<WeightedScoreInput> inputs =
+                List.of(new WeightedScoreInput(50.0, 0.5), new WeightedScoreInput(50.0, 0.4));
+        assertThrows(IllegalArgumentException.class, () -> service.calculateWeightedAverage(inputs));
+    }
+
+    @Test
+    void calculateWeightedAverage_emptyThrows() {
+        assertThrows(IllegalArgumentException.class, () -> service.calculateWeightedAverage(List.of()));
+    }
+
+    @Test
+    void calculateWeightedAverage_matchesExplicitFmaChain() {
+        List<WeightedScoreInput> inputs = List.of(
+                new WeightedScoreInput(93.1875, 0.5),
+                new WeightedScoreInput(77.4375, 0.25),
+                new WeightedScoreInput(61.8125, 0.25));
+        double explicit =
+                StrictMath.fma(93.1875, 0.5, StrictMath.fma(77.4375, 0.25, StrictMath.fma(61.8125, 0.25, 0.0)));
+        assertEquals(Math.clamp(explicit, 0.0, 100.0), service.calculateWeightedAverage(inputs), 0.0);
+    }
+
+    @Test
+    void calculateWeightedAverage_fmaNotWorseThanFloatAccumulatorTowardBigDecimalReference() {
+        MathContext mc = new MathContext(400, RoundingMode.HALF_EVEN);
+        boolean strictlyCloserSeen = false;
+        for (long trial = 0; trial < 4_000; trial++) {
+            SplittableRandom rng = new SplittableRandom(trial ^ 0xFEDCBA9876543210L);
+            List<WeightedScoreInput> inputs = new ArrayList<>(256);
+            for (int k = 0; k < 256; k++) {
+                inputs.add(new WeightedScoreInput(rng.nextDouble(0.0, 100.0), 1.0 / 256.0));
+            }
+            BigDecimal bd = BigDecimal.ZERO;
+            for (WeightedScoreInput in : inputs) {
+                bd = bd.add(
+                        BigDecimal.valueOf(in.value()).multiply(BigDecimal.valueOf(in.weight()), mc), mc);
+            }
+            double ref = bd.doubleValue();
+            double svc = service.calculateWeightedAverage(inputs);
+            double floatNaive = floatNaiveAccumulate(inputs);
+            double errS = StrictMath.abs(StrictMath.fma(svc, 1.0, -ref));
+            double errF = StrictMath.abs(StrictMath.fma(floatNaive, 1.0, -ref));
+            assertThat(errS).isLessThanOrEqualTo(errF + 1e-12);
+            if (errS + 1e-15 < errF) {
+                strictlyCloserSeen = true;
+            }
+        }
+        assertThat(strictlyCloserSeen).isTrue();
+    }
+
+    @Test
+    void bigDecimalReference_serviceNeverFurtherThanNaiveSeparateMultiplyAdd() {
+        MathContext mc = new MathContext(120, RoundingMode.HALF_EVEN);
+        List<WeightedScoreInput> inputs = List.of(
+                new WeightedScoreInput(82.93750000000001, 0.5),
+                new WeightedScoreInput(64.06249999999997, 0.25),
+                new WeightedScoreInput(91.33333333333331, 0.25));
+        BigDecimal accBd = BigDecimal.ZERO;
+        for (WeightedScoreInput in : inputs) {
+            BigDecimal term =
+                    BigDecimal.valueOf(in.value()).multiply(BigDecimal.valueOf(in.weight()), mc);
+            accBd = accBd.add(term, mc);
+        }
+        double ref = accBd.doubleValue();
+        double svc = service.calculateWeightedAverage(inputs);
+        double naive = naiveMultiplyThenAdd(inputs);
+        double errSvc = StrictMath.abs(StrictMath.fma(svc, 1.0, -ref));
+        double errNaive = StrictMath.abs(StrictMath.fma(naive, 1.0, -ref));
+        assertThat(errSvc).isLessThanOrEqualTo(errNaive + 1e-14);
+    }
+
+    private static double floatNaiveAccumulate(List<WeightedScoreInput> inputs) {
+        float acc = 0f;
+        for (WeightedScoreInput in : inputs) {
+            double prod = in.value() * in.weight();
+            acc += (float) prod;
+        }
+        return Math.clamp((double) acc, 0.0, 100.0);
+    }
+
+    private static double rawNaiveAccumulate(List<WeightedScoreInput> inputs) {
+        double acc = 0.0;
+        for (WeightedScoreInput in : inputs) {
+            double prod = in.value() * in.weight();
+            acc = acc + prod;
+        }
+        return acc;
+    }
+
+    private static double naiveMultiplyThenAdd(List<WeightedScoreInput> inputs) {
+        return Math.clamp(rawNaiveAccumulate(inputs), 0.0, 100.0);
+    }
+}
+</file>
+
 <file path="src/test/java/com/geo/analytics/domain/semantic/SemanticJudgmentEngineTest.java">
 package com.geo.analytics.domain.semantic;
 
@@ -38419,6 +39495,32 @@ class TokenServiceTest {
         s.setJwt(j);
         p.setSecurity(s);
         return p;
+    }
+}
+</file>
+
+<file path="src/test/java/com/geo/analytics/web/dto/AssetSnapshotsChartResponseSerializationTest.java">
+package com.geo.analytics.web.dto;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class AssetSnapshotsChartResponseSerializationTest {
+
+    @Test
+    void serializesSnakeCaseKeys() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        AssetSnapshotsChartResponse response =
+                new AssetSnapshotsChartResponse(List.of(new AssetSnapshotChartPoint("2026-05-01", 82.5, 7L)));
+        String json = mapper.writeValueAsString(response);
+        assertThat(json)
+                .contains("\"snapshot_date\":\"2026-05-01\"")
+                .contains("\"geo_readiness_score\":82.5")
+                .contains("\"local_trust_count\":7")
+                .contains("\"data\":");
     }
 }
 </file>

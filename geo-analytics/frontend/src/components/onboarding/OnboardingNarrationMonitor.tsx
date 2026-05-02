@@ -2,22 +2,6 @@ import { Box, Stack, Typography } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import type { DebateStreamPersona, OnboardingNarrationLogEntry } from "../../types/onboardingDebateStream";
 
-const FACADE_REPLACEMENTS: Array<{ pattern: RegExp; text: string }> = [
-  { pattern: /検索エンジン/g, text: "AI推奨インターフェース" },
-  { pattern: /SEO/gi, text: "AI検索での見え方（GEO）" },
-  { pattern: /検索順位/g, text: "AI検索推奨率" },
-  { pattern: /順位付け/g, text: "推奨のされやすさ" },
-  { pattern: /ランキング/g, text: "推奨スコア" },
-];
-
-function toGeoFacadeCopy(raw: string): string {
-  let s = raw;
-  for (const { pattern, text } of FACADE_REPLACEMENTS) {
-    s = s.replace(pattern, text);
-  }
-  return s;
-}
-
 function personaLabel(persona: DebateStreamPersona | null): string {
   switch (persona) {
     case "ANALYST":
@@ -114,7 +98,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
   return (
     <Stack spacing={1.75} sx={{ maxHeight: 360, overflowY: "auto", pr: 0.5 }}>
       <Typography variant="subtitle2" color="text.secondary" fontWeight={700}>
-        ディベート実況（AI検索推奨率に効く構造と独自性）
+        ディベート実況（GEO／AI可視性ランクとAI推奨ポテンシャルに効く構造と独自性）
       </Typography>
       {stablePrevious.map((row) => (
         <Box
@@ -136,7 +120,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
             {personaLabel(row.persona)}
           </Typography>
           <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-            {toGeoFacadeCopy(row.message)}
+            {row.message}
           </Typography>
         </Box>
       ))}
@@ -161,7 +145,7 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
           <Typography variant="caption" color="primary" display="block" fontWeight={700} sx={{ mb: 0.35 }}>
             {personaLabel(last.persona)}
           </Typography>
-          <TypingLine text={toGeoFacadeCopy(last.message)} intervalMs={personaTypingMs(last.persona)} />
+          <TypingLine text={last.message} intervalMs={personaTypingMs(last.persona)} />
         </Box>
       )}
       {entries.length === 0 && (

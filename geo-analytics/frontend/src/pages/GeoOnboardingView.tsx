@@ -7,7 +7,6 @@ import {
   CardContent,
   CircularProgress,
   Container,
-  CssBaseline,
   FormControl,
   IconButton,
   InputLabel,
@@ -17,9 +16,7 @@ import {
   Snackbar,
   Stack,
   TextField,
-  ThemeProvider,
   Typography,
-  createTheme,
 } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
@@ -34,7 +31,6 @@ import { OnboardingMathVisualizer } from "../components/onboarding/OnboardingMat
 import { OnboardingNarrationMonitor } from "../components/onboarding/OnboardingNarrationMonitor";
 import { useOnboardingStream } from "../hooks/useOnboardingStream";
 
-const theme = createTheme();
 const industries: { value: string; label: string }[] = [
   { value: "YMYL", label: "YMYL分野" },
   { value: "LOCAL", label: "ローカルビジネス" },
@@ -193,18 +189,16 @@ export default function GeoOnboardingView(): JSX.Element {
 
   if (!projectId) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
+      <>
         <Container>
           <Typography>プロジェクトIDが不正です</Typography>
         </Container>
-      </ThemeProvider>
+      </>
     );
   }
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <Container maxWidth="md" className="py-8">
         <Typography variant="h4" component="h1" fontWeight={600} gutterBottom>
           GEOオンボーディング
@@ -453,6 +447,6 @@ export default function GeoOnboardingView(): JSX.Element {
           message={toast ?? ""}
         />
       </Container>
-    </ThemeProvider>
+    </>
   );
 }

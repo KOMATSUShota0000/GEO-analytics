@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface OrganizationRepository extends JpaRepository<OrganizationEntity, UUID> {
+    Optional<OrganizationEntity> findByIdAndDeletedAtIsNull(UUID id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM OrganizationEntity o WHERE o.id = :id AND o.deletedAt IS NULL")
     Optional<OrganizationEntity> findByIdForUpdate(@Param("id") UUID id);

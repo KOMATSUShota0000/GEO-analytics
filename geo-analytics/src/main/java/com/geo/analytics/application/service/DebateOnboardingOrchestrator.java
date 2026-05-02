@@ -6,7 +6,7 @@ import com.geo.analytics.application.dto.GeoOnboardingLlmResult;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.domain.ai.CitationValidator;
 import com.geo.analytics.domain.ai.DebatePersona;
-import com.geo.analytics.domain.ai.DebatePersonaSystemPrompts;
+import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.logic.CalibrationCalculator;

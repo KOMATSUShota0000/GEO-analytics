@@ -28,6 +28,12 @@ public class OrganizationEntity {
     private LocalDateTime updatedAt;
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+    @Column(name = "logo_file_path", length = 1024)
+    private String logoFilePath;
+    @Column(name = "brand_color", length = 64)
+    private String brandColor;
+    @Column(name = "tool_name", length = 255)
+    private String toolName;
     protected OrganizationEntity() {
     }
     public UUID getId() {
@@ -56,6 +62,24 @@ public class OrganizationEntity {
     }
     public LocalDateTime getDeletedAt() {
         return deletedAt;
+    }
+    public String getLogoFilePath() {
+        return logoFilePath;
+    }
+    public void setLogoFilePath(String logoFilePath) {
+        this.logoFilePath = logoFilePath;
+    }
+    public String getBrandColor() {
+        return brandColor;
+    }
+    public void setBrandColor(String brandColor) {
+        this.brandColor = brandColor;
+    }
+    public String getToolName() {
+        return toolName;
+    }
+    public void setToolName(String toolName) {
+        this.toolName = toolName;
     }
     @PreUpdate
     protected void touch() {
