@@ -25,7 +25,7 @@ public class JobEntity extends BaseTenantEntity {
     @Column(name = "project_id")
     private UUID projectId;
     @Enumerated(EnumType.STRING)
-    @Column(name = "job_status", nullable = false, length = 20)
+    @Column(name = "job_status", nullable = false, length = 32)
     private JobStatus jobStatus;
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", length = 16)

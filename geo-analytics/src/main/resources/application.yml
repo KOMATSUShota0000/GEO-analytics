@@ -87,6 +87,8 @@ app:
   # AI Overview (GEO) 計測プロバイダ設定（キー名は維持）
   serpapi:
     api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
+  places:
+    api-key: "${GOOGLE_PLACES_API_KEY:}"
   pdf:
     base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
     temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"

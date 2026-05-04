@@ -81,6 +81,16 @@ public class JobPersistenceService {
         }
         return UUID.fromString(rows.get(0));
     }
+    private UUID readWorkspaceIdForProject(UUID projectId) {
+        List<String> rows = batchJdbcTemplate.query(
+                "SELECT tenant_id FROM projects WHERE id = ?",
+                ps -> ps.setObject(1, projectId),
+                (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty() || rows.get(0) == null || rows.get(0).isBlank()) {
+            return DefaultTenantIds.WORKSPACE_ID;
+        }
+        return UUID.fromString(rows.get(0));
+    }
     private UUID readWorkspaceIdForQuery(UUID queryId) {
         List<String> rows = batchJdbcTemplate.query(
             "SELECT j.tenant_id FROM jobs j INNER JOIN job_queries q ON q.job_id = j.id WHERE q.id = ?",
@@ -389,9 +399,11 @@ public class JobPersistenceService {
         TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-            if (jobEntity.getJobStatus() != JobStatus.CREATED) {
+            JobStatus currentStatus = jobEntity.getJobStatus();
+            if (currentStatus != JobStatus.CREATED && currentStatus != JobStatus.EXTRACTING_COMPETITORS) {
                 throw new IllegalStateException(
-                    "Queries can only be added to a CREATED job. Current status: " + jobEntity.getJobStatus());
+                    "Queries can only be added to a CREATED or EXTRACTING_COMPETITORS job. Current status: "
+                            + jobEntity.getJobStatus());
             }
             normalizedQueryTexts.forEach(queryText -> {
                 QueryEntity queryEntity = new QueryEntity();
@@ -418,6 +430,39 @@ public class JobPersistenceService {
             jobEntity.setErrorMessage(errorMessage);
             jobRepository.save(jobEntity);
         });
+    }
+    public String loadTargetUrlForProject(UUID projectId) {
+        UUID tenantId = readWorkspaceIdForProject(projectId);
+        return TenantPlanScope.executeWithTenant(tenantId, () -> projectRepository.findById(projectId)
+                .map(ProjectEntity::getTargetUrl)
+                .orElse(""));
+    }
+    @Transactional
+    public void saveProjectCompetitorUrls(UUID projectId, List<String> competitorUrls) {
+        UUID tenantId = readWorkspaceIdForProject(projectId);
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
+            projectRepository
+                    .findById(projectId)
+                    .ifPresent(projectEntity -> {
+                        projectEntity.setCompetitorUrls(normalizeThreeUrls(competitorUrls));
+                        projectRepository.save(projectEntity);
+                    });
+        });
+    }
+    private static List<String> normalizeThreeUrls(List<String> urls) {
+        List<String> out = new ArrayList<>();
+        if (urls != null) {
+            for (String url : urls) {
+                out.add(url != null ? url : "");
+                if (out.size() == 3) {
+                    return List.copyOf(out);
+                }
+            }
+        }
+        while (out.size() < 3) {
+            out.add("");
+        }
+        return List.copyOf(out);
     }
     @Transactional
     public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {

@@ -12,6 +12,7 @@ public class AppProperties {
     private Crawler crawler = new Crawler();
     private Ai ai = new Ai();
     private Serpapi serpapi = new Serpapi();
+    private Places places = new Places();
     private Pdf pdf = new Pdf();
     private Notifications notifications = new Notifications();
     private Security security;
@@ -40,6 +41,14 @@ public class AppProperties {
 
     public void setSerpapi(Serpapi serpapi) {
         this.serpapi = serpapi;
+    }
+
+    public Places getPlaces() {
+        return places;
+    }
+
+    public void setPlaces(Places places) {
+        this.places = places != null ? places : new Places();
     }
 
     public Pdf getPdf() {
@@ -286,6 +295,18 @@ public class AppProperties {
 
     /** AI Overview / GEO可視性計測向けプロバイダ設定（{@code app.serpapi.*} にバインド）。 */
     public static class Serpapi {
+        private String apiKey;
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+    }
+
+    public static class Places {
         private String apiKey;
 
         public String getApiKey() {

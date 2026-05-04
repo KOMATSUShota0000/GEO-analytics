@@ -16,7 +16,9 @@ import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
 import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
+import com.geo.analytics.infrastructure.ai.CompetitorFilterOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
+import com.geo.analytics.infrastructure.ai.TargetAttributesOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
 import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
@@ -42,6 +44,8 @@ public class AiConfig {
     public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
     public static final String GEMINI_GBVS_CHAT = "geminiGbvsChat";
     public static final String GEMINI_GEO_ONBOARDING_CHAT_MODEL = "geminiGeoOnboardingChatModel";
+    public static final String GEMINI_TARGET_ATTRIBUTES_MODEL = "geminiTargetAttributesModel";
+    public static final String GEMINI_COMPETITOR_FILTER_MODEL = "geminiCompetitorFilterModel";
     public static final String GEMINI_DEBATE_ANALYST = "geminiDebateAnalyst";
     public static final String GEMINI_DEBATE_INNOVATOR = "geminiDebateInnovator";
     public static final String GEMINI_DEBATE_SKEPTIC = "geminiDebateSkeptic";
@@ -93,6 +97,32 @@ public class AiConfig {
             .maxOutputTokens(4096)
             .responseFormat(GeoOnboardingOutputSchema.geoOnboardingResponseFormat())
             .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_TARGET_ATTRIBUTES_MODEL)
+    public ChatLanguageModel geminiTargetAttributesModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(4096)
+                .responseFormat(TargetAttributesOutputSchema.targetAttributesResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_COMPETITOR_FILTER_MODEL)
+    public ChatLanguageModel geminiCompetitorFilterModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(4096)
+                .responseFormat(CompetitorFilterOutputSchema.competitorFilterResponseFormat())
+                .build();
     }
 
     @Bean(DomainAnalysisAiModelNames.GEMINI_DOMAIN_ANALYSIS_CHAT_MODEL)

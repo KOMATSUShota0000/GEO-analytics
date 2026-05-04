@@ -119,6 +119,11 @@ public class JobController {
             String errorText = jobEntity.getErrorMessage() != null ? jobEntity.getErrorMessage() : "FAILED";
             return createEphemeralErrorSseEmitter(errorText);
         }
+        if (jobStatus == JobStatus.CREATED
+                || jobStatus == JobStatus.REALTIME_PROCESSING
+                || jobStatus == JobStatus.EXTRACTING_COMPETITORS) {
+            return jobStreamRegistryService.register(jobId);
+        }
         if (jobStatus == JobStatus.FILE_UPLOADED
             || jobStatus == JobStatus.SUBMITTED
             || jobStatus == JobStatus.RUNNING) {
