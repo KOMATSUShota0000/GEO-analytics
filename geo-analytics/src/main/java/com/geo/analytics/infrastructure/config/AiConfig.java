@@ -18,6 +18,8 @@ import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
 import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
 import com.geo.analytics.infrastructure.ai.CompetitorFilterOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
+import com.geo.analytics.infrastructure.ai.RemediationTaskOutputSchema;
+import com.geo.analytics.infrastructure.ai.RubricAuditOutputSchema;
 import com.geo.analytics.infrastructure.ai.TargetAttributesOutputSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
@@ -52,6 +54,9 @@ public class AiConfig {
     public static final String GEMINI_DEBATE_DIRECTOR = "geminiDebateDirector";
     /** 検閲専用 Flash（プロンプトインジェクション・ガード）。 */
     public static final String GEMINI_PROMPT_INJECTION_GUARD = "geminiPromptInjectionGuardModel";
+    public static final String GEMINI_RUBRIC_AUDIT = "geminiRubricAuditModel";
+    public static final String GEMINI_REMEDIATION_TASKS = "geminiRemediationTasksModel";
+    public static final String GEMINI_25_FLASH = "gemini25Flash";
 
     private final AppProperties appProperties;
 
@@ -183,6 +188,44 @@ public class AiConfig {
                 .timeout(Duration.ofSeconds(180))
                 .maxOutputTokens(8192)
                 .responseFormat(DebateDirectorOutputSchema.debateDirectorResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_RUBRIC_AUDIT)
+    public ChatLanguageModel geminiRubricAuditModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(4096)
+                .responseFormat(RubricAuditOutputSchema.rubricAuditResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_REMEDIATION_TASKS)
+    public ChatLanguageModel geminiRemediationTasksModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_PRO)
+                .temperature(0.3)
+                .timeout(Duration.ofSeconds(180))
+                .maxOutputTokens(8192)
+                .responseFormat(RemediationTaskOutputSchema.remediationResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_25_FLASH)
+    public ChatLanguageModel gemini25FlashChatModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(4096)
                 .build();
     }
 

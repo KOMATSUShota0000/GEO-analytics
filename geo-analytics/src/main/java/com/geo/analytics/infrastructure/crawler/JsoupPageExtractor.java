@@ -44,7 +44,9 @@ public final class JsoupPageExtractor {
         List<String> schemaOrg = extractLdJsonStrings(document);
         Map<String, String> metaTags = extractMetaTags(document);
         String contentHash = DigestUtils.sha256Hex(mainContent.getBytes(StandardCharsets.UTF_8));
-        return new CrawledPageData(canonicalUrl, mainContent, contentHash, schemaOrg, metaTags);
+        boolean h1Ok = document.select("h1").size() >= 1;
+        boolean h2Ok = document.select("h2").size() >= 1;
+        return new CrawledPageData(canonicalUrl, mainContent, contentHash, schemaOrg, metaTags, h1Ok, h2Ok);
     }
 
     private static List<String> extractLdJsonStrings(Document document) {

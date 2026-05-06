@@ -51,6 +51,7 @@ public class JobQuerySubmissionService {
     private final HybridCompetitorPipelineService hybridCompetitorPipelineService;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager quotaManager;
+    private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
 
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
@@ -65,7 +66,8 @@ public class JobQuerySubmissionService {
             WorkspaceRepository workspaceRepository,
             HybridCompetitorPipelineService hybridCompetitorPipelineService,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
-            PlanBasedQuotaManager quotaManager) {
+            PlanBasedQuotaManager quotaManager,
+            JobBenchmarkCaptureService jobBenchmarkCaptureService) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -79,6 +81,7 @@ public class JobQuerySubmissionService {
         this.hybridCompetitorPipelineService = hybridCompetitorPipelineService;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
+        this.jobBenchmarkCaptureService = Objects.requireNonNull(jobBenchmarkCaptureService);
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -306,6 +309,7 @@ public class JobQuerySubmissionService {
                 .toArray(CompletableFuture[]::new);
         try {
             CompletableFuture.allOf(futures).join();
+            jobBenchmarkCaptureService.capture(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
             jobStatusBroadcastPublisher.publish(completedJobEntity);

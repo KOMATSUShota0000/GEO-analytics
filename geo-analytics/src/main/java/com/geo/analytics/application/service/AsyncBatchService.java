@@ -30,6 +30,7 @@ public class AsyncBatchService {
     private final GapAnalysisBatchProcessor gapAnalysisBatchProcessor;
     private final GapAnalysisService gapAnalysisService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
+    private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
 
     public AsyncBatchService(
             BatchPersistenceService batchPersistence,
@@ -40,7 +41,8 @@ public class AsyncBatchService {
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
             GapAnalysisService gapAnalysisService,
-            PlanBasedQuotaManager planBasedQuotaManager) {
+            PlanBasedQuotaManager planBasedQuotaManager,
+            JobBenchmarkCaptureService jobBenchmarkCaptureService) {
         this.batchPersistence = batchPersistence;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
@@ -50,6 +52,7 @@ public class AsyncBatchService {
         this.gapAnalysisBatchProcessor = gapAnalysisBatchProcessor;
         this.gapAnalysisService = gapAnalysisService;
         this.planBasedQuotaManager = planBasedQuotaManager;
+        this.jobBenchmarkCaptureService = jobBenchmarkCaptureService;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
@@ -115,6 +118,7 @@ public class AsyncBatchService {
                     String outputFileContent =
                         geminiBatchClient.downloadOutputFileContent(outputFileName);
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
+                    jobBenchmarkCaptureService.capture(jobEntity.getId());
                     batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobEntity.getId()));

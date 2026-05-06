@@ -2,6 +2,7 @@ package com.geo.analytics.infrastructure.crawler;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
 import com.geo.analytics.application.port.PdfBrowserAuthHeaders;
 import com.geo.analytics.application.port.PdfReportPort;
+import com.geo.analytics.application.service.PdfBrowserTokenIssuer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Browser;
@@ -13,6 +14,10 @@ import com.microsoft.playwright.options.Margin;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import com.geo.analytics.infrastructure.config.AppProperties;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -21,7 +26,9 @@ import java.util.UUID;
 import java.util.concurrent.Semaphore;
 @Component
 public class PlaywrightPdfAdapter implements PdfReportPort {
-    private static final int MAX_CONCURRENT_PDF = 3;
+    private static final Logger log = LoggerFactory.getLogger(PlaywrightPdfAdapter.class);
+    private static final int STACK_TRACE_LIMIT = 20_000;
+    private static final int MAX_CONCURRENT_PDF = 2;
     private static final int PDF_FLAG_TIMEOUT_MS = 20_000;
     private static final double PDF_CONTEXT_DEFAULT_TIMEOUT_MS = 120_000d;
     private static final double PDF_CONTEXT_NAVIGATION_TIMEOUT_MS = 90_000d;
@@ -48,18 +55,21 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
           }
         }
         """;
-    private final Semaphore pdfSemaphore = new Semaphore(MAX_CONCURRENT_PDF);
+    private final Semaphore pdfSemaphore = new Semaphore(MAX_CONCURRENT_PDF, true);
     private final String pdfBaseUrl;
     private final ObjectMapper objectMapper;
+    private final PdfBrowserTokenIssuer pdfBrowserTokenIssuer;
     public PlaywrightPdfAdapter(
             AppProperties appProperties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PdfBrowserTokenIssuer pdfBrowserTokenIssuer) {
         String pdfBaseUrl = appProperties.getPdf().getBaseUrl();
         if (pdfBaseUrl == null || pdfBaseUrl.isBlank()) {
             throw new IllegalStateException("app.pdf.base-url must be configured");
         }
         this.pdfBaseUrl = pdfBaseUrl.replaceAll("/+$", "");
         this.objectMapper = objectMapper;
+        this.pdfBrowserTokenIssuer = pdfBrowserTokenIssuer;
     }
     @Override
     public byte[] renderJobReportPdf(UUID jobId) {
@@ -80,10 +90,19 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
         }
     }
     @Override
-    public byte[] renderPrintRoutePdf(
-            UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel, PdfBrowserAuthHeaders browserAuth) {
+    public byte[] renderPrintRoutePdf(UUID jobId, String internalToken, PdfWhiteLabelInjection whiteLabel) {
         String encodedToken = URLEncoder.encode(internalToken, StandardCharsets.UTF_8);
         String pageUrl = pdfBaseUrl + "/reports/print/" + jobId + "?internal_token=" + encodedToken;
+        PdfBrowserAuthHeaders browserAuth;
+        try {
+            browserAuth = pdfBrowserTokenIssuer.issueForCurrentTenant();
+        } catch (RuntimeException runtimeException) {
+            log.error(
+                    "pdf_print_token_issue_failed jobId={} trace={}",
+                    jobId,
+                    truncateStackTrace(runtimeException));
+            browserAuth = PdfBrowserAuthHeaders.NONE;
+        }
         try (SemaphoreLease _ = SemaphoreLease.acquire(pdfSemaphore);
                 Playwright playwright = Playwright.create();
                 Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true))) {
@@ -111,9 +130,6 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
         }
     }
 
-    /**
-     * Seeds storages and globals before the SPA bundle runs, so React / fetch wrappers always see credentials.
-     */
     private static String pdfAuthBootstrapScript(String rawJwt, String workspaceTenantId) {
         String tokenLit = jsSingleQuotedLiteral(rawJwt);
         String tenantLit = jsSingleQuotedLiteral(workspaceTenantId);
@@ -195,6 +211,18 @@ public class PlaywrightPdfAdapter implements PdfReportPort {
             return t;
         }
         return "#4F46E5";
+    }
+    private static String truncateStackTrace(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        StringWriter stringWriter = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(stringWriter));
+        String full = stringWriter.toString();
+        if (full.length() <= STACK_TRACE_LIMIT) {
+            return full;
+        }
+        return full.substring(0, STACK_TRACE_LIMIT);
     }
     private static final class SemaphoreLease implements AutoCloseable {
         private final Semaphore semaphore;

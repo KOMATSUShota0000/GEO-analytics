@@ -184,6 +184,7 @@ export interface JobProjectInfo {
   competitorUrls: string[];
   brandColor: string;
   logoUrl: string | null;
+  industryType?: string;
 }
 export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
   if (raw === null || typeof raw !== "object") {
@@ -212,6 +213,8 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
       : typeof luRaw === "string" && luRaw.length > 0
         ? luRaw
         : null;
+  const indRaw = p.industryType ?? p.industry_type;
+  const industryType = typeof indRaw === "string" && indRaw.length > 0 ? indRaw : undefined;
   return {
     projectId,
     projectName,
@@ -219,6 +222,7 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
     competitorUrls: comp,
     brandColor: bc,
     logoUrl: lu,
+    industryType,
   };
 }
 export interface LiveResultMetrics {
@@ -454,6 +458,25 @@ export interface ResultDetail {
   createdAt: string;
 }
 
+export interface ScoreBreakdown {
+  aiAuditTotal: number;
+  meoTotal: number;
+  machineReadabilityTotal: number;
+  finalScore: number;
+}
+
+export type RemediationTaskCategory = "SPIKE" | "SLAB";
+export type RemediationTaskPriority = "S" | "A" | "B";
+
+export interface RemediationTask {
+  id: string;
+  category: RemediationTaskCategory;
+  priority: RemediationTaskPriority;
+  title: string;
+  content: string;
+  impactScore: number;
+}
+
 export interface JobAnalysisDetail {
   jobId: string;
   jobStatus: string;
@@ -467,6 +490,10 @@ export interface JobAnalysisDetail {
   jobMedianModifiedZ?: number | null;
   jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
+  factBasedScore?: number;
+  rubricGaps?: string[];
+  scoreBreakdown?: ScoreBreakdown | null;
+  remediationTasks?: RemediationTask[];
 }
 
 function auditDateString(v: unknown): string | null {
@@ -724,6 +751,14 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       : typeof r.jobMedianVisibilityStage === "number" && !Number.isNaN(r.jobMedianVisibilityStage)
         ? r.jobMedianVisibilityStage
         : null;
+  const fbsRaw = r.factBasedScore ?? r.fact_based_score;
+  const factBasedScore =
+    typeof fbsRaw === "number" && !Number.isNaN(fbsRaw) ? fbsRaw : undefined;
+  const rgRaw = r.rubricGaps ?? r.rubric_gaps;
+  const rubricGaps =
+    Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
+  const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
+  const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
   return {
     jobId,
     jobStatus,
@@ -737,5 +772,73 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     jobMedianModifiedZ: jmz,
     jobMedianVisibilityStage: jmvs,
     results,
+    factBasedScore,
+    rubricGaps,
+    scoreBreakdown,
+    remediationTasks,
   };
+}
+
+function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const ai = pickNum(r, "aiAuditTotal", "ai_audit_total");
+  const meo = pickNum(r, "meoTotal", "meo_total");
+  const mr = pickNum(r, "machineReadabilityTotal", "machine_readability_total");
+  const finalScore = pickNum(r, "finalScore", "final_score");
+  if (ai === undefined || meo === undefined || mr === undefined || finalScore === undefined) {
+    return null;
+  }
+  return {
+    aiAuditTotal: ai,
+    meoTotal: meo,
+    machineReadabilityTotal: mr,
+    finalScore,
+  };
+}
+
+function parseRemediationTasks(raw: unknown): RemediationTask[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: RemediationTask[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object") {
+      continue;
+    }
+    const r = item as JsonDict;
+    const id = typeof r.id === "string" ? r.id : undefined;
+    const categoryRaw = typeof r.category === "string" ? r.category : undefined;
+    const priorityRaw = typeof r.priority === "string" ? r.priority : undefined;
+    const title = typeof r.title === "string" ? r.title : undefined;
+    const content = typeof r.content === "string" ? r.content : undefined;
+    const impactRaw = pickNum(r, "impactScore", "impact_score");
+    if (
+      id === undefined ||
+      categoryRaw === undefined ||
+      priorityRaw === undefined ||
+      title === undefined ||
+      content === undefined ||
+      impactRaw === undefined
+    ) {
+      continue;
+    }
+    if (categoryRaw !== "SPIKE" && categoryRaw !== "SLAB") {
+      continue;
+    }
+    if (priorityRaw !== "S" && priorityRaw !== "A" && priorityRaw !== "B") {
+      continue;
+    }
+    out.push({
+      id,
+      category: categoryRaw,
+      priority: priorityRaw,
+      title,
+      content,
+      impactScore: impactRaw,
+    });
+  }
+  return out;
 }

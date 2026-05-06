@@ -35,6 +35,8 @@ public class CreditVaultService {
         this.projectRepository = projectRepository;
         this.workspaceRepository = workspaceRepository;
     }
+
+    /**ここではユーザーがクレジットを予約するためのメソッドを定義している**/
     @Transactional
     public UUID reserve(UUID projectId, long amount) {
         if (amount <= 0L) {
@@ -63,6 +65,7 @@ public class CreditVaultService {
         settle(reservationId, consumedAmount, null);
     }
 
+    /**ここでは二重請求を絶対に許さない「精算」をするためのメソッドを定義している**/
     @Transactional
     public void settle(UUID reservationId, long consumedAmount, String note) {
         UUID orgId = requireOrgId();

@@ -144,6 +144,16 @@ public final class GeoVisibilityCalculatorService {
         return num / denom;
     }
 
+    public static double calculateFinalGeoScore(
+            double aiAuditTotal, double meoScore, double machineReadabilityScore) {
+        double safeAi = Double.isFinite(aiAuditTotal) ? aiAuditTotal : 0.0d;
+        double safeMeo = Double.isFinite(meoScore) ? meoScore : 0.0d;
+        double safeMr = Double.isFinite(machineReadabilityScore) ? machineReadabilityScore : 0.0d;
+        double partial = StrictMath.fma(1.0d, safeMeo, safeMr);
+        double sum = StrictMath.fma(1.0d, safeAi, partial);
+        return StrictMath.max(0.0d, StrictMath.min(100.0d, sum));
+    }
+
     public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
         return computeBatch(List.of(metrics), lAvgJob).getFirst();
     }

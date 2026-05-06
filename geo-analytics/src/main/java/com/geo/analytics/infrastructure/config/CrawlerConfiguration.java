@@ -5,11 +5,9 @@ import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.infrastructure.crawler.CachedWebCrawlerDecorator;
 import com.geo.analytics.infrastructure.crawler.PlaywrightWebCrawlerAdapter;
 import com.geo.analytics.infrastructure.crawler.TieredCrawlCache;
+import com.geo.analytics.infrastructure.crawler.playwright.PlaywrightBrowserLifecycle;
 import com.geo.analytics.infrastructure.crawler.safety.PerDomainRequestLimiter;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
-import com.microsoft.playwright.Browser;
-import com.microsoft.playwright.BrowserType;
-import com.microsoft.playwright.Playwright;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -57,24 +55,14 @@ public class CrawlerConfiguration {
 
     @Bean
     Semaphore playwrightCrawlSemaphore() {
-        return new Semaphore(3);
-    }
-
-    @Bean(destroyMethod = "close")
-    Playwright playwrightSingleton() {
-        return Playwright.create();
-    }
-
-    @Bean(destroyMethod = "close")
-    Browser chromiumBrowserSingleton(Playwright playwrightSingleton) {
-        return playwrightSingleton.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+        return new Semaphore(4, true);
     }
 
     @Bean
     PlaywrightWebCrawlerAdapter playwrightWebCrawlerAdapter(
-            Browser chromiumBrowserSingleton,
+            PlaywrightBrowserLifecycle playwrightBrowserLifecycle,
             Semaphore playwrightCrawlSemaphore) {
-        return new PlaywrightWebCrawlerAdapter(chromiumBrowserSingleton, playwrightCrawlSemaphore);
+        return new PlaywrightWebCrawlerAdapter(playwrightBrowserLifecycle.getBrowser(), playwrightCrawlSemaphore);
     }
 
     @Bean

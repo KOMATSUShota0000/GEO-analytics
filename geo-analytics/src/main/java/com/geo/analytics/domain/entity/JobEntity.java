@@ -64,6 +64,22 @@ public class JobEntity extends BaseTenantEntity {
     private String gapAnalysisGeminiJobName;
     @Column(name = "gap_analysis_completed", nullable = false)
     private Boolean gapAnalysisCompleted = false;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "self_rubric_audit_json", columnDefinition = "jsonb")
+    private String selfRubricAuditJson;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "competitor_rubric_audits_json", columnDefinition = "jsonb")
+    private String competitorRubricAuditsJson;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "self_crawled_page_json", columnDefinition = "jsonb")
+    private String selfCrawledPageJson;
+    @Column(name = "meo_review_count")
+    private Integer meoReviewCount;
+    @Column(name = "meo_average_stars")
+    private Double meoAverageStars;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "emotional_alert", columnDefinition = "jsonb")
+    private String emotionalAlertJson;
     public JobEntity() {
     }
     public UUID getId() {
@@ -192,6 +208,42 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setGapAnalysisCompleted(Boolean gapAnalysisCompleted) {
         this.gapAnalysisCompleted = gapAnalysisCompleted;
+    }
+    public String getSelfRubricAuditJson() {
+        return selfRubricAuditJson;
+    }
+    public void setSelfRubricAuditJson(String selfRubricAuditJson) {
+        this.selfRubricAuditJson = selfRubricAuditJson;
+    }
+    public String getCompetitorRubricAuditsJson() {
+        return competitorRubricAuditsJson;
+    }
+    public void setCompetitorRubricAuditsJson(String competitorRubricAuditsJson) {
+        this.competitorRubricAuditsJson = competitorRubricAuditsJson;
+    }
+    public String getSelfCrawledPageJson() {
+        return selfCrawledPageJson;
+    }
+    public void setSelfCrawledPageJson(String selfCrawledPageJson) {
+        this.selfCrawledPageJson = selfCrawledPageJson;
+    }
+    public Integer getMeoReviewCount() {
+        return meoReviewCount;
+    }
+    public void setMeoReviewCount(Integer meoReviewCount) {
+        this.meoReviewCount = meoReviewCount;
+    }
+    public Double getMeoAverageStars() {
+        return meoAverageStars;
+    }
+    public void setMeoAverageStars(Double meoAverageStars) {
+        this.meoAverageStars = meoAverageStars;
+    }
+    public String getEmotionalAlertJson() {
+        return emotionalAlertJson;
+    }
+    public void setEmotionalAlertJson(String emotionalAlertJson) {
+        this.emotionalAlertJson = emotionalAlertJson;
     }
     @PrePersist
     protected void onCreate() {

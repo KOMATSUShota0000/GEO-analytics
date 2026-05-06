@@ -145,7 +145,7 @@ export function AnalysisCharts({
             >
               <PieChartIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             </span>
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">SoM 占有率</h3>
+            <h3 className="text-sm font-semibold tracking-tight text-slate-800">SoV（Share of Voice）</h3>
           </div>
           {shareOk ? (
             <div className="h-[280px] w-full min-w-0">
@@ -158,12 +158,17 @@ export function AnalysisCharts({
                     cx="50%"
                     cy="50%"
                     innerRadius={58}
-                    outerRadius={92}
-                    paddingAngle={2}
+                    outerRadius={96}
+                    paddingAngle={3}
                     isAnimationActive={anim}
                   >
                     {shareData.map((_, i) => (
-                      <Cell key={`${i}-${shareData[i]?.name ?? ""}`} fill={piePalette[i % piePalette.length]} />
+                      <Cell
+                        key={`${i}-${shareData[i]?.name ?? ""}`}
+                        fill={i === 0 ? brandColor : piePalette[i % piePalette.length]}
+                        stroke={i === 0 ? "#ffffff" : "transparent"}
+                        strokeWidth={i === 0 ? 3 : 0}
+                      />
                     ))}
                   </Pie>
                   <Tooltip

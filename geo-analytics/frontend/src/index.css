@@ -8,11 +8,13 @@
 }
 .report-print-root, .report-print-root * {
   -webkit-print-color-adjust: exact;
+  color-adjust: exact;
   print-color-adjust: exact;
 }
 .strategy-dashboard-print-root,
 .strategy-dashboard-print-root * {
   -webkit-print-color-adjust: exact;
+  color-adjust: exact;
   print-color-adjust: exact;
 }
 @page {
@@ -21,22 +23,35 @@
 }
 
 @media print {
+  html, body, .report-print-root, .strategy-dashboard-print-root {
+    -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   .pdf-no-print {
     display: none !important;
   }
-  .pdf-avoid-break {
-    break-inside: avoid;
-    page-break-inside: avoid;
+  .pdf-avoid-break,
+  .pdf-avoid-break *,
+  .strategy-chart-shell,
+  .remediation-task-board,
+  .remediation-task-board *,
+  .analysis-charts-shell,
+  .analysis-charts-shell *,
+  .geo-score-breakdown,
+  .geo-score-breakdown *,
+  .MuiCard-root,
+  .MuiPaper-root,
+  .recharts-wrapper,
+  .recharts-surface {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
   .strategy-dashboard-print-root {
     width: 794px !important;
     max-width: 100% !important;
     margin-left: auto !important;
     margin-right: auto !important;
-  }
-  .strategy-chart-shell {
-    break-inside: avoid;
-    page-break-inside: avoid;
   }
   body {
     background: white !important;

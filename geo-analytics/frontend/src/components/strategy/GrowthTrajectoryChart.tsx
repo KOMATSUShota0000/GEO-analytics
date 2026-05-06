@@ -16,11 +16,10 @@ import type { AssetSnapshotChartPoint } from "../../hooks/useProjectAssetSnapsho
 function computeReadinessYMin(values: number[]): number {
   const finite = values.filter((n) => Number.isFinite(n));
   if (finite.length === 0) {
-    return 0;
+    return 0.0;
   }
-  const minScore = Math.min(...finite);
-  const padded = Math.floor(minScore / 5) * 5 - 5;
-  return Math.max(0, padded);
+  const min = Math.min(...finite);
+  return Math.max(0.0, min - 5.0);
 }
 
 function ChartPlaceholder(): JSX.Element {
@@ -42,7 +41,6 @@ export function GrowthTrajectoryChart({
   brandColor,
   isPdfMode,
 }: GrowthTrajectoryChartProps): JSX.Element {
-  const anim = !isPdfMode;
   const yMin = useMemo(
     () => computeReadinessYMin(data.map((d) => d.geoReadinessScore)),
     [data],
@@ -54,7 +52,7 @@ export function GrowthTrajectoryChart({
       <div className="mb-4 flex items-center gap-2.5">
         <span
           className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
-          style={{ color: brandColor, backgroundColor: "rgba(255,255,255,0.9)" }}
+          style={{color:brandColor,backgroundColor:"rgba(255,255,255,0.9)"}}
         >
           <TrendingUp className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </span>
@@ -63,40 +61,40 @@ export function GrowthTrajectoryChart({
       {ok ? (
         <div className="h-[280px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart data={data} margin={{top:8,right:8,left:0,bottom:0}}>
               <CartesianGrid strokeDasharray="3 6" stroke="rgba(148,163,184,0.35)" vertical={false} />
               <XAxis
                 dataKey="snapshotDate"
-                tick={{ fontSize: 11, fill: "#64748b" }}
+                tick={{fontSize:11,fill:"#64748b"}}
                 tickFormatter={(v: string) => formatAuditDate(v)}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                domain={[yMin, 100]}
+                domain={[yMin,100.0]}
                 width={40}
-                tick={{ fontSize: 11, fill: "#64748b" }}
+                tick={{fontSize:11,fill:"#64748b"}}
                 axisLine={false}
                 tickLine={false}
               />
               <Tooltip
                 contentStyle={{
-                  borderRadius: "12px",
-                  border: "1px solid rgba(226,232,240,0.9)",
-                  boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                  borderRadius:"12px",
+                  border:"1px solid rgba(226,232,240,0.9)",
+                  boxShadow:"0 10px 40px rgba(15,23,42,0.08)",
                 }}
                 labelFormatter={(v: string) => formatAuditDate(String(v))}
               />
-              <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+              <Legend wrapperStyle={{fontSize:"12px",paddingTop:"12px"}} />
               <Line
                 type="monotone"
                 dataKey="geoReadinessScore"
                 name="GEO Readiness"
-                stroke={brandColor}
+                stroke="var(--brand-color)"
                 strokeWidth={2}
-                dot={{ r: isPdfMode ? 3 : 4 }}
-                activeDot={{ r: isPdfMode ? 4 : 5 }}
-                isAnimationActive={anim}
+                dot={{r:isPdfMode?3:4}}
+                activeDot={{r:isPdfMode?4:5}}
+                isAnimationActive={!isPdfMode}
               />
             </LineChart>
           </ResponsiveContainer>

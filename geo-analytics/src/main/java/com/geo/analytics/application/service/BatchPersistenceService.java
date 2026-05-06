@@ -25,13 +25,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * ジョブ／監査などバッチ系テーブルへの JDBC アクセス。{@code batchTransactionManager} 上のトランザクションで実行される。
- *
- * <p>{@link GlobalAccess} を型に付与し、{@code @Scheduled} や非同期コールバックなどテナント未束縛の経路からの DB アクセスを
- * {@link com.geo.analytics.infrastructure.persistence.RlsConnectionInterceptor} が拒否しないようにする。
- * HTTP 等で {@link com.geo.analytics.infrastructure.tenant.TenantContextHolder} が束縛されている場合は、従来どおり RLS 用セッション変数が設定される。
- */
 @GlobalAccess
 @Service
 @Transactional("batchTransactionManager")
@@ -49,19 +42,18 @@ public class BatchPersistenceService {
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
-     */
     private static Integer normalizedAiCitationPosition(Integer position) {
         return (position != null && position > 0) ? position : null;
     }
 
     private static final String JOB_COLS =
             "id, tenant_id, project_id, job_status, subscription_plan, "
-            + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
-            + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
-            + "job_diagnostic_message, job_recommended_actions, gap_batch_idempotency_key, "
-            + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed";
+                    + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
+                    + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
+                    + "job_diagnostic_message, job_recommended_actions, gap_batch_idempotency_key, "
+                    + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed, "
+                    + "self_rubric_audit_json, competitor_rubric_audits_json, self_crawled_page_json, "
+                    + "meo_review_count, meo_average_stars, emotional_alert";
 
     public JobEntity findJobById(UUID jobId) {
         return jdbc.queryForObject(
@@ -403,6 +395,22 @@ public class BatchPersistenceService {
         job.setCreateIdempotencyKey(rs.getObject("create_idempotency_key", UUID.class));
         job.setGapAnalysisGeminiJobName(rs.getString("gap_analysis_gemini_job_name"));
         job.setGapAnalysisCompleted(rs.getBoolean("gap_analysis_completed"));
+        job.setSelfRubricAuditJson(rs.getString("self_rubric_audit_json"));
+        job.setCompetitorRubricAuditsJson(rs.getString("competitor_rubric_audits_json"));
+        job.setSelfCrawledPageJson(rs.getString("self_crawled_page_json"));
+        int mc = rs.getInt("meo_review_count");
+        if (rs.wasNull()) {
+            job.setMeoReviewCount(null);
+        } else {
+            job.setMeoReviewCount(mc);
+        }
+        double mas = rs.getDouble("meo_average_stars");
+        if (rs.wasNull()) {
+            job.setMeoAverageStars(null);
+        } else {
+            job.setMeoAverageStars(mas);
+        }
+        job.setEmotionalAlertJson(rs.getString("emotional_alert"));
         return job;
     }
 

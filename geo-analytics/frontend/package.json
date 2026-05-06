@@ -9,19 +9,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "dompurify": "^3.2.4",
-    "lucide-react": "^0.460.0",
-    "recharts": "^2.13.3",
-    "@microsoft/fetch-event-source": "^2.0.1",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@mui/icons-material": "^5.15.10",
     "@mui/material": "^5.15.10",
     "@stomp/stompjs": "^7.0.0",
+    "dompurify": "^3.2.4",
+    "lucide-react": "^0.460.0",
+    "marked": "^14.1.4",
     "partial-json": "^0.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
+    "recharts": "^2.13.3",
     "sockjs-client": "^1.6.1"
   },
   "devDependencies": {

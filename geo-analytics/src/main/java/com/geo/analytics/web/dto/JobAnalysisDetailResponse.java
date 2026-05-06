@@ -1,4 +1,5 @@
 package com.geo.analytics.web.dto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -19,8 +20,19 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("job_summary_recommended_actions") List<String> jobSummaryRecommendedActions,
     @JsonProperty("job_median_modified_z") Double jobMedianModifiedZ,
     @JsonProperty("job_median_visibility_stage") Integer jobMedianVisibilityStage,
-    List<ResultDetailResponse> results
+    List<ResultDetailResponse> results,
+    @JsonProperty("fact_based_score") Double factBasedScore,
+    @JsonProperty("rubric_gaps") List<String> rubricGaps,
+    @JsonProperty("score_breakdown") ScoreBreakdown scoreBreakdown,
+    @JsonProperty("remediation_tasks") List<RemediationTaskResponse> remediationTasks,
+    @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert
 ) {
+    public JobAnalysisDetailResponse {
+        jobSummaryRecommendedActions =
+                jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of();
+        rubricGaps = rubricGaps != null ? List.copyOf(rubricGaps) : List.of();
+        remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
+    }
     public static JobAnalysisDetailResponse from(
             JobEntity jobEntity,
             ProjectEntity projectEntity,
@@ -28,10 +40,16 @@ public record JobAnalysisDetailResponse(
             String jobSummaryDiagnostic,
             List<String> jobSummaryRecommendedActions,
             Double jobMedianModifiedZ,
-            Integer jobMedianVisibilityStage) {
+            Integer jobMedianVisibilityStage,
+            Double factBasedScore,
+            List<String> rubricGaps,
+            ScoreBreakdown scoreBreakdown,
+            List<RemediationTaskResponse> remediationTasks,
+            ObjectMapper objectMapper) {
         JobProjectResponse projectResponse = projectEntity != null ? JobProjectResponse.from(projectEntity) : null;
         String bc = resolveBrandColor(jobEntity, projectEntity);
         String logo = resolveLogoUrl(jobEntity, projectEntity);
+        EmotionalAlertPayload emotionalAlert = parseEmotionalAlertJson(jobEntity.getEmotionalAlertJson(), objectMapper);
         return new JobAnalysisDetailResponse(
             jobEntity.getId(),
             jobEntity.getJobStatus().name(),
@@ -44,7 +62,23 @@ public record JobAnalysisDetailResponse(
             jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of(),
             jobMedianModifiedZ,
             jobMedianVisibilityStage,
-            resultDetails);
+            resultDetails,
+            factBasedScore,
+            rubricGaps,
+            scoreBreakdown,
+            remediationTasks != null ? List.copyOf(remediationTasks) : List.of(),
+            emotionalAlert);
+    }
+
+    private static EmotionalAlertPayload parseEmotionalAlertJson(String json, ObjectMapper objectMapper) {
+        if (json == null || json.isBlank() || objectMapper == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, EmotionalAlertPayload.class);
+        } catch (Exception exception) {
+            return null;
+        }
     }
     private static String resolveBrandColor(JobEntity jobEntity, ProjectEntity projectEntity) {
         String j = jobEntity.getBrandColor();

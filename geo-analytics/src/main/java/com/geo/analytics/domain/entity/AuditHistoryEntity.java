@@ -69,6 +69,9 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @Column(name = "recommended_actions")
     private List<String> recommendedActions;
     @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "job_recommended_actions", columnDefinition = "jsonb")
+    private String jobRecommendedActionsJson;
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "model_insights")
     private String modelInsightsJson;
     @OneToMany(mappedBy = "auditHistory", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -198,6 +201,12 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setRecommendedActions(List<String> recommendedActions) {
         this.recommendedActions = recommendedActions;
+    }
+    public String getJobRecommendedActionsJson() {
+        return jobRecommendedActionsJson;
+    }
+    public void setJobRecommendedActionsJson(String jobRecommendedActionsJson) {
+        this.jobRecommendedActionsJson = jobRecommendedActionsJson;
     }
     public String getModelInsightsJson() {
         return modelInsightsJson;

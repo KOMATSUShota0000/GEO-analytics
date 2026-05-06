@@ -1,12 +1,19 @@
 package com.geo.analytics.application.service;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.enums.RubricCriterionId;
+import com.geo.analytics.domain.model.RemediationTask;
+import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.entity.JobCompetitorScoreEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -15,9 +22,13 @@ import com.geo.analytics.domain.model.PlanLimitsSnapshot;
 import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
+import com.geo.analytics.infrastructure.repository.AuditRubricResultRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
+import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
+import com.geo.analytics.web.dto.RemediationTaskResponse;
+import com.geo.analytics.web.dto.ScoreBreakdown;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -31,45 +42,69 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.ScopedValue;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 @Service
 @Transactional(readOnly = true)
 public class JobPersistenceService {
+    private static final Logger log = LoggerFactory.getLogger(JobPersistenceService.class);
+    private static final int STACK_TRACE_LIMIT = 20_000;
+    private static final TypeReference<List<RemediationTask>> REMEDIATION_LIST_TYPE = new TypeReference<>() {};
+
     public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
+    public record JobAnalysisAttachment(ScoreBreakdown scoreBreakdown, List<RemediationTaskResponse> remediationTasks) {
+        public JobAnalysisAttachment {
+            remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
+        }
+    }
     private final JobRepository jobRepository;
     private final QueryRepository queryRepository;
     private final AuditHistoryRepository auditHistoryRepository;
+    private final AuditRubricResultRepository auditRubricResultRepository;
     private final ProjectRepository projectRepository;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectManagementService projectManagementService;
     private final JdbcTemplate batchJdbcTemplate;
     private final StrategyInsightService strategyInsightService;
     private final JsonbOperations jsonbOperations;
+    private final WorkspaceRepository workspaceRepository;
+    private final ObjectMapper objectMapper;
     public JobPersistenceService(
             JobRepository jobRepository,
             QueryRepository queryRepository,
             AuditHistoryRepository auditHistoryRepository,
+            AuditRubricResultRepository auditRubricResultRepository,
             ProjectRepository projectRepository,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectManagementService projectManagementService,
             @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
             StrategyInsightService strategyInsightService,
-            JsonbOperations jsonbOperations) {
+            JsonbOperations jsonbOperations,
+            WorkspaceRepository workspaceRepository,
+            ObjectMapper objectMapper) {
         this.jobRepository = jobRepository;
         this.queryRepository = queryRepository;
         this.auditHistoryRepository = auditHistoryRepository;
+        this.auditRubricResultRepository = auditRubricResultRepository;
         this.projectRepository = projectRepository;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectManagementService = projectManagementService;
         this.batchJdbcTemplate = batchJdbcTemplate;
         this.strategyInsightService = strategyInsightService;
         this.jsonbOperations = jsonbOperations;
+        this.workspaceRepository = workspaceRepository;
+        this.objectMapper = objectMapper;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
         List<String> rows = batchJdbcTemplate.query(
@@ -80,6 +115,20 @@ public class JobPersistenceService {
             return DefaultTenantIds.WORKSPACE_ID;
         }
         return UUID.fromString(rows.get(0));
+    }
+    private SubscriptionPlan readSubscriptionPlanForJob(UUID jobId) {
+        List<String> rows = batchJdbcTemplate.query(
+                "SELECT subscription_plan FROM jobs WHERE id = ?",
+                ps -> ps.setObject(1, jobId),
+                (rs, rowNum) -> rs.getString(1));
+        if (rows.isEmpty()) {
+            return SubscriptionPlan.STANDARD;
+        }
+        String pl = rows.get(0);
+        if (pl == null || pl.isBlank()) {
+            return SubscriptionPlan.STANDARD;
+        }
+        return SubscriptionPlan.valueOf(pl);
     }
     private UUID readWorkspaceIdForProject(UUID projectId) {
         List<String> rows = batchJdbcTemplate.query(
@@ -140,6 +189,132 @@ public class JobPersistenceService {
         UUID tenantId = readWorkspaceIdForQuery(queryId);
         return TenantPlanScope.executeWithTenant(tenantId, () -> queryRepository.findById(queryId));
     }
+    public JobAnalysisAttachment loadJobAnalysisAttachment(UUID jobId, List<AuditHistoryEntity> audits) {
+        if (jobId == null) {
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+        }
+        if (audits == null || audits.isEmpty()) {
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+        }
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantPlanScope.executeWithTenant(tenantId, () -> buildAttachment(audits));
+    }
+
+    private JobAnalysisAttachment buildAttachment(List<AuditHistoryEntity> audits) {
+        AuditHistoryEntity latest = audits.stream()
+                .filter(Objects::nonNull)
+                .max(Comparator.comparing(
+                                AuditHistoryEntity::getAuditDate, Comparator.nullsFirst(Comparator.naturalOrder()))
+                        .thenComparing(
+                                AuditHistoryEntity::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElse(null);
+        if (latest == null || latest.getId() == null) {
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+        }
+        UUID auditHistoryId = latest.getId();
+        List<AuditRubricResultEntity> rubricRows;
+        try {
+            rubricRows = auditRubricResultRepository.findByAuditHistoryId(auditHistoryId);
+        } catch (RuntimeException runtimeException) {
+            log.error(
+                    "job_analysis_attachment_rubric_load_failed jobId={} auditHistoryId={} trace={}",
+                    latest.getJobId(),
+                    auditHistoryId,
+                    truncateStackTrace(runtimeException));
+            rubricRows = List.of();
+        }
+        ScoreBreakdown breakdown = computeBreakdown(rubricRows);
+        List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
+        return new JobAnalysisAttachment(breakdown, tasks);
+    }
+
+    private static ScoreBreakdown computeBreakdown(List<AuditRubricResultEntity> rubricRows) {
+        if (rubricRows == null || rubricRows.isEmpty()) {
+            return ScoreBreakdown.empty();
+        }
+        double aiAuditTotal = 0.0d;
+        double meoTotal = 0.0d;
+        double machineReadabilityTotal = 0.0d;
+        for (int i = 0; i < rubricRows.size(); i++) {
+            AuditRubricResultEntity row = rubricRows.get(i);
+            if (row == null || !row.isSelf()) {
+                continue;
+            }
+            RubricCriterionId criterion = parseCriterion(row.getCriterionId());
+            if (criterion == null) {
+                continue;
+            }
+            BigDecimal scoreBd = row.getScore();
+            if (scoreBd == null) {
+                continue;
+            }
+            double score = scoreBd.doubleValue();
+            switch (criterion.source()) {
+                case LLM -> aiAuditTotal = StrictMath.fma(score, 1.0d, aiAuditTotal);
+                case SYSTEM -> machineReadabilityTotal = StrictMath.fma(score, 1.0d, machineReadabilityTotal);
+                case MEO -> meoTotal = StrictMath.fma(score, 1.0d, meoTotal);
+            }
+        }
+        double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
+                aiAuditTotal, meoTotal, machineReadabilityTotal);
+        return new ScoreBreakdown(aiAuditTotal, meoTotal, machineReadabilityTotal, finalScore);
+    }
+
+    private List<RemediationTaskResponse> parseRemediationTasks(AuditHistoryEntity history) {
+        if (history == null) {
+            return List.of();
+        }
+        String json = history.getJobRecommendedActionsJson();
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<RemediationTask> parsed = objectMapper.readValue(json, REMEDIATION_LIST_TYPE);
+            if (parsed == null || parsed.isEmpty()) {
+                return List.of();
+            }
+            ArrayList<RemediationTaskResponse> out = new ArrayList<>(parsed.size());
+            for (int i = 0; i < parsed.size(); i++) {
+                RemediationTask task = parsed.get(i);
+                RemediationTaskResponse mapped = RemediationTaskResponse.from(task);
+                if (mapped != null) {
+                    out.add(mapped);
+                }
+            }
+            return List.copyOf(out);
+        } catch (Exception exception) {
+            log.error(
+                    "job_analysis_attachment_remediation_parse_failed auditHistoryId={} trace={}",
+                    history.getId(),
+                    truncateStackTrace(exception));
+            return List.of();
+        }
+    }
+
+    private static RubricCriterionId parseCriterion(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            return RubricCriterionId.valueOf(name);
+        } catch (IllegalArgumentException illegalArgumentException) {
+            return null;
+        }
+    }
+
+    private static String truncateStackTrace(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        StringWriter stringWriter = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(stringWriter));
+        String full = stringWriter.toString();
+        if (full.length() <= STACK_TRACE_LIMIT) {
+            return full;
+        }
+        return full.substring(0, STACK_TRACE_LIMIT);
+    }
+
     public List<AuditHistoryEntity> findResultsByJobId(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         return TenantPlanScope.executeWithTenant(tenantId, () -> auditHistoryRepository.findByJobId(jobId));
@@ -248,9 +423,6 @@ public class JobPersistenceService {
         });
     }
 
-    /**
-     * {@code chk_*_ai_citation_position_geo} は NULL または &gt;= 1 のみ許可。AI 仕様上の「該当なし」は 0 のため DB では NULL に正規化する。
-     */
     private static Integer normalizedAiCitationPosition(Integer position) {
         return (position != null && position > 0) ? position : null;
     }
@@ -286,19 +458,11 @@ public class JobPersistenceService {
             auditHistoryRepository.save(entity);
         }));
     }
-    /**
-     * ジョブ作成は書き込みを伴うため {@code readOnly = false} を明示する。
-     * {@link Propagation#NOT_SUPPORTED} はトランザクションを停止させるため、RLS 防衛線（トランザクション必須）と両立しない。
-     */
     @Transactional(readOnly = false)
     public JobEntity createJob(String brandName) {
         return createJobWithIdempotency(brandName, null).jobEntity();
     }
 
-    /**
-     * プロジェクト解決・冪等検索・ジョブ永続化までを同一トランザクションで行う。
-     * 親で INSERT した {@code projects} を子 TX が参照できない {@code REQUIRES_NEW} は使わない。
-     */
     @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
@@ -308,9 +472,6 @@ public class JobPersistenceService {
         return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, workspaceId, orgId);
     }
 
-    /**
-     * 永続化済みのクエリ提案が属するワークスペース内でジョブを作成（または冪等キーで既存を返却）する。
-     */
     @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey, UUID workspaceId) {
         String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
@@ -429,6 +590,49 @@ public class JobPersistenceService {
             jobEntity.setJobStatus(newJobStatus);
             jobEntity.setErrorMessage(errorMessage);
             jobRepository.save(jobEntity);
+        });
+    }
+    @Transactional
+    public void persistJobBenchmarkSnapshot(
+            UUID jobId,
+            String selfRubricJson,
+            String competitorRubricsJson,
+            String selfCrawlJson,
+            Integer meoReviewCount,
+            Double meoAverageStars) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        SubscriptionPlan plan = readSubscriptionPlanForJob(jobId);
+        UUID orgId =
+                workspaceRepository.findById(tenantId).map(WorkspaceEntity::getOrganizationId).orElse(
+                        DefaultTenantIds.DEFAULT_ORGANIZATION_ID);
+        TenantPlanScope.executeWithTenantOrganizationAndPlan(tenantId, orgId, plan, () -> {
+            JobEntity entity =
+                    jobRepository
+                            .findById(jobId)
+                            .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            entity.setSelfRubricAuditJson(selfRubricJson);
+            entity.setCompetitorRubricAuditsJson(competitorRubricsJson);
+            entity.setSelfCrawledPageJson(selfCrawlJson);
+            entity.setMeoReviewCount(meoReviewCount);
+            entity.setMeoAverageStars(meoAverageStars);
+            jobRepository.save(entity);
+        });
+    }
+    @Transactional
+    public void saveJobEmotionalAlert(UUID jobId, String alertJson) {
+        if (jobId == null) {
+            throw new IllegalArgumentException("jobId");
+        }
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        SubscriptionPlan plan = readSubscriptionPlanForJob(jobId);
+        UUID orgId =
+                workspaceRepository.findById(tenantId).map(WorkspaceEntity::getOrganizationId).orElse(
+                        DefaultTenantIds.DEFAULT_ORGANIZATION_ID);
+        TenantPlanScope.executeWithTenantOrganizationAndPlan(tenantId, orgId, plan, () -> {
+            JobEntity entity =
+                    jobRepository.findById(jobId).orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            entity.setEmotionalAlertJson(alertJson);
+            jobRepository.save(entity);
         });
     }
     public String loadTargetUrlForProject(UUID projectId) {

@@ -3,13 +3,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.JobStompStatusPayload;
 import com.geo.analytics.application.dto.PdfWhiteLabelInjection;
-import com.geo.analytics.application.port.PdfBrowserAuthHeaders;
 import com.geo.analytics.application.port.PdfReportPort;
-import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
-import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -38,7 +34,7 @@ import java.util.concurrent.TimeoutException;
 @Service
 public class AsyncPdfReportService {
     private static final Logger log = LoggerFactory.getLogger(AsyncPdfReportService.class);
-    private static final int MAX_STACK_CHARS = 4096;
+    private static final int STACK_TRACE_LIMIT = 20_000;
     private static final int PDF_RENDER_WALL_SECONDS = 180;
     private static final Executor PDF_RENDER_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final PdfReportPort pdfReportPort;
@@ -51,8 +47,8 @@ public class AsyncPdfReportService {
     private final StrategyInsightService strategyInsightService;
     private final ObjectMapper objectMapper;
     private final Semaphore pdfPlaywrightSemaphore;
-    private final SessionManagementService sessionManagementService;
-    private final TokenService tokenService;
+    private final PdfBrowserTokenIssuer pdfBrowserTokenIssuer;
+    private final PdfAuditService pdfAuditService;
     public AsyncPdfReportService(
             PdfReportPort pdfReportPort,
             BatchPersistenceService batchPersistence,
@@ -61,16 +57,16 @@ public class AsyncPdfReportService {
             StrategyInsightService strategyInsightService,
             ObjectMapper objectMapper,
             AppProperties appProperties,
-            SessionManagementService sessionManagementService,
-            TokenService tokenService) {
+            PdfBrowserTokenIssuer pdfBrowserTokenIssuer,
+            PdfAuditService pdfAuditService) {
         this.pdfReportPort = pdfReportPort;
         this.batchPersistence = batchPersistence;
         this.pdfStorageConfig = pdfStorageConfig;
         this.simpMessagingTemplate = simpMessagingTemplate;
         this.strategyInsightService = strategyInsightService;
         this.objectMapper = objectMapper;
-        this.sessionManagementService = sessionManagementService;
-        this.tokenService = tokenService;
+        this.pdfBrowserTokenIssuer = pdfBrowserTokenIssuer;
+        this.pdfAuditService = pdfAuditService;
         AppProperties.Pdf pdf = appProperties.getPdf();
         this.internalToken = pdf.getInternalToken();
         this.defaultBrandColor = pdf.getDefaultBrandColor();
@@ -132,12 +128,14 @@ public class AsyncPdfReportService {
                     logoUrl,
                     jobEntity.getBrandName(),
                     pdfContextJson);
-                PdfBrowserAuthHeaders browserAuth = buildPdfBrowserAuthHeaders(workspaceId);
+                TenantIdentity tenantIdentity = pdfBrowserTokenIssuer.buildTenantIdentityForWorkspace(workspaceId);
                 pdfPlaywrightSemaphore.acquireUninterruptibly();
                 byte[] pdfBytes;
                 try {
                     pdfBytes = CompletableFuture.supplyAsync(
-                        () -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection, browserAuth),
+                        () -> ScopedValue
+                            .where(TenantContextHolder.CONTEXT, tenantIdentity)
+                            .call(() -> pdfReportPort.renderPrintRoutePdf(jobId, internalToken, injection)),
                         PDF_RENDER_EXECUTOR)
                         .get(PDF_RENDER_WALL_SECONDS, TimeUnit.SECONDS);
                 } finally {
@@ -147,6 +145,7 @@ public class AsyncPdfReportService {
                 Files.write(targetPath, pdfBytes);
                 String absolutePath = targetPath.toAbsolutePath().normalize().toString();
                 batchPersistence.markPdfCompleted(jobId, absolutePath);
+                recordPdfAuditSafely(jobId, tenantIdentity, pdfBytes.length);
                 broadcastPdfStatus(jobId);
             } catch (TimeoutException timeoutException) {
                 log.error("PDF generation wall-clock timeout jobId={} seconds={}", jobId, PDF_RENDER_WALL_SECONDS, timeoutException);
@@ -170,9 +169,9 @@ public class AsyncPdfReportService {
     }
     private void logPdfRenderFailureAndMark(UUID jobId, Throwable throwable) {
         if (throwable instanceof TimeoutError timeoutError) {
-            log.error("PDF Playwright timeout jobId={}", jobId, timeoutError);
+            log.error("PDF Playwright timeout jobId={} trace={}", jobId, truncateStackTrace(timeoutError));
         } else if (throwable instanceof PlaywrightException playwrightException) {
-            log.error("Playwright PDF generation failed jobId={}", jobId, playwrightException);
+            log.error("Playwright PDF generation failed jobId={} trace={}", jobId, truncateStackTrace(playwrightException));
         } else {
             String truncated = truncateStackTrace(
                 throwable instanceof Exception exception ? exception : new RuntimeException(throwable));
@@ -184,11 +183,22 @@ public class AsyncPdfReportService {
         try {
             batchPersistence.markPdfFailed(jobId);
         } catch (Exception publishException) {
-            log.error("PDF failure state update failed jobId={}", jobId, publishException);
+            log.error("PDF failure state update failed jobId={} trace={}", jobId, truncateStackTrace(publishException));
         }
         broadcastPdfStatus(jobId);
     }
-
+    private void recordPdfAuditSafely(UUID jobId, TenantIdentity tenantIdentity, int pdfBytes) {
+        try {
+            ScopedValue
+                .where(TenantContextHolder.CONTEXT, tenantIdentity)
+                .run(() -> pdfAuditService.recordSuccessfulExport(jobId, pdfBytes));
+        } catch (RuntimeException runtimeException) {
+            log.error(
+                "pdf_audit_record_failed jobId={} trace={}",
+                jobId,
+                truncateStackTrace(runtimeException));
+        }
+    }
     private void broadcastPdfStatus(UUID jobId) {
         try {
             batchPersistence.findJobByIdOptional(jobId).ifPresent(job -> {
@@ -197,48 +207,9 @@ public class AsyncPdfReportService {
                 simpMessagingTemplate.convertAndSend("/topic/jobs/" + jobId, payload);
             });
         } catch (Exception e) {
-            log.warn("PDF status broadcast failed jobId={}", jobId, e);
+            log.warn("PDF status broadcast failed jobId={} trace={}", jobId, truncateStackTrace(e));
         }
     }
-    private PdfBrowserAuthHeaders buildPdfBrowserAuthHeaders(UUID workspaceId) {
-        try {
-            UUID orgId = resolveOrganizationIdForWorkspace(workspaceId);
-            return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, workspaceId, null))
-                    .call(
-                            () -> {
-                                var userInfo =
-                                        batchPersistence
-                                                .findFirstActiveOrgUser(orgId)
-                                                .orElseThrow(
-                                                        () -> new IllegalStateException(
-                                                                "PDF生成用の有効なユーザーが組織内に見つかりません: orgId="
-                                                                        + orgId));
-                                OrganizationUser user = new OrganizationUser();
-                                user.setId(userInfo.id());
-                                user.setEmail(userInfo.email());
-                                user.setPasswordHash(userInfo.passwordHash());
-                                user.setOrganizationId(orgId);
-                                UUID sessionId =
-                                        sessionManagementService.appendRenderingSession(user.getId());
-                                String jwt = tokenService.generateAccessToken(user, sessionId);
-                                return new PdfBrowserAuthHeaders("Bearer " + jwt, workspaceId.toString());
-                            });
-        } catch (IllegalStateException illegalStateException) {
-            throw illegalStateException;
-        } catch (Exception exception) {
-            log.warn("pdf_browser_auth failed workspaceId={}", workspaceId, exception);
-            return PdfBrowserAuthHeaders.NONE;
-        }
-    }
-
-    private UUID resolveOrganizationIdForWorkspace(UUID workspaceId) {
-        if (DefaultTenantIds.WORKSPACE_ID.equals(workspaceId)) {
-            return DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
-        }
-        return batchPersistence.findWorkspaceOrganizationId(workspaceId)
-                .orElseThrow(() -> new IllegalStateException("workspace not found: " + workspaceId));
-    }
-
     private static String pickFirstNonBlank(String a, String b, String fallback) {
         if (a != null && !a.isBlank()) {
             return a;
@@ -249,12 +220,15 @@ public class AsyncPdfReportService {
         return fallback != null ? fallback : "";
     }
     private static String truncateStackTrace(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
         StringWriter stringWriter = new StringWriter();
         throwable.printStackTrace(new PrintWriter(stringWriter));
         String full = stringWriter.toString();
-        if (full.length() <= MAX_STACK_CHARS) {
+        if (full.length() <= STACK_TRACE_LIMIT) {
             return full;
         }
-        return full.substring(0, MAX_STACK_CHARS);
+        return full.substring(0, STACK_TRACE_LIMIT);
     }
 }

@@ -2,8 +2,13 @@ import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
 import { AnalysisCharts } from "../components/AnalysisCharts";
+import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
+import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
+import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
+import CircularProgress from "@mui/material/CircularProgress";
 import { useJobNotification } from "../hooks/useJobNotification";
 import { useJobStreaming } from "../hooks/useJobStreaming";
 import {
@@ -599,11 +604,13 @@ export function JobAnalysisPage(): JSX.Element {
             </button>
           )}
           {isPdfGeneratingUi && (
-            <span className="inline-flex items-center gap-2 text-sm text-slate-600">
-              <span
-                className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
-                aria-hidden
-              />
+            <span
+              className="inline-flex items-center gap-2 text-sm text-slate-600"
+              aria-live="polite"
+              aria-busy="true"
+              role="status"
+            >
+              <CircularProgress size={16} thickness={5} sx={{color:"#0284c7"}} aria-hidden />
               生成中…
             </span>
           )}
@@ -635,26 +642,36 @@ export function JobAnalysisPage(): JSX.Element {
           </button>
         </div>
       )}
-      {showJobStrategyBlock && (
-        <div className="pdf-avoid-break pdf-no-print mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
-          {displayJobRollupMedZ != null && (
-            <p className="mt-1 text-xs text-sky-900/80">
-              中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
-            </p>
-          )}
-          {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
-            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
-          ) : null}
-          {displayJobRollupActions.length > 0 ? (
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
-              {displayJobRollupActions.map((action, idx) => (
-                <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      )}
+      {data != null &&
+        isCompletedJobStatus(data.jobStatus) &&
+        data.rubricGaps != null &&
+        data.rubricGaps.length > 0 && (
+          <EmotionalAlertBanner
+            alerts={buildEmotionalAlerts(data.rubricGaps, data.project?.industryType ?? "OTHER")}
+          />
+        )}
+      <div id="next-action-section" className="scroll-mt-28 pdf-no-print">
+        {showJobStrategyBlock && (
+          <div className="pdf-avoid-break mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+            {displayJobRollupMedZ != null && (
+              <p className="mt-1 text-xs text-sky-900/80">
+                中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
+              </p>
+            )}
+            {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
+              <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
+            ) : null}
+            {displayJobRollupActions.length > 0 ? (
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
+                {displayJobRollupActions.map((action, idx) => (
+                  <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+      </div>
       {showTierBlock && (
         <div className="pdf-avoid-break mb-6">
           <TierDiagnosisCard
@@ -664,6 +681,18 @@ export function JobAnalysisPage(): JSX.Element {
           />
         </div>
       )}
+      {data && data.scoreBreakdown != null && (
+        <div className="pdf-avoid-break mb-6">
+          <GeoScoreBreakdown breakdown={data.scoreBreakdown} brandName={data.brandName} />
+        </div>
+      )}
+      {data &&
+        Array.isArray(data.remediationTasks) &&
+        data.remediationTasks.length > 0 && (
+          <div className="pdf-avoid-break mb-6">
+            <RemediationTaskBoard tasks={data.remediationTasks} />
+          </div>
+        )}
       {showCharts &&
         (isProcessingDisplay ||
           (data !== null && isCompletedJobStatus(data.jobStatus))) && (

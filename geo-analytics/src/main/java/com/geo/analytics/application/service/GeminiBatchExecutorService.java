@@ -28,18 +28,21 @@ public class GeminiBatchExecutorService {
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
+    private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
             BatchPersistenceService batchPersistence,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
-            PlanBasedQuotaManager planBasedQuotaManager) {
+            PlanBasedQuotaManager planBasedQuotaManager,
+            JobBenchmarkCaptureService jobBenchmarkCaptureService) {
         this.geminiBatchClient = geminiBatchClient;
         this.batchPersistence = batchPersistence;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
+        this.jobBenchmarkCaptureService = jobBenchmarkCaptureService;
     }
 
     @Async
@@ -50,6 +53,7 @@ public class GeminiBatchExecutorService {
             List<QueryEntity> unprocessedQueryEntities =
                 batchPersistence.findUnprocessedQueriesByJobId(jobEntity.getId());
             if (unprocessedQueryEntities.isEmpty()) {
+                jobBenchmarkCaptureService.capture(jobEntity.getId());
                 batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                 JobEntity emptyJobEntity = batchPersistence.findJobById(jobEntity.getId());
                 jobStatusBroadcastPublisher.publish(emptyJobEntity);

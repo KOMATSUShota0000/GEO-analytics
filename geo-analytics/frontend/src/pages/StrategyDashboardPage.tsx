@@ -8,16 +8,16 @@ import { Link, useParams } from "react-router-dom";
 
 function localIsoDate(d: Date): string {
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
   return `${y}-${m}-${day}`;
 }
 
-function defaultRange(): { from: string; to: string } {
+function defaultRange(): {from: string; to: string} {
   const to = new Date();
   const from = new Date(to);
-  from.setDate(from.getDate() - 90);
-  return { from: localIsoDate(from), to: localIsoDate(to) };
+  from.setDate(from.getDate()-90);
+  return {from: localIsoDate(from), to: localIsoDate(to)};
 }
 
 function usePrintSnapshot(): boolean {
@@ -40,23 +40,55 @@ function usePrintSnapshot(): boolean {
 }
 
 export default function StrategyDashboardPage(): JSX.Element {
-  const { projectId = "" } = useParams<{ projectId: string }>();
-  const { toolName, logoBlobUrl, brandColor } = useBranding();
+  const {projectId = ""} = useParams<{projectId: string}>();
+  const {toolName, logoBlobUrl, brandColor} = useBranding();
   const range = useMemo(() => defaultRange(), []);
-  const { data, loading, error } = useProjectAssetSnapshots(projectId, range.from, range.to);
+  const {data, loading, error} = useProjectAssetSnapshots(projectId, range.from, range.to);
   const isPdfMode = usePrintSnapshot();
+  const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
 
   const printedAt = useMemo(() => new Date().toLocaleString("ja-JP"), []);
+
+  useEffect(() => {
+    if (loading || error != null) {
+      setPdfReadyFlag(false);
+      return;
+    }
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        setPdfReadyFlag(true);
+      });
+    });
+    return () => {
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
+  }, [loading, error, data]);
+
+  useEffect(() => {
+    if (!pdfReadyFlag) {
+      return;
+    }
+    const handle = window.requestAnimationFrame(() => {
+      const el = document.getElementById("pdf-ready-flag");
+      if (el == null) {
+        setPdfReadyFlag(false);
+      }
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [pdfReadyFlag]);
 
   return (
     <div className="min-h-screen bg-slate-50/80 pb-16 pt-8">
       <div
         className="strategy-dashboard-print-root mx-auto px-4 text-slate-900"
         style={{
-          width: "min(100%, 794px)",
-          maxWidth: "100%",
-          printColorAdjust: "exact",
-          WebkitPrintColorAdjust: "exact",
+          width:"min(100%,794px)",
+          maxWidth:"100%",
+          printColorAdjust:"exact",
+          WebkitPrintColorAdjust:"exact",
         }}
       >
         <nav className="pdf-no-print mb-6 text-sm text-slate-600">
@@ -104,6 +136,8 @@ export default function StrategyDashboardPage(): JSX.Element {
 
         <AbsoluteEvaluationSection data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
         <RelativeEvaluationSection />
+
+        {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
       </div>
     </div>
   );

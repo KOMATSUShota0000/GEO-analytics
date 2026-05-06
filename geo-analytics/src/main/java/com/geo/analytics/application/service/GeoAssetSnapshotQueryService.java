@@ -22,31 +22,45 @@ public class GeoAssetSnapshotQueryService {
     private final JdbcTemplate jdbcTemplate;
     private final GeoAssetSnapshotRepository geoAssetSnapshotRepository;
 
-    public GeoAssetSnapshotQueryService(JdbcTemplate jdbcTemplate, GeoAssetSnapshotRepository geoAssetSnapshotRepository) {
+    public GeoAssetSnapshotQueryService(
+            JdbcTemplate jdbcTemplate, GeoAssetSnapshotRepository geoAssetSnapshotRepository) {
         this.jdbcTemplate = jdbcTemplate;
         this.geoAssetSnapshotRepository = geoAssetSnapshotRepository;
     }
 
     public AssetSnapshotsChartResponse getChartData(UUID projectId, LocalDate from, LocalDate to) {
+        if (projectId == null) {
+            throw new IllegalArgumentException("projectId is required");
+        }
         if (from == null || to == null) {
             throw new IllegalArgumentException("from and to are required");
         }
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from must not be after to");
         }
-        UUID workspaceId = resolveWorkspaceId(projectId);
-        UUID currentTenant =
-                TenantContextHolder.getTenantId().orElseThrow(() -> new EntityNotFoundException("project"));
-        if (!workspaceId.equals(currentTenant)) {
-            throw new EntityNotFoundException("project");
-        }
-        List<AssetSnapshotChartPoint> points = TenantPlanScope.executeWithTenant(workspaceId, () -> mapSnapshots(projectId, from, to));
+        UUID workspaceId = TenantContextHolder
+                .getTenantId()
+                .orElseThrow(() -> new EntityNotFoundException("project"));
+        List<AssetSnapshotChartPoint> points = TenantPlanScope.executeWithTenant(workspaceId, () -> {
+            verifyProjectVisible(projectId);
+            return loadChartPoints(projectId, from, to);
+        });
         return new AssetSnapshotsChartResponse(points);
     }
 
-    private List<AssetSnapshotChartPoint> mapSnapshots(UUID projectId, LocalDate from, LocalDate to) {
-        List<GeoAssetSnapshotEntity> entities =
-                geoAssetSnapshotRepository.findByProjectIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(projectId, from, to);
+    private void verifyProjectVisible(UUID projectId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM projects WHERE id = ?",
+                Integer.class,
+                projectId);
+        if (count == null || count.intValue() == 0) {
+            throw new EntityNotFoundException("project");
+        }
+    }
+
+    private List<AssetSnapshotChartPoint> loadChartPoints(UUID projectId, LocalDate from, LocalDate to) {
+        List<GeoAssetSnapshotEntity> entities = geoAssetSnapshotRepository
+                .findByProjectIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(projectId, from, to);
         List<AssetSnapshotChartPoint> out = new ArrayList<>(entities.size());
         for (GeoAssetSnapshotEntity entity : entities) {
             out.add(new AssetSnapshotChartPoint(
@@ -55,20 +69,5 @@ public class GeoAssetSnapshotQueryService {
                     entity.getLocalTrustCount()));
         }
         return out;
-    }
-
-    private UUID resolveWorkspaceId(UUID projectId) {
-        List<String> rows = jdbcTemplate.query(
-                "SELECT tenant_id FROM projects WHERE id = ?",
-                ps -> ps.setObject(1, projectId),
-                (rs, rowNum) -> rs.getString(1));
-        if (rows.isEmpty()) {
-            throw new EntityNotFoundException("project");
-        }
-        String tenantId = rows.get(0);
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new EntityNotFoundException("project");
-        }
-        return UUID.fromString(tenantId);
     }
 }

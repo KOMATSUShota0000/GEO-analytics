@@ -19,6 +19,7 @@ public class Bucket4jConfiguration {
     public ProxyManager<String> rateLimitProxyManager() {
         @SuppressWarnings("unchecked")
         Caffeine<String, RemoteBucketState> caffeine =
+        // ダブルキャスト
                 (Caffeine<String, RemoteBucketState>) (Caffeine<?, ?>) Caffeine.newBuilder().maximumSize(10000L);
         return new CaffeineProxyManager<>(caffeine, Duration.ofDays(1L));
     }

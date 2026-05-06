@@ -2,6 +2,7 @@ package com.geo.analytics.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.AsyncPdfReportService;
+import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
@@ -62,6 +63,7 @@ public class JobController {
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ObjectMapper objectMapper;
     private final StrategyInsightService strategyInsightService;
+    private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -71,7 +73,8 @@ public class JobController {
             PdfStorageConfig pdfStorageConfig,
             JobStreamRegistryService jobStreamRegistryService,
             ObjectMapper objectMapper,
-            StrategyInsightService strategyInsightService) {
+            StrategyInsightService strategyInsightService,
+            JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -80,6 +83,7 @@ public class JobController {
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.objectMapper = objectMapper;
         this.strategyInsightService = strategyInsightService;
+        this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
     }
 
     @PostMapping
@@ -208,6 +212,9 @@ public class JobController {
             audits.stream()
                 .map(a -> ResultDetailResponse.from(a, strategyInsightService, medZ, plan))
                 .toList());
+        JobAnalysisBenchmarkAssembler.BenchmarkAttach bench = jobAnalysisBenchmarkAssembler.attach(jobEnt);
+        JobPersistenceService.JobAnalysisAttachment attachment =
+                jobPersistenceService.loadJobAnalysisAttachment(jobId, audits);
         return ResponseEntity.ok(JobAnalysisDetailResponse.from(
             jobEnt,
             aggregate.project(),
@@ -215,7 +222,12 @@ public class JobController {
             jobDiag,
             jobActs,
             medZ,
-            medSt));
+            medSt,
+            bench.factBasedScore(),
+            bench.rubricGaps(),
+            attachment.scoreBreakdown(),
+            attachment.remediationTasks(),
+            objectMapper));
     }
 
     @GetMapping("/{jobId}/results")

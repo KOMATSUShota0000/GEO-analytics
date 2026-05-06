@@ -100,7 +100,9 @@ public class PlaywrightWebCrawlerAdapter implements WebCrawlerPort {
                 List<String> schemaOrg = extractSchemaOrgJsonList(page);
                 Map<String, String> metaTags = extractMetaTagsFromPage(page);
                 String contentHash = DigestUtils.sha256Hex(mainContent.getBytes(StandardCharsets.UTF_8));
-                return new CrawledPageData(url, mainContent, contentHash, schemaOrg, metaTags);
+                boolean h1Ok = page.locator("h1").count() >= 1;
+                boolean h2Ok = page.locator("h2").count() >= 1;
+                return new CrawledPageData(url, mainContent, contentHash, schemaOrg, metaTags, h1Ok, h2Ok);
             } finally {
                 page.close();
             }
