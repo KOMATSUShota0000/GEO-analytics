@@ -2,7 +2,9 @@ import { useBranding } from "../branding/useBranding";
 import { AbsoluteEvaluationSection } from "../components/strategy/AbsoluteEvaluationSection";
 import { RelativeEvaluationSection } from "../components/strategy/RelativeEvaluationSection";
 import { LockedInsightCallout } from "../components/policy/LockedInsightCallout";
+import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { useProjectAssetSnapshots } from "../hooks/useProjectAssetSnapshots";
+import { useLatestEmotionalAlert } from "../hooks/useLatestEmotionalAlert";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -42,6 +44,7 @@ function usePrintSnapshot(): boolean {
 export default function StrategyDashboardPage(): JSX.Element {
   const {projectId = ""} = useParams<{projectId: string}>();
   const {toolName, logoBlobUrl, brandColor} = useBranding();
+  const { emotionalAlert } = useLatestEmotionalAlert(projectId);
   const range = useMemo(() => defaultRange(), []);
   const {data, loading, error} = useProjectAssetSnapshots(projectId, range.from, range.to);
   const isPdfMode = usePrintSnapshot();
@@ -122,6 +125,12 @@ export default function StrategyDashboardPage(): JSX.Element {
             </div>
           </div>
         </header>
+
+        {emotionalAlert != null ? (
+          <div className="pdf-no-print pdf-avoid-break mb-6">
+            <EmotionalAlertBanner payload={emotionalAlert} />
+          </div>
+        ) : null}
 
         <div className="pdf-no-print mb-6 rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
           <LockedInsightCallout message="🔒 基礎スコアが上位プランで開示されます（プレースホルダ）。" />

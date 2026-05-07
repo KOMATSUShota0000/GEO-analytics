@@ -6,6 +6,8 @@ import com.geo.analytics.domain.exception.CredentialsRevokedException;
 import com.geo.analytics.domain.exception.ForbiddenApiException;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
+import com.geo.analytics.domain.exception.TaskLockedException;
+import com.geo.analytics.domain.exception.TaskRegenerationTooManyRequestsException;
 import com.geo.analytics.domain.exception.SessionRevokedException;
 import com.geo.analytics.domain.exception.SystemMaintenanceException;
 import com.geo.analytics.domain.exception.TenantSuspendedException;
@@ -160,6 +162,29 @@ public class GlobalExceptionHandler {
         return json(
                 HttpStatus.SERVICE_UNAVAILABLE,
                 ApiErrorResponse.of("ai_analysis_timeout", exception.getMessage()));
+    }
+
+    @ExceptionHandler(TaskLockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleTaskLocked(TaskLockedException exception) {
+        logger.warn("task_locked");
+        return json(
+                HttpStatus.FORBIDDEN,
+                ApiErrorResponse.of(
+                        "task_locked", "このタスクはロックされているため再生成できません"));
+    }
+
+    @ExceptionHandler(TaskRegenerationTooManyRequestsException.class)
+    public ResponseEntity<ApiErrorResponse> handleTaskRegenerationTooMany(
+            TaskRegenerationTooManyRequestsException exception) {
+        logger.warn("Task regeneration rate limit: {}", exception.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, "60");
+        return json(
+                HttpStatus.TOO_MANY_REQUESTS,
+                headers,
+                ApiErrorResponse.of(
+                        "too_many_requests",
+                        "制限に達しました。1分後に再度お試しください。"));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)

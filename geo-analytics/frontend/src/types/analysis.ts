@@ -475,6 +475,39 @@ export interface RemediationTask {
   title: string;
   content: string;
   impactScore: number;
+  level: number;
+  requiredScoreThreshold: number;
+  isMasked: boolean;
+  targetSection?: string;
+}
+
+export type RemediationTaskTone = "PROFESSIONAL" | "FRIENDLY" | "AGGRESSIVE";
+
+export type EmotionalAlertLevel = "DANGER" | "WARNING" | "INFO";
+
+export interface EmotionalAlertPayload {
+  level: EmotionalAlertLevel;
+  message: string;
+  usedFallback: boolean;
+}
+
+export function parseEmotionalAlertPayload(raw: unknown): EmotionalAlertPayload | null {
+  if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const levelRaw = r.level;
+  if (levelRaw !== "DANGER" && levelRaw !== "WARNING" && levelRaw !== "INFO") {
+    return null;
+  }
+  const messageRaw = r.message;
+  const message = typeof messageRaw === "string" ? messageRaw.trim() : "";
+  if (message.length === 0) {
+    return null;
+  }
+  const uf = r.usedFallback !== undefined ? r.usedFallback : r.used_fallback;
+  const usedFallback = uf === true;
+  return { level: levelRaw, message, usedFallback };
 }
 
 export interface JobAnalysisDetail {
@@ -494,6 +527,7 @@ export interface JobAnalysisDetail {
   rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
   remediationTasks?: RemediationTask[];
+  emotionalAlert?: EmotionalAlertPayload | null;
 }
 
 function auditDateString(v: unknown): string | null {
@@ -759,6 +793,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
   const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
+  const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   return {
     jobId,
     jobStatus,
@@ -776,7 +811,20 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     rubricGaps,
     scoreBreakdown,
     remediationTasks,
+    ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
   };
+}
+
+function remediationCapsFromPriority(
+  priority: RemediationTaskPriority,
+): { level: number; requiredScoreThreshold: number } {
+  if (priority === "B") {
+    return { level: 1, requiredScoreThreshold: 0 };
+  }
+  if (priority === "A") {
+    return { level: 2, requiredScoreThreshold: 60 };
+  }
+  return { level: 3, requiredScoreThreshold: 80 };
 }
 
 function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
@@ -799,46 +847,79 @@ function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
   };
 }
 
+export function parseRemediationTaskItem(item: unknown): RemediationTask | null {
+  if (item === null || typeof item !== "object") {
+    return null;
+  }
+  const r = item as JsonDict;
+  const id = typeof r.id === "string" ? r.id : undefined;
+  const categoryRaw = typeof r.category === "string" ? r.category : undefined;
+  const priorityRaw = typeof r.priority === "string" ? r.priority : undefined;
+  const title = typeof r.title === "string" ? r.title : undefined;
+  const content = typeof r.content === "string" ? r.content : undefined;
+  const impactRaw = pickNum(r, "impactScore", "impact_score");
+  if (
+    id === undefined ||
+    categoryRaw === undefined ||
+    priorityRaw === undefined ||
+    title === undefined ||
+    content === undefined ||
+    impactRaw === undefined
+  ) {
+    return null;
+  }
+  if (categoryRaw !== "SPIKE" && categoryRaw !== "SLAB") {
+    return null;
+  }
+  if (priorityRaw !== "S" && priorityRaw !== "A" && priorityRaw !== "B") {
+    return null;
+  }
+  const tsRaw = r.targetSection !== undefined ? r.targetSection : r.target_section;
+  const sectionTrimmed =
+    typeof tsRaw === "string" ? tsRaw.trim() : "";
+  const caps = remediationCapsFromPriority(priorityRaw);
+  const levelParsed = pickNum(r, "level", "level");
+  const thresholdParsed = pickNum(r, "requiredScoreThreshold", "required_score_threshold");
+  const level = levelParsed !== undefined ? levelParsed : caps.level;
+  const requiredScoreThreshold =
+    thresholdParsed !== undefined ? thresholdParsed : caps.requiredScoreThreshold;
+  const maskedRaw = pickBool(r, "isMasked", "is_masked");
+  const isMasked = maskedRaw === true;
+  const targetSectionPayload =
+    sectionTrimmed.length > 0 ? ({ targetSection: sectionTrimmed } as const) : ({} as const);
+  return {
+    id,
+    category: categoryRaw,
+    priority: priorityRaw,
+    title,
+    content,
+    impactScore: impactRaw,
+    level,
+    requiredScoreThreshold,
+    isMasked,
+    ...targetSectionPayload,
+  };
+}
+
+export function parseTaskToneRegenerateEnvelope(raw: unknown): RemediationTask | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const t = r.task;
+  return parseRemediationTaskItem(t);
+}
+
 function parseRemediationTasks(raw: unknown): RemediationTask[] {
   if (!Array.isArray(raw)) {
     return [];
   }
   const out: RemediationTask[] = [];
   for (const item of raw) {
-    if (item === null || typeof item !== "object") {
-      continue;
+    const parsed = parseRemediationTaskItem(item);
+    if (parsed !== null) {
+      out.push(parsed);
     }
-    const r = item as JsonDict;
-    const id = typeof r.id === "string" ? r.id : undefined;
-    const categoryRaw = typeof r.category === "string" ? r.category : undefined;
-    const priorityRaw = typeof r.priority === "string" ? r.priority : undefined;
-    const title = typeof r.title === "string" ? r.title : undefined;
-    const content = typeof r.content === "string" ? r.content : undefined;
-    const impactRaw = pickNum(r, "impactScore", "impact_score");
-    if (
-      id === undefined ||
-      categoryRaw === undefined ||
-      priorityRaw === undefined ||
-      title === undefined ||
-      content === undefined ||
-      impactRaw === undefined
-    ) {
-      continue;
-    }
-    if (categoryRaw !== "SPIKE" && categoryRaw !== "SLAB") {
-      continue;
-    }
-    if (priorityRaw !== "S" && priorityRaw !== "A" && priorityRaw !== "B") {
-      continue;
-    }
-    out.push({
-      id,
-      category: categoryRaw,
-      priority: priorityRaw,
-      title,
-      content,
-      impactScore: impactRaw,
-    });
   }
   return out;
 }

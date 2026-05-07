@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
 import com.geo.analytics.application.service.JobPersistenceService;
+import com.geo.analytics.application.service.TaskRegenerationService;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
 import com.geo.analytics.application.service.JobStreamRegistryService;
@@ -22,7 +23,11 @@ import com.geo.analytics.web.dto.JobStatusResponse;
 import com.geo.analytics.web.dto.ResultDetailRanking;
 import com.geo.analytics.web.dto.ResultDetailResponse;
 import com.geo.analytics.web.dto.ResultSummaryResponse;
+import com.geo.analytics.web.dto.RemediationTaskResponse;
+import com.geo.analytics.web.dto.RemediationTaskResponseMask;
 import com.geo.analytics.web.dto.StreamErrorPayload;
+import com.geo.analytics.web.dto.TaskToneRegenerateRequest;
+import com.geo.analytics.web.dto.TaskToneRegenerateResponse;
 import com.geo.analytics.web.dto.VerifyStreamEvent;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -64,6 +69,7 @@ public class JobController {
     private final ObjectMapper objectMapper;
     private final StrategyInsightService strategyInsightService;
     private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
+    private final TaskRegenerationService taskRegenerationService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -74,7 +80,8 @@ public class JobController {
             JobStreamRegistryService jobStreamRegistryService,
             ObjectMapper objectMapper,
             StrategyInsightService strategyInsightService,
-            JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler) {
+            JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
+            TaskRegenerationService taskRegenerationService) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -84,6 +91,7 @@ public class JobController {
         this.objectMapper = objectMapper;
         this.strategyInsightService = strategyInsightService;
         this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
+        this.taskRegenerationService = taskRegenerationService;
     }
 
     @PostMapping
@@ -191,6 +199,14 @@ public class JobController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{jobId}/tasks/{taskId}/regenerate")
+    public ResponseEntity<TaskToneRegenerateResponse> regenerateTaskTone(
+            @PathVariable UUID jobId,
+            @PathVariable UUID taskId,
+            @RequestBody @Valid TaskToneRegenerateRequest request) {
+        return ResponseEntity.ok(taskRegenerationService.regenerate(jobId, taskId, request.tone()));
+    }
+
     @GetMapping("/{jobId}/analysis")
     public ResponseEntity<JobAnalysisDetailResponse> getJobAnalysis(@PathVariable UUID jobId) {
         JobAnalysisAggregate aggregate = jobPersistenceService.findJobAnalysisAggregate(jobId);
@@ -215,6 +231,8 @@ public class JobController {
         JobAnalysisBenchmarkAssembler.BenchmarkAttach bench = jobAnalysisBenchmarkAssembler.attach(jobEnt);
         JobPersistenceService.JobAnalysisAttachment attachment =
                 jobPersistenceService.loadJobAnalysisAttachment(jobId, audits);
+        List<RemediationTaskResponse> remediationTasksMasked =
+                RemediationTaskResponseMask.apply(bench.factBasedScore(), attachment.remediationTasks());
         return ResponseEntity.ok(JobAnalysisDetailResponse.from(
             jobEnt,
             aggregate.project(),
@@ -226,7 +244,7 @@ public class JobController {
             bench.factBasedScore(),
             bench.rubricGaps(),
             attachment.scoreBreakdown(),
-            attachment.remediationTasks(),
+            remediationTasksMasked,
             objectMapper));
     }
 

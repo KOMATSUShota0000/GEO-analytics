@@ -3,8 +3,11 @@ import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
+import { mergeBannerJobHint } from "../lib/bannerJobHint";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
+import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
+import { RubricGapAlertStack } from "../components/RubricGapAlertStack";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
@@ -23,6 +26,7 @@ import {
   type JobProjectInfo,
   type ResultDetail,
 } from "../types/analysis";
+import { isMaintenancePhase } from "../lib/phaseUtils";
 
 const PROCESSING_STATUSES = new Set([
   "CREATED",
@@ -452,9 +456,64 @@ export function JobAnalysisPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [isReadyForPdf, isPdfMode]);
 
+  useEffect(() => {
+    if (data === null) {
+      return;
+    }
+    if (!isCompletedJobStatus(data.jobStatus)) {
+      return;
+    }
+    const pid = data.project?.projectId?.trim() ?? "";
+    if (pid.length === 0) {
+      return;
+    }
+    const ms = jobStatus !== null ? Date.parse(jobStatus.updatedAt) : Number.NaN;
+    mergeBannerJobHint(pid, data.jobId, Number.isNaN(ms) ? Date.now() : ms);
+  }, [data, jobStatus]);
+
+  const maintenancePhase =
+    data !== null &&
+    isCompletedJobStatus(data.jobStatus) &&
+    isMaintenancePhase(data.factBasedScore);
+
+  const remediationBoardSection =
+    data !== null &&
+    Array.isArray(data.remediationTasks) &&
+    data.remediationTasks.length > 0 ? (
+      <div className="pdf-avoid-break mb-6">
+        <RemediationTaskBoard
+          jobId={data.jobId}
+          tasks={data.remediationTasks}
+          onRemediationTaskReplaced={(updated) => {
+            setData((prev) => {
+              if (prev === null || !Array.isArray(prev.remediationTasks)) {
+                return prev;
+              }
+              const nextTasks = prev.remediationTasks.map((t) =>
+                t.id === updated.id ? updated : t,
+              );
+              return { ...prev, remediationTasks: nextTasks };
+            });
+          }}
+        />
+      </div>
+    ) : null;
+
+  const geoScoreSection =
+    data !== null && data.scoreBreakdown != null ? (
+      <div className="pdf-avoid-break mb-6">
+        <GeoScoreBreakdown breakdown={data.scoreBreakdown} brandName={data.brandName} />
+      </div>
+    ) : null;
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
       <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
+      {data?.emotionalAlert != null ? (
+        <div className="pdf-avoid-break mb-4">
+          <EmotionalAlertBanner payload={data.emotionalAlert} />
+        </div>
+      ) : null}
       {jobNotifyLoading && jobStatus === null && effectiveJobId && (
         <div className="pdf-no-print mb-4 flex items-center gap-3 text-slate-600">
           <span
@@ -646,7 +705,7 @@ export function JobAnalysisPage(): JSX.Element {
         isCompletedJobStatus(data.jobStatus) &&
         data.rubricGaps != null &&
         data.rubricGaps.length > 0 && (
-          <EmotionalAlertBanner
+          <RubricGapAlertStack
             alerts={buildEmotionalAlerts(data.rubricGaps, data.project?.industryType ?? "OTHER")}
           />
         )}
@@ -681,18 +740,13 @@ export function JobAnalysisPage(): JSX.Element {
           />
         </div>
       )}
-      {data && data.scoreBreakdown != null && (
-        <div className="pdf-avoid-break mb-6">
-          <GeoScoreBreakdown breakdown={data.scoreBreakdown} brandName={data.brandName} />
+      {!maintenancePhase ? remediationBoardSection : null}
+      {maintenancePhase ? (
+        <div className="pdf-avoid-break mb-6 pdf-no-print">
+          <OperationUpsellBanner />
         </div>
-      )}
-      {data &&
-        Array.isArray(data.remediationTasks) &&
-        data.remediationTasks.length > 0 && (
-          <div className="pdf-avoid-break mb-6">
-            <RemediationTaskBoard tasks={data.remediationTasks} />
-          </div>
-        )}
+      ) : null}
+      {geoScoreSection}
       {showCharts &&
         (isProcessingDisplay ||
           (data !== null && isCompletedJobStatus(data.jobStatus))) && (
@@ -826,6 +880,7 @@ export function JobAnalysisPage(): JSX.Element {
           </div>
         </div>
       )}
+      {maintenancePhase ? remediationBoardSection : null}
       {showPdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
     </div>
   );

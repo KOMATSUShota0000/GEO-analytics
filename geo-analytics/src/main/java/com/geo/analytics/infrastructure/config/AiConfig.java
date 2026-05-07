@@ -21,6 +21,7 @@ import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
 import com.geo.analytics.infrastructure.ai.RemediationTaskOutputSchema;
 import com.geo.analytics.infrastructure.ai.RubricAuditOutputSchema;
 import com.geo.analytics.infrastructure.ai.TargetAttributesOutputSchema;
+import com.geo.analytics.infrastructure.ai.TaskToneContentSchema;
 import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
 import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
 import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
@@ -56,6 +57,7 @@ public class AiConfig {
     public static final String GEMINI_PROMPT_INJECTION_GUARD = "geminiPromptInjectionGuardModel";
     public static final String GEMINI_RUBRIC_AUDIT = "geminiRubricAuditModel";
     public static final String GEMINI_REMEDIATION_TASKS = "geminiRemediationTasksModel";
+    public static final String GEMINI_TASK_TONE_REGENERATION = "geminiTaskToneRegenerationModel";
     public static final String GEMINI_25_FLASH = "gemini25Flash";
 
     private final AppProperties appProperties;
@@ -214,6 +216,19 @@ public class AiConfig {
                 .timeout(Duration.ofSeconds(180))
                 .maxOutputTokens(8192)
                 .responseFormat(RemediationTaskOutputSchema.remediationResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_TASK_TONE_REGENERATION)
+    public ChatLanguageModel geminiTaskToneRegenerationModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.3)
+                .timeout(Duration.ofSeconds(120))
+                .maxOutputTokens(8192)
+                .responseFormat(TaskToneContentSchema.taskToneContentResponseFormat())
                 .build();
     }
 
