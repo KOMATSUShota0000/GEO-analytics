@@ -8,6 +8,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.infrastructure.ai.JobPromptContextFormatter;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
@@ -81,7 +82,8 @@ public class JobBenchmarkCaptureService {
                 String trimmedTarget = targetUrl.trim();
                 var selfBundle = smartDomainCrawlService.compileForAudit(trimmedTarget);
                 RubricAuditResult selfRubric =
-                        rubricAuditService.executeAudit(projectId, selfBundle.mergedAuditText());
+                        rubricAuditService.executeAudit(
+                                projectId, selfBundle.mergedAuditText(), JobPromptContextFormatter.format(job));
                 ArrayList<RubricAuditResult> competitorRubrics = new ArrayList<>();
                 List<String> urls = project.getCompetitorUrls();
                 for (int i = 0; i < urls.size(); i++) {
@@ -92,7 +94,10 @@ public class JobBenchmarkCaptureService {
                     try {
                         var competitorBundle = smartDomainCrawlService.compileForAudit(u.trim());
                         competitorRubrics.add(
-                                rubricAuditService.executeAudit(projectId, competitorBundle.mergedAuditText()));
+                                rubricAuditService.executeAudit(
+                                        projectId,
+                                        competitorBundle.mergedAuditText(),
+                                        JobPromptContextFormatter.format(job)));
                     } catch (Throwable suppressed) {
                         log.warn("competitor benchmark crawl skipped jobId={} url={}", jobId, u, suppressed);
                     }

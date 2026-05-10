@@ -204,8 +204,14 @@ public class QueryProposalService {
             throw new IllegalStateException("Query proposal contains blank query text: " + proposalId);
         }
         String brandName = normalizeBrandName(brandNameFromProposalUrl(proposal.getUrl()));
+        String proposalTargetUrl = proposal.getUrl();
+        if (proposalTargetUrl == null || proposalTargetUrl.isBlank()) {
+            proposalTargetUrl = "https://placeholder.invalid/query-proposal";
+        }
         UUID proposalWorkspaceId = proposal.getWorkspaceId();
-        var outcome = jobPersistenceService.createJobWithIdempotency(brandName, proposalId, proposalWorkspaceId);
+        var proposalFields =
+                new JobPersistenceService.JobCreateFields(brandName, proposalTargetUrl, null, null, null);
+        var outcome = jobPersistenceService.createJobWithIdempotency(proposalFields, proposalId, proposalWorkspaceId);
         var job = outcome.jobEntity();
         UUID jobId = job.getId();
         if (outcome.created()) {

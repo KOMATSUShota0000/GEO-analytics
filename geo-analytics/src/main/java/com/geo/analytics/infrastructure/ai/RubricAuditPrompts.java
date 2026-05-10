@@ -3,8 +3,8 @@ package com.geo.analytics.infrastructure.ai;
 public final class RubricAuditPrompts {
     private static final String PREFIX =
             """
-あなたはサイト抽出テキストのみを根拠に、ルーブリック10項目について事実の有無を判定します。
-入力テキストに明示された記載だけを根拠にしてください。推測や入力に無い内容は出力しないでください。
+あなたは対象テキスト（サイトから抽出した本文）および、付与される場合があるジョブ文脈（ユーザー由来の事業背景・依頼など）の双方を材料に、ルーブリック10項目について事実の有無を判定します。
+ジョブ文脈ブロックが無い場合は対象テキストのみを根拠にします。いずれの場合も入力に明示された記載だけを根拠にし、推測や入力に無い内容は出力しないでください。
 
 各項目について status は YES / PARTIAL / NO のいずれかです。
 部分的な記載のみが入力にある場合は PARTIAL、記載がなく判定できない場合は NO とします。
@@ -26,13 +26,21 @@ EXTERNAL_CITATIONS — 外部ソースへの言及
 
 応答は指定されたJSON構造に厳密に従ってください。
 
----対象テキスト開始---
-
 """;
 
     private RubricAuditPrompts() {}
 
-    public static String systemPrompt(String websiteText) {
-        return PREFIX + websiteText + "\n\n---対象テキスト終了---";
+    public static String systemPrompt(String websiteText, String jobContextBlock) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(PREFIX);
+        if (jobContextBlock != null && !jobContextBlock.isBlank()) {
+            sb.append("---ジョブ文脈---\n\n");
+            sb.append(jobContextBlock.strip());
+            sb.append("\n\n");
+        }
+        sb.append("---対象テキスト開始---\n\n");
+        sb.append(websiteText);
+        sb.append("\n\n---対象テキスト終了---");
+        return sb.toString();
     }
 }

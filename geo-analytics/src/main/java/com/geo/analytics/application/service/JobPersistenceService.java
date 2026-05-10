@@ -63,6 +63,31 @@ public class JobPersistenceService {
     private static final TypeReference<List<RemediationTask>> REMEDIATION_LIST_TYPE = new TypeReference<>() {};
 
     public record JobCreateOutcome(JobEntity jobEntity, boolean created) {}
+    public record JobCreateFields(
+            String brandName,
+            String targetUrl,
+            String businessSummary,
+            String targetAudience,
+            String focusPoints) {
+        public JobCreateFields {
+            brandName = TextWhitespaceNormalizer.normalize(brandName);
+            targetUrl = TextWhitespaceNormalizer.normalize(targetUrl);
+            if (targetUrl == null || targetUrl.isBlank()) {
+                throw new IllegalArgumentException("targetUrl must not be blank");
+            }
+            businessSummary = optionalText(businessSummary);
+            targetAudience = optionalText(targetAudience);
+            focusPoints = optionalText(focusPoints);
+        }
+
+        private static String optionalText(String value) {
+            if (value == null) {
+                return null;
+            }
+            String s = value.strip();
+            return s.isEmpty() ? null : s;
+        }
+    }
     public record JobAnalysisAttachment(ScoreBreakdown scoreBreakdown, List<RemediationTaskResponse> remediationTasks) {
         public JobAnalysisAttachment {
             remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
@@ -459,32 +484,30 @@ public class JobPersistenceService {
         }));
     }
     @Transactional(readOnly = false)
-    public JobEntity createJob(String brandName) {
-        return createJobWithIdempotency(brandName, null).jobEntity();
+    public JobEntity createJob(JobCreateFields fields) {
+        return createJobWithIdempotency(fields, null).jobEntity();
     }
 
     @Transactional(readOnly = false)
-    public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey) {
-        String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
-        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(normalizedBrandName);
+    public JobCreateOutcome createJobWithIdempotency(JobCreateFields fields, UUID idempotencyKey) {
+        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(fields.brandName());
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
-        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, workspaceId, orgId);
+        return runJobCreationWithProject(fields, idempotencyKey, projectEntity, workspaceId, orgId);
     }
 
     @Transactional(readOnly = false)
-    public JobCreateOutcome createJobWithIdempotency(String brandName, UUID idempotencyKey, UUID workspaceId) {
-        String normalizedBrandName = TextWhitespaceNormalizer.normalize(brandName);
+    public JobCreateOutcome createJobWithIdempotency(JobCreateFields fields, UUID idempotencyKey, UUID workspaceId) {
         ProjectManagementService.DefaultProjectResolution resolution =
-                projectManagementService.getOrCreateDefaultProjectForWorkspace(normalizedBrandName, workspaceId);
+                projectManagementService.getOrCreateDefaultProjectForWorkspace(fields.brandName(), workspaceId);
         ProjectEntity projectEntity = resolution.project();
         UUID resolvedWorkspaceId = projectEntity.getWorkspaceId();
         UUID orgId = resolution.organizationId();
-        return runJobCreationWithProject(normalizedBrandName, idempotencyKey, projectEntity, resolvedWorkspaceId, orgId);
+        return runJobCreationWithProject(fields, idempotencyKey, projectEntity, resolvedWorkspaceId, orgId);
     }
 
     private JobCreateOutcome runJobCreationWithProject(
-            String normalizedBrandName,
+            JobCreateFields fields,
             UUID idempotencyKey,
             ProjectEntity projectEntity,
             UUID workspaceId,
@@ -502,7 +525,7 @@ public class JobPersistenceService {
                                 try {
                                     var created =
                                             saveNewJob(
-                                                    normalizedBrandName,
+                                                    fields,
                                                     workspaceId,
                                                     projectEntity.getId(),
                                                     idempotencyKey,
@@ -523,14 +546,18 @@ public class JobPersistenceService {
         });
     }
     private JobEntity saveNewJob(
-            String brandName,
+            JobCreateFields fields,
             UUID workspaceId,
             UUID projectId,
             UUID idempotencyKey,
             String brandColor,
             String logoUrl) {
         JobEntity jobEntity = new JobEntity();
-        jobEntity.setBrandName(brandName);
+        jobEntity.setBrandName(fields.brandName());
+        jobEntity.setTargetUrl(fields.targetUrl());
+        jobEntity.setBusinessSummary(fields.businessSummary());
+        jobEntity.setTargetAudience(fields.targetAudience());
+        jobEntity.setFocusPoints(fields.focusPoints());
         jobEntity.setWorkspaceId(workspaceId);
         jobEntity.setProjectId(projectId);
         jobEntity.setCreateIdempotencyKey(idempotencyKey);
@@ -589,6 +616,16 @@ public class JobPersistenceService {
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(newJobStatus);
             jobEntity.setErrorMessage(errorMessage);
+            jobRepository.save(jobEntity);
+        });
+    }
+    @Transactional
+    public void updateExtractedKnowledge(UUID jobId, String extractedKnowledge) {
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
+            JobEntity jobEntity = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobEntity.setExtractedKnowledge(extractedKnowledge);
             jobRepository.save(jobEntity);
         });
     }

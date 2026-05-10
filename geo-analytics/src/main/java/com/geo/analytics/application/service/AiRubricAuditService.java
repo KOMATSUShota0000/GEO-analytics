@@ -2,17 +2,24 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.CrawledPageData;
 import com.geo.analytics.application.dto.DomainDeepAuditContext;
+import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.MeoTrust;
 import com.geo.analytics.application.dto.RubricItemAudit;
 import com.geo.analytics.application.port.MEODataPort;
 import com.geo.analytics.domain.dto.RubricAuditResult;
+import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.enums.RubricVerdictStatus;
+import com.geo.analytics.infrastructure.ai.JobPromptContextFormatter;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.geo.analytics.infrastructure.repository.AuditRubricResultRepository;
 import com.geo.analytics.infrastructure.tenant.ContextPropagator;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -22,9 +29,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.StructuredTaskScope;
 import org.slf4j.Logger;
@@ -51,6 +60,7 @@ public class AiRubricAuditService {
     private final RubricAuditService rubricAuditService;
     private final MEODataPort meoDataPort;
     private final AuditRubricResultRepository auditRubricResultRepository;
+    private final JobPersistenceService jobPersistenceService;
     private AiRubricAuditService self;
 
     public AiRubricAuditService(
@@ -58,12 +68,14 @@ public class AiRubricAuditService {
             SafeHttpClient safeHttpClient,
             RubricAuditService rubricAuditService,
             MEODataPort meoDataPort,
-            AuditRubricResultRepository auditRubricResultRepository) {
+            AuditRubricResultRepository auditRubricResultRepository,
+            JobPersistenceService jobPersistenceService) {
         this.smartDomainCrawlService = smartDomainCrawlService;
         this.safeHttpClient = safeHttpClient;
         this.rubricAuditService = rubricAuditService;
         this.meoDataPort = meoDataPort;
         this.auditRubricResultRepository = auditRubricResultRepository;
+        this.jobPersistenceService = jobPersistenceService;
     }
 
     @Autowired
@@ -71,12 +83,84 @@ public class AiRubricAuditService {
         this.self = self;
     }
 
+    public void runMultiDomainAuditForCompletedJob(UUID jobId) {
+        if (jobId == null) {
+            return;
+        }
+        try {
+            JobAnalysisAggregate agg = jobPersistenceService.findJobAnalysisAggregate(jobId);
+            JobEntity job = agg.job();
+            ProjectEntity project = agg.project();
+            if (project == null || job.getProjectId() == null) {
+                return;
+            }
+            List<AuditHistoryEntity> audits = agg.auditHistories();
+            AuditHistoryEntity latest = pickLatestAuditHistory(audits);
+            if (latest == null) {
+                return;
+            }
+            String targetUrl = project.getTargetUrl();
+            if (targetUrl == null || targetUrl.isBlank()) {
+                return;
+            }
+            String trimmedTarget = targetUrl.trim();
+            ArrayList<String> domainUrls = new ArrayList<>();
+            domainUrls.add(trimmedTarget);
+            List<String> comps = project.getCompetitorUrls();
+            if (comps != null) {
+                for (int i = 0; i < comps.size(); i++) {
+                    String u = comps.get(i);
+                    if (u != null && !u.isBlank()) {
+                        domainUrls.add(u.trim());
+                    }
+                }
+            }
+            String brand = job.getBrandName();
+            String meoSearchQuery =
+                    brand != null && !brand.isBlank()
+                            ? brand.trim()
+                            : project.getName() != null ? project.getName().trim() : "";
+            UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            UUID projectId = job.getProjectId();
+            UUID auditHistoryId = latest.getId();
+            TenantPlanScope.executeWithTenant(
+                    workspaceId,
+                    () ->
+                            self.auditAllDomains(
+                                    projectId,
+                                    auditHistoryId,
+                                    trimmedTarget,
+                                    meoSearchQuery,
+                                    domainUrls,
+                                    jobId));
+        } catch (RuntimeException ex) {
+            log.warn("multi_domain_audit_after_job_failed jobId={}", jobId, ex);
+        }
+    }
+
+    private static AuditHistoryEntity pickLatestAuditHistory(List<AuditHistoryEntity> audits) {
+        if (audits == null || audits.isEmpty()) {
+            return null;
+        }
+        return audits.stream()
+                .filter(Objects::nonNull)
+                .max(
+                        Comparator.comparing(
+                                        AuditHistoryEntity::getAuditDate,
+                                        Comparator.nullsFirst(Comparator.naturalOrder()))
+                                .thenComparing(
+                                        AuditHistoryEntity::getCreatedAt,
+                                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElse(null);
+    }
+
     public Map<String, List<RubricAuditResult>> auditAllDomains(
             UUID projectId,
             UUID auditHistoryId,
             String selfUrl,
             String meoSearchQuery,
-            List<String> domainUrls) {
+            List<String> domainUrls,
+            UUID jobId) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId");
         }
@@ -101,6 +185,13 @@ public class AiRubricAuditService {
         if (normalizedUrls.isEmpty()) {
             return Map.of();
         }
+        final String jobContextBlock =
+                jobId == null
+                        ? null
+                        : jobPersistenceService
+                                .findJobByIdOptional(jobId)
+                                .map(JobPromptContextFormatter::format)
+                                .orElse(null);
         ArrayList<DomainSubtask> tracked = new ArrayList<>(normalizedUrls.size());
         try (StructuredTaskScope<List<RubricAuditResult>, Void> scope = StructuredTaskScope.open(
                 StructuredTaskScope.Joiner.<List<RubricAuditResult>>awaitAll(),
@@ -109,7 +200,9 @@ public class AiRubricAuditService {
             for (int i = 0; i < normalizedUrls.size(); i++) {
                 String url = normalizedUrls.get(i);
                 StructuredTaskScope.Subtask<List<RubricAuditResult>> subtask =
-                        scope.fork(() -> ContextPropagator.wrap(() -> auditOneDomain(projectId, url)).get());
+                        scope.fork(() -> ContextPropagator.wrap(
+                                        () -> auditOneDomain(projectId, url, jobContextBlock))
+                                .get());
                 tracked.add(new DomainSubtask(url, subtask));
             }
             try {
@@ -215,11 +308,11 @@ public class AiRubricAuditService {
         auditRubricResultRepository.saveAll(entities);
     }
 
-    private List<RubricAuditResult> auditOneDomain(UUID projectId, String url) {
+    private List<RubricAuditResult> auditOneDomain(UUID projectId, String url, String jobContextBlock) {
         try {
             DomainDeepAuditContext bundle = smartDomainCrawlService.compileForAudit(url);
             ArrayList<RubricAuditResult> results = new ArrayList<>(RubricCriterionId.values().length);
-            appendLlmAudits(projectId, bundle, results);
+            appendLlmAudits(projectId, bundle, results, jobContextBlock);
             appendSystemAudits(url, bundle.primaryPage().crawled(), results);
             return List.copyOf(results);
         } catch (RuntimeException runtimeException) {
@@ -232,9 +325,13 @@ public class AiRubricAuditService {
         }
     }
 
-    private void appendLlmAudits(UUID projectId, DomainDeepAuditContext bundle, ArrayList<RubricAuditResult> sink) {
+    private void appendLlmAudits(
+            UUID projectId,
+            DomainDeepAuditContext bundle,
+            ArrayList<RubricAuditResult> sink,
+            String jobContextBlock) {
         com.geo.analytics.application.dto.RubricAuditResult llmAudit =
-                rubricAuditService.executeAudit(projectId, bundle.mergedAuditText());
+                rubricAuditService.executeAudit(projectId, bundle.mergedAuditText(), jobContextBlock);
         List<RubricItemAudit> items = llmAudit.items();
         for (int i = 0; i < items.size(); i++) {
             RubricItemAudit item = items.get(i);

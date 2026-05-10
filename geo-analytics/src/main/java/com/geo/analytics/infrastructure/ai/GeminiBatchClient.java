@@ -113,7 +113,8 @@ public class GeminiBatchClient {
     public Path writeBatchRequestJsonlToTempFile(
             String brandName,
             List<BatchQueryLine> queryLines,
-            SubscriptionPlan subscriptionPlan) {
+            SubscriptionPlan subscriptionPlan,
+            String jobPromptContext) {
         if (queryLines == null || queryLines.isEmpty()) {
             throw new GeminiBatchApiException("batch query lines are empty");
         }
@@ -127,7 +128,8 @@ public class GeminiBatchClient {
                 try (SequenceWriter sequenceWriter = objectMapper.writer().writeValues(outputStream)) {
                     for (BatchQueryLine batchQueryLine : queryLines) {
                         sequenceWriter.write(
-                            buildBatchJsonlLineRootMap(brandName, batchQueryLine, subscriptionPlan));
+                            buildBatchJsonlLineRootMap(
+                                    brandName, batchQueryLine, subscriptionPlan, jobPromptContext));
                         outputStream.write('\n');
                     }
                 }
@@ -478,13 +480,13 @@ public class GeminiBatchClient {
     private Map<String, Object> buildBatchJsonlLineRootMap(
             String brandName,
             BatchQueryLine batchQueryLine,
-            SubscriptionPlan subscriptionPlan) {
+            SubscriptionPlan subscriptionPlan,
+            String jobPromptContext) {
         Map<String, Object> textPart = new LinkedHashMap<>();
         textPart.put(
             "text",
-            ConsultantPrompts.systemText(subscriptionPlan, brandName)
-                + "\n\n"
-                + ConsultantPrompts.userTextBrandQueryOnly(brandName, batchQueryLine.queryText()));
+            GeminiBatchPromptText.combinedPromptText(
+                    brandName, batchQueryLine, subscriptionPlan, jobPromptContext));
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("parts", List.of(textPart));
         Map<String, Object> request = new LinkedHashMap<>();

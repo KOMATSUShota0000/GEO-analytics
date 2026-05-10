@@ -39,6 +39,7 @@ class JobEntityExtractingCompetitorsPersistenceTest {
         JobEntity jobEntity = new JobEntity();
         jobEntity.setWorkspaceId(DefaultTenantIds.WORKSPACE_ID);
         jobEntity.setBrandName("persist-extracting-competitors");
+        jobEntity.setTargetUrl("https://example.test/persist-extracting-competitors");
         jobEntity.setJobStatus(JobStatus.EXTRACTING_COMPETITORS);
         UUID id = jobRepository.saveAndFlush(jobEntity).getId();
         entityManager.clear();

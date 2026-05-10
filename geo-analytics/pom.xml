@@ -22,6 +22,7 @@
         <sudachi.dict.release>v20260116</sudachi.dict.release>
         <sudachi.dict.zip>sudachi-dictionary-20260116-core.zip</sudachi.dict.zip>
         <jjwt.version>0.12.6</jjwt.version>
+        <apache-tika.version>2.9.2</apache-tika.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -146,6 +147,15 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>${apache-tika.version}</version>
         </dependency>
         <dependency>
             <groupId>com.microsoft.playwright</groupId>

@@ -3,6 +3,7 @@ package com.geo.analytics.web.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
+import com.geo.analytics.application.service.JobKnowledgeIngestionService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.TaskRegenerationService;
 import com.geo.analytics.application.service.StrategyInsightService;
@@ -39,6 +40,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.io.IOException;
@@ -70,6 +72,7 @@ public class JobController {
     private final StrategyInsightService strategyInsightService;
     private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
     private final TaskRegenerationService taskRegenerationService;
+    private final JobKnowledgeIngestionService jobKnowledgeIngestionService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -81,7 +84,8 @@ public class JobController {
             ObjectMapper objectMapper,
             StrategyInsightService strategyInsightService,
             JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
-            TaskRegenerationService taskRegenerationService) {
+            TaskRegenerationService taskRegenerationService,
+            JobKnowledgeIngestionService jobKnowledgeIngestionService) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -92,25 +96,36 @@ public class JobController {
         this.strategyInsightService = strategyInsightService;
         this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
         this.taskRegenerationService = taskRegenerationService;
+        this.jobKnowledgeIngestionService = jobKnowledgeIngestionService;
     }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<JobStatusResponse> createJob(
             @RequestHeader(value = "Idempotency-Key", required = false) UUID idempotencyKeyHeader,
-            @RequestBody @Valid CreateJobRequest createJobRequest) {
+            @RequestPart("request") @Valid CreateJobRequest createJobRequest,
+            @RequestPart(value = "files", required = false) MultipartFile[] files) {
         log.info("createJob request brandName={}", createJobRequest.brandName());
         UUID idempotencyKey = idempotencyKeyHeader != null ? idempotencyKeyHeader : createJobRequest.idempotencyKey();
-        var outcome = jobPersistenceService.createJobWithIdempotency(createJobRequest.brandName(), idempotencyKey);
+        var fields = new JobPersistenceService.JobCreateFields(
+                createJobRequest.brandName(),
+                createJobRequest.targetUrl(),
+                createJobRequest.businessSummary(),
+                createJobRequest.targetAudience(),
+                createJobRequest.focusPoints());
+        var outcome = jobPersistenceService.createJobWithIdempotency(fields, idempotencyKey);
         JobEntity createdJobEntity = outcome.jobEntity();
+        if (outcome.created() && files != null && files.length > 0) {
+            jobKnowledgeIngestionService.ingest(createdJobEntity.getId(), files);
+        }
         if (!outcome.created()) {
             return ResponseEntity.ok(JobStatusResponse.from(createdJobEntity));
         }
+        JobEntity responseEntity = jobPersistenceService.findJobById(createdJobEntity.getId());
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()
             .path("/{jobId}")
-            .buildAndExpand(createdJobEntity.getId())
+            .buildAndExpand(responseEntity.getId())
             .toUri();
-        return ResponseEntity.created(createdResourceLocation)
-            .body(JobStatusResponse.from(createdJobEntity));
+        return ResponseEntity.created(createdResourceLocation).body(JobStatusResponse.from(responseEntity));
     }
 
     @GetMapping("/{jobId}")

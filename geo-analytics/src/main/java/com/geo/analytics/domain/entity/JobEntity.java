@@ -35,6 +35,16 @@ public class JobEntity extends BaseTenantEntity {
     private String planLimitsSnapshot;
     @Column(name = "brand_name", nullable = false)
     private String brandName;
+    @Column(name = "target_url", nullable = false, length = 2048)
+    private String targetUrl;
+    @Column(name = "business_summary", columnDefinition = "text")
+    private String businessSummary;
+    @Column(name = "target_audience", columnDefinition = "text")
+    private String targetAudience;
+    @Column(name = "focus_points", columnDefinition = "text")
+    private String focusPoints;
+    @Column(name = "extracted_knowledge", columnDefinition = "text")
+    private String extractedKnowledge;
     @Column(name = "brand_color", nullable = false, length = 64)
     private String brandColor = "#4F46E5";
     @Column(name = "logo_url", length = 2048)
@@ -124,6 +134,36 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setBrandName(String brandName) {
         this.brandName = brandName;
+    }
+    public String getTargetUrl() {
+        return targetUrl;
+    }
+    public void setTargetUrl(String targetUrl) {
+        this.targetUrl = targetUrl;
+    }
+    public String getBusinessSummary() {
+        return businessSummary;
+    }
+    public void setBusinessSummary(String businessSummary) {
+        this.businessSummary = businessSummary;
+    }
+    public String getTargetAudience() {
+        return targetAudience;
+    }
+    public void setTargetAudience(String targetAudience) {
+        this.targetAudience = targetAudience;
+    }
+    public String getFocusPoints() {
+        return focusPoints;
+    }
+    public void setFocusPoints(String focusPoints) {
+        this.focusPoints = focusPoints;
+    }
+    public String getExtractedKnowledge() {
+        return extractedKnowledge;
+    }
+    public void setExtractedKnowledge(String extractedKnowledge) {
+        this.extractedKnowledge = extractedKnowledge;
     }
     public String getBrandColor() {
         return brandColor;

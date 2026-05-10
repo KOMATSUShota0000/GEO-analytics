@@ -5,6 +5,7 @@ import com.geo.analytics.application.credit.CreditReservation;
 import com.geo.analytics.application.dto.RubricAuditResult;
 import com.geo.analytics.application.dto.RubricItemAudit;
 import com.geo.analytics.domain.enums.RubricCriterionId;
+import com.geo.analytics.infrastructure.ai.LlmWebsiteTextClip;
 import com.geo.analytics.infrastructure.ai.RubricAuditPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.SystemMessage;
@@ -33,6 +34,10 @@ public class RubricAuditService {
     }
 
     public RubricAuditResult executeAudit(UUID projectId, String websiteText) {
+        return executeAudit(projectId, websiteText, null);
+    }
+
+    public RubricAuditResult executeAudit(UUID projectId, String websiteText, String jobContextBlock) {
         if (websiteText == null) {
             throw new IllegalArgumentException("websiteText");
         }
@@ -40,15 +45,18 @@ public class RubricAuditService {
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("websiteText");
         }
-        return self.auditWithCreditReservation(projectId, trimmed);
+        String clipped = LlmWebsiteTextClip.clipWebsiteText(trimmed);
+        return self.auditWithCreditReservation(projectId, clipped, jobContextBlock);
     }
 
     @CreditReservation
-    public RubricAuditResult auditWithCreditReservation(UUID projectId, String websiteText) {
+    public RubricAuditResult auditWithCreditReservation(
+            UUID projectId, String websiteText, String jobContextBlock) {
         try {
             String rawJson =
                     rubricAuditChatModel.chat(ChatRequest.builder()
-                                    .messages(SystemMessage.from(RubricAuditPrompts.systemPrompt(websiteText)))
+                                    .messages(SystemMessage.from(
+                                            RubricAuditPrompts.systemPrompt(websiteText, jobContextBlock)))
                                     .build())
                             .aiMessage()
                             .text();

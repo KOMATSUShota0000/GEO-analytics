@@ -48,12 +48,13 @@ public class BatchPersistenceService {
 
     private static final String JOB_COLS =
             "id, tenant_id, project_id, job_status, subscription_plan, "
-                    + "plan_limits_snapshot, brand_name, brand_color, logo_url, gemini_job_name, "
+                    + "plan_limits_snapshot, brand_name, target_url, business_summary, target_audience, focus_points, "
+                    + "brand_color, logo_url, gemini_job_name, "
                     + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
                     + "job_diagnostic_message, job_recommended_actions, gap_batch_idempotency_key, "
                     + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed, "
                     + "self_rubric_audit_json, competitor_rubric_audits_json, self_crawled_page_json, "
-                    + "meo_review_count, meo_average_stars, emotional_alert";
+                    + "meo_review_count, meo_average_stars, emotional_alert, extracted_knowledge";
 
     public JobEntity findJobById(UUID jobId) {
         return jdbc.queryForObject(
@@ -375,6 +376,10 @@ public class BatchPersistenceService {
         if (pl != null) job.setAppliedPlan(SubscriptionPlan.valueOf(pl));
         job.setPlanLimitsSnapshot(rs.getString("plan_limits_snapshot"));
         job.setBrandName(rs.getString("brand_name"));
+        job.setTargetUrl(rs.getString("target_url"));
+        job.setBusinessSummary(rs.getString("business_summary"));
+        job.setTargetAudience(rs.getString("target_audience"));
+        job.setFocusPoints(rs.getString("focus_points"));
         job.setBrandColor(rs.getString("brand_color"));
         job.setLogoUrl(rs.getString("logo_url"));
         job.setGeminiJobName(rs.getString("gemini_job_name"));
@@ -411,6 +416,7 @@ public class BatchPersistenceService {
             job.setMeoAverageStars(mas);
         }
         job.setEmotionalAlertJson(rs.getString("emotional_alert"));
+        job.setExtractedKnowledge(rs.getString("extracted_knowledge"));
         return job;
     }
 

@@ -49,6 +49,7 @@ frontend/src/api/apiFetch.ts
 frontend/src/api/branding-api.ts
 frontend/src/api/downloadJobPdf.ts
 frontend/src/api/geoOnboardingApi.ts
+frontend/src/api/jobsApi.ts
 frontend/src/api/queryProposalApi.ts
 frontend/src/api/tenantConstants.ts
 frontend/src/App.tsx
@@ -58,14 +59,22 @@ frontend/src/auth/RequireAuthLayout.tsx
 frontend/src/branding/useBranding.ts
 frontend/src/branding/WorkspaceBrandingProvider.tsx
 frontend/src/components/AIStrategyProposalWizard.tsx
+frontend/src/components/analysis/GeoScoreBreakdown.tsx
+frontend/src/components/analysis/RemediationTaskBoard.tsx
+frontend/src/components/analysis/TaskCard.tsx
+frontend/src/components/analysis/TaskCardGroup.tsx
+frontend/src/components/analysis/TaskToneToggle.tsx
 frontend/src/components/AnalysisCharts.tsx
 frontend/src/components/AnalysisProgress.tsx
+frontend/src/components/EmotionalAlertBanner.tsx
 frontend/src/components/LoadingCharacter.tsx
 frontend/src/components/onboarding/OnboardingMathVisualizer.tsx
 frontend/src/components/onboarding/OnboardingNarrationMonitor.tsx
+frontend/src/components/OperationUpsellBanner.tsx
 frontend/src/components/policy/LockedInsightCallout.tsx
 frontend/src/components/ProposalForm.tsx
 frontend/src/components/ProposalResultView.tsx
+frontend/src/components/RubricGapAlertStack.tsx
 frontend/src/components/SafeHtmlRenderer.tsx
 frontend/src/components/strategy/AbsoluteEvaluationSection.tsx
 frontend/src/components/strategy/GrowthTrajectoryChart.tsx
@@ -75,8 +84,13 @@ frontend/src/components/TierDiagnosisCard.tsx
 frontend/src/errors/GeoApiRequestError.ts
 frontend/src/hooks/useJobNotification.ts
 frontend/src/hooks/useJobStreaming.ts
+frontend/src/hooks/useLatestEmotionalAlert.ts
 frontend/src/hooks/useOnboardingStream.ts
 frontend/src/hooks/useProjectAssetSnapshots.ts
+frontend/src/lib/bannerJobHint.ts
+frontend/src/lib/buildEmotionalAlerts.ts
+frontend/src/lib/phaseUtils.ts
+frontend/src/lib/taskUtils.ts
 frontend/src/main.tsx
 frontend/src/pages/GeoOnboardingView.tsx
 frontend/src/pages/JobAnalysisPage.tsx
@@ -139,19 +153,20 @@ This section contains the contents of the repository's files.
     "preview": "vite preview"
   },
   "dependencies": {
-    "dompurify": "^3.2.4",
-    "lucide-react": "^0.460.0",
-    "recharts": "^2.13.3",
-    "@microsoft/fetch-event-source": "^2.0.1",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@mui/icons-material": "^5.15.10",
     "@mui/material": "^5.15.10",
     "@stomp/stompjs": "^7.0.0",
+    "dompurify": "^3.2.4",
+    "lucide-react": "^0.460.0",
+    "marked": "^14.1.4",
     "partial-json": "^0.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
+    "recharts": "^2.13.3",
     "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
@@ -703,6 +718,42 @@ export function parseApiErrorBody(
   } catch {
     return null;
   }
+}
+</file>
+
+<file path="frontend/src/api/jobsApi.ts">
+import { apiFetch, responseJsonAsCamel } from "./apiFetch";
+import {
+  normalizeJobStatusResponse,
+  parseJobAnalysisDetail,
+  type JobAnalysisDetail,
+  type JobStatusResponse,
+} from "../types/analysis";
+
+export async function getJobStatus(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse | null> {
+  const trimmed = jobId.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const response = await apiFetch(`/api/v1/jobs/${encodeURIComponent(trimmed)}`, { signal });
+  if (!response.ok) {
+    return null;
+  }
+  const body = await responseJsonAsCamel(response);
+  return normalizeJobStatusResponse(body);
+}
+
+export async function getJobAnalysis(jobId: string, signal?: AbortSignal): Promise<JobAnalysisDetail | null> {
+  const trimmed = jobId.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const response = await apiFetch(`/api/v1/jobs/${encodeURIComponent(trimmed)}/analysis`, { signal });
+  if (!response.ok) {
+    return null;
+  }
+  const body = await responseJsonAsCamel(response);
+  return parseJobAnalysisDetail(body);
 }
 </file>
 
@@ -1589,6 +1640,654 @@ export function AIStrategyProposalWizard({
 }
 </file>
 
+<file path="frontend/src/components/analysis/GeoScoreBreakdown.tsx">
+import { Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
+import type { ScoreBreakdown } from "../../types/analysis";
+
+const MAX_AI_AUDIT = 50;
+const MAX_MEO = 25;
+const MAX_MACHINE_READABILITY = 25;
+const MAX_TOTAL = 100;
+
+const AXIS_AI = "#6366F1";
+const AXIS_MEO = "#10B981";
+const AXIS_MR = "#F59E0B";
+
+export interface GeoScoreBreakdownProps {
+  breakdown: ScoreBreakdown | null | undefined;
+  brandName?: string;
+}
+
+function clamp(value: number, lo: number, hi: number): number {
+  if (Number.isNaN(value) || !Number.isFinite(value)) {
+    return lo;
+  }
+  return Math.max(lo, Math.min(hi, value));
+}
+
+function fmt(value: number): string {
+  return clamp(value, 0, MAX_TOTAL).toFixed(1);
+}
+
+function ratio(value: number, max: number): number {
+  if (max <= 0) {
+    return 0;
+  }
+  return clamp((value / max) * 100, 0, 100);
+}
+
+interface AxisRowProps {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+}
+
+function AxisRow({ label, value, max, color }: AxisRowProps): JSX.Element {
+  const pct = ratio(value, max);
+  return (
+    <Stack spacing={0.5}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box
+            sx={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: color,
+              boxShadow: "0 0 0 2px rgba(15,23,42,0.04)",
+            }}
+          />
+          <Typography variant="body2" sx={{ color: "#334155", fontWeight: 500 }}>
+            {label}
+          </Typography>
+        </Stack>
+        <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", color: "#0f172a" }}>
+          <span style={{ fontWeight: 700 }}>{fmt(value)}</span>
+          <span style={{ color: "#94a3b8", fontWeight: 400 }}> / {max}</span>
+        </Typography>
+      </Stack>
+      <LinearProgress
+        variant="determinate"
+        value={pct}
+        sx={{
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: "rgba(148,163,184,0.18)",
+          "& .MuiLinearProgress-bar": {
+            backgroundColor: color,
+            borderRadius: 999,
+          },
+        }}
+      />
+    </Stack>
+  );
+}
+
+export function GeoScoreBreakdown({ breakdown, brandName }: GeoScoreBreakdownProps): JSX.Element | null {
+  if (!breakdown) {
+    return null;
+  }
+  const total = clamp(breakdown.finalScore, 0, MAX_TOTAL);
+  return (
+    <Box
+      sx={{
+        borderRadius: "16px",
+        border: "1px solid rgba(226,232,240,0.9)",
+        background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        boxShadow: "0 8px 30px rgba(15,23,42,0.06)",
+        padding: "20px 24px",
+      }}
+    >
+      <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems={{ md: "center" }}>
+        <Box sx={{ minWidth: 180 }}>
+          <Typography variant="caption" sx={{ color: "#64748b", letterSpacing: 0.4 }}>
+            GEO Readiness Score
+          </Typography>
+          <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ mt: 0.5 }}>
+            <Typography
+              sx={{
+                fontSize: 44,
+                lineHeight: 1.0,
+                fontWeight: 800,
+                color: "var(--brand-color, #4f46e5)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {total.toFixed(1)}
+            </Typography>
+            <Typography sx={{ color: "#94a3b8", fontWeight: 600 }}>/{MAX_TOTAL}</Typography>
+          </Stack>
+          {brandName !== undefined && brandName.length > 0 ? (
+            <Chip
+              size="small"
+              label={brandName}
+              sx={{
+                mt: 1,
+                backgroundColor: "rgba(99,102,241,0.08)",
+                color: "var(--brand-color, #4f46e5)",
+                fontWeight: 600,
+              }}
+            />
+          ) : null}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+          <Stack spacing={1.25}>
+            <AxisRow label="AI 監査" value={breakdown.aiAuditTotal} max={MAX_AI_AUDIT} color={AXIS_AI} />
+            <AxisRow label="MEO トラスト" value={breakdown.meoTotal} max={MAX_MEO} color={AXIS_MEO} />
+            <AxisRow
+              label="機械可読性"
+              value={breakdown.machineReadabilityTotal}
+              max={MAX_MACHINE_READABILITY}
+              color={AXIS_MR}
+            />
+          </Stack>
+        </Box>
+      </Stack>
+    </Box>
+  );
+}
+</file>
+
+<file path="frontend/src/components/analysis/RemediationTaskBoard.tsx">
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { hasLockedRemediationTasks } from "../../lib/taskUtils";
+import type { RemediationTask } from "../../types/analysis";
+import { TaskCardGroup } from "./TaskCardGroup";
+
+export interface RemediationTaskBoardProps {
+  tasks: RemediationTask[];
+  jobId: string;
+  onRemediationTaskReplaced?: (task: RemediationTask) => void;
+}
+
+export function RemediationTaskBoard({
+  tasks,
+  jobId,
+  onRemediationTaskReplaced,
+}: RemediationTaskBoardProps): JSX.Element | null {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return null;
+  }
+  return (
+    <Box
+      sx={{
+        borderRadius: "16px",
+        border: "1px solid rgba(226,232,240,0.9)",
+        background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        boxShadow: "0 8px 30px rgba(15,23,42,0.06)",
+        padding: "20px 24px",
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Stack>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: "#0f172a" }}>
+            改善タスク（セクション別）
+          </Typography>
+          <Typography variant="caption" sx={{ color: "#64748b" }}>
+            制作・見積りにそのまま貼れるよう、優先度とページ部位で整理しています。
+          </Typography>
+        </Stack>
+      </Stack>
+      {hasLockedRemediationTasks(tasks) && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          まずは基礎改修（Level 1）を完了させてください。AIからの認知度が上がると、より高度な戦略が解放されます。
+        </Alert>
+      )}
+      <TaskCardGroup tasks={tasks} jobId={jobId} onTaskReplaced={onRemediationTaskReplaced} />
+    </Box>
+  );
+}
+</file>
+
+<file path="frontend/src/components/analysis/TaskCard.tsx">
+import LockOutlined from "@mui/icons-material/LockOutlined";
+import { AlertTriangle } from "lucide-react";
+import { alpha, useTheme } from "@mui/material/styles";
+import { Marked } from "marked";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Chip from "@mui/material/Chip";
+import Paper from "@mui/material/Paper";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { buildClipboardText } from "../../lib/taskUtils";
+import { SafeHtmlRenderer } from "../SafeHtmlRenderer";
+import { TaskToneToggle } from "./TaskToneToggle";
+import type {
+  RemediationTask,
+  RemediationTaskCategory,
+  RemediationTaskPriority,
+} from "../../types/analysis";
+
+const markedRenderer = new Marked({
+  gfm: true,
+  breaks: true,
+});
+
+function renderMarkdown(source: string): string {
+  if (typeof source !== "string" || source.length === 0) {
+    return "";
+  }
+  const parsed = markedRenderer.parse(source);
+  return typeof parsed === "string" ? parsed : "";
+}
+
+function priorityAccent(priority: RemediationTaskPriority): {
+  chipLabel: string;
+  chipSx: Record<string, unknown>;
+  stripe: string;
+} {
+  if (priority === "S") {
+    return {
+      chipLabel: "S 級・最優先",
+      chipSx: {
+        backgroundImage: "linear-gradient(135deg,#fef08a 0%,#fbbf24 35%,#f87171 100%)",
+        color: "#7f1d1d",
+        fontWeight: 800,
+        border: "1px solid rgba(234,179,8,0.85)",
+      },
+      stripe: "#b45309",
+    };
+  }
+  if (priority === "A") {
+    return {
+      chipLabel: "A 級",
+      chipSx: {
+        backgroundColor: "rgba(37,99,235,0.14)",
+        color: "#1d4ed8",
+        fontWeight: 700,
+        border: "1px solid rgba(59,130,246,0.45)",
+      },
+      stripe: "#2563eb",
+    };
+  }
+  return {
+    chipLabel: "B 級",
+    chipSx: {
+      backgroundColor: "rgba(100,116,139,0.12)",
+      color: "#475569",
+      fontWeight: 700,
+      border: "1px solid rgba(148,163,184,0.5)",
+    },
+    stripe: "#64748b",
+  };
+}
+
+function categoryChipLabel(cat: RemediationTaskCategory): string {
+  return cat === "SPIKE" ? "Spike（即効）" : "Slab（根本）";
+}
+
+export type TaskCardProps = {
+  task: RemediationTask;
+  jobId: string;
+  onTaskReplaced?: (next: RemediationTask) => void;
+};
+
+export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.Element {
+  const theme = useTheme();
+  const accent = priorityAccent(task.priority);
+  const masked = task.isMasked === true;
+  const isS = !masked && task.priority === "S";
+  const html = useMemo(
+    () => (masked ? "" : renderMarkdown(task.content)),
+    [task.content, masked],
+  );
+  const [copiedFeedback, setCopiedFeedback] = useState(false);
+  const [regenBusy, setRegenBusy] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return (): void => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = (): void => {
+    if (masked) {
+      return;
+    }
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    void navigator.clipboard.writeText(buildClipboardText(task)).then(() => {
+      setCopiedFeedback(true);
+      timerRef.current = window.setTimeout(() => {
+        setCopiedFeedback(false);
+        timerRef.current = null;
+      }, 2200);
+    });
+  };
+
+  const impactPct = Math.max(0, Math.min(1, task.impactScore));
+
+  return (
+    <Card
+      elevation={masked ? 0 : isS ? 4 : 1}
+      sx={{
+        position: "relative",
+        borderRadius: "14px",
+        border: masked
+          ? "1px solid rgba(226,232,240,0.95)"
+          : isS
+            ? "1.5px solid rgba(217,119,6,0.55)"
+            : "1px solid rgba(226,232,240,0.95)",
+        overflow: "hidden",
+        backgroundColor: masked ? "rgba(241,245,249,0.95)" : isS ? "rgba(255,251,235,0.75)" : "#ffffff",
+        opacity: masked ? 0.92 : 1,
+      }}
+    >
+      <Box
+        sx={{
+          position: "absolute",
+          insetInlineStart: 0,
+          insetBlockStart: 0,
+          insetBlockEnd: 0,
+          width: "4px",
+          backgroundColor: masked ? "#94a3b8" : accent.stripe,
+          zIndex: 1,
+        }}
+      />
+      <CardContent sx={{ pb: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+          <Stack spacing={0.75} sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#0f172a", wordBreak: "break-word" }}>
+              {task.title}
+            </Typography>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <Chip
+                size="small"
+                label={accent.chipLabel}
+                icon={isS ? <AlertTriangle size={14} aria-hidden /> : undefined}
+                sx={{
+                  ...accent.chipSx,
+                  ...(isS
+                    ? {
+                        "& .MuiChip-icon": { color: "#991b1b", marginInlineStart: "6px" },
+                      }
+                    : {}),
+                }}
+              />
+              <Chip size="small" variant="outlined" label={categoryChipLabel(task.category)} />
+              <Chip
+                size="small"
+                label={`Impact ${Math.round(impactPct * 100)}%`}
+                sx={{
+                  backgroundColor: "rgba(15,23,42,0.04)",
+                  color: "#475569",
+                  fontVariantNumeric: "tabular-nums",
+                  fontWeight: 600,
+                }}
+              />
+            </Stack>
+            {masked || onTaskReplaced === undefined ? null : (
+              <TaskToneToggle
+                jobId={jobId}
+                task={task}
+                onTaskReplaced={onTaskReplaced}
+                onBusyChange={setRegenBusy}
+              />
+            )}
+          </Stack>
+          <Button size="small" variant="outlined" disabled={masked || regenBusy} onClick={handleCopy}>
+            {copiedFeedback ? "コピー完了" : "内容をコピー"}
+          </Button>
+        </Stack>
+        {masked ? (
+          <Stack alignItems="center" sx={{ mt: 2, px: 0.5 }}>
+            <LockOutlined sx={{ fontSize: 54, color: "text.secondary", mb: 1.5 }} aria-hidden />
+            <Paper
+              elevation={0}
+              sx={{
+                width: "100%",
+                px: 2,
+                py: 1.75,
+                borderRadius: "10px",
+                border: `1px solid ${alpha(theme.palette.info.main, 0.35)}`,
+                backgroundColor: alpha(theme.palette.info.light, theme.palette.mode === "dark" ? 0.12 : 0.45),
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 700,
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  color: "#0f172a",
+                  textAlign: "center",
+                  wordBreak: "break-word",
+                }}
+              >
+                {task.content}
+              </Typography>
+            </Paper>
+          </Stack>
+        ) : regenBusy ? (
+          <Stack spacing={1} sx={{ mt: 1.5 }}>
+            <Skeleton variant="rounded" height={22} sx={{ bgcolor: "rgba(15,23,42,0.08)" }} />
+            <Skeleton variant="rounded" height={22} sx={{ bgcolor: "rgba(15,23,42,0.08)" }} />
+            <Skeleton variant="rounded" height={140} sx={{ bgcolor: "rgba(15,23,42,0.06)" }} />
+          </Stack>
+        ) : (
+          <Box
+            sx={{
+              mt: 1.5,
+              color: "#1f2937",
+              fontSize: 14,
+              lineHeight: 1.7,
+              "& p": { margin: "0 0 8px" },
+              "& ul, & ol": { paddingInlineStart: "1.4em", margin: "0 0 8px" },
+              "& code": {
+                backgroundColor: "rgba(15,23,42,0.06)",
+                padding: "1px 6px",
+                borderRadius: 4,
+                fontSize: 12.5,
+              },
+              "& strong": { color: "#0f172a" },
+              "& h1, & h2, & h3": {
+                fontSize: 14,
+                fontWeight: 700,
+                margin: "10px 0 6px",
+              },
+            }}
+          >
+            <SafeHtmlRenderer html={html} />
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="frontend/src/components/analysis/TaskCardGroup.tsx">
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { useMemo } from "react";
+import { groupTasksForDisplay } from "../../lib/taskUtils";
+import type { RemediationTask } from "../../types/analysis";
+import { TaskCard } from "./TaskCard";
+
+export type TaskCardGroupProps = {
+  tasks: RemediationTask[];
+  jobId: string;
+  onTaskReplaced?: (task: RemediationTask) => void;
+};
+
+export function TaskCardGroup({ tasks, jobId, onTaskReplaced }: TaskCardGroupProps): JSX.Element | null {
+  const groups = useMemo(() => groupTasksForDisplay(tasks), [tasks]);
+  if (groups.length === 0) {
+    return null;
+  }
+  return (
+    <Stack spacing={2.5}>
+      {groups.map((g) => (
+        <Paper
+          key={g.sectionLabel}
+          elevation={0}
+          sx={{
+            p: 2,
+            borderRadius: "12px",
+            border: "1px solid rgba(226,232,240,0.95)",
+            backgroundColor: "#fafafa",
+          }}
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#0f172a", mb: 1.5 }}>
+            {g.sectionLabel}
+          </Typography>
+          <Stack spacing={1.5}>
+            {g.tasks.map((t) => (
+              <TaskCard key={t.id} task={t} jobId={jobId} onTaskReplaced={onTaskReplaced} />
+            ))}
+          </Stack>
+        </Paper>
+      ))}
+    </Stack>
+  );
+}
+</file>
+
+<file path="frontend/src/components/analysis/TaskToneToggle.tsx">
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import Snackbar from "@mui/material/Snackbar";
+import Stack from "@mui/material/Stack";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import { type SyntheticEvent, useState } from "react";
+import { apiFetch, responseJsonAsCamel } from "../../api/apiFetch";
+import {
+  parseTaskToneRegenerateEnvelope,
+  type RemediationTask,
+  type RemediationTaskTone,
+} from "../../types/analysis";
+
+export type TaskToneToggleProps = {
+  jobId: string;
+  task: RemediationTask;
+  onTaskReplaced: (next: RemediationTask) => void;
+  onBusyChange: (busy: boolean) => void;
+};
+
+export function TaskToneToggle({
+  jobId,
+  task,
+  onTaskReplaced,
+  onBusyChange,
+}: TaskToneToggleProps): JSX.Element | null {
+  const [tone, setTone] = useState<RemediationTaskTone>("PROFESSIONAL");
+  const [loading, setLoading] = useState(false);
+  const [rateLocked, setRateLocked] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState("");
+
+  const masked = task.isMasked === true;
+
+  const handleToneChange = (_: SyntheticEvent, value: RemediationTaskTone | null): void => {
+    if (value !== null) {
+      setTone(value);
+    }
+  };
+
+  const handleRegenerate = (): void => {
+    if (masked || rateLocked || loading) {
+      return;
+    }
+    setLoading(true);
+    onBusyChange(true);
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/v1/jobs/${jobId}/tasks/${task.id}/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tone }),
+        });
+        if (res.status === 429) {
+          setRateLocked(true);
+          setSnackbarMessage("制限に達しました。1分後に再度お試しください");
+          setSnackbarOpen(true);
+          window.setTimeout(() => {
+            setRateLocked(false);
+          }, 60000);
+          return;
+        }
+        if (!res.ok) {
+          setSnackbarMessage("エラーが発生しました。時間をおいて再度お試しください");
+          setSnackbarOpen(true);
+          return;
+        }
+        const raw: unknown = await responseJsonAsCamel(res);
+        const next = parseTaskToneRegenerateEnvelope(raw);
+        if (next !== null) {
+          onTaskReplaced(next);
+        }
+      } catch {
+        setSnackbarMessage("エラーが発生しました。時間をおいて再度お試しください");
+        setSnackbarOpen(true);
+      } finally {
+        setLoading(false);
+        onBusyChange(false);
+      }
+    })();
+  };
+
+  if (masked) {
+    return null;
+  }
+
+  return (
+    <Stack direction="row" alignItems="center" flexWrap="wrap" spacing={1} useFlexGap sx={{ mt: 0.5 }}>
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        value={tone}
+        onChange={handleToneChange}
+        disabled={loading || rateLocked}
+        aria-label="トーン"
+      >
+        <ToggleButton value="PROFESSIONAL" sx={{ textTransform: "none", fontSize: 12 }}>
+          プロ
+        </ToggleButton>
+        <ToggleButton value="FRIENDLY" sx={{ textTransform: "none", fontSize: 12 }}>
+          フレンドリー
+        </ToggleButton>
+        <ToggleButton value="AGGRESSIVE" sx={{ textTransform: "none", fontSize: 12 }}>
+          強調
+        </ToggleButton>
+      </ToggleButtonGroup>
+      <Button
+        variant="outlined"
+        size="small"
+        disabled={loading || rateLocked}
+        onClick={handleRegenerate}
+        sx={{ textTransform: "none" }}
+      >
+        {loading ? <CircularProgress color="inherit" size={18} /> : "再生成"}
+      </Button>
+      <Snackbar
+        open={snackbarOpen}
+        onClose={(): void => {
+          setSnackbarOpen(false);
+        }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        autoHideDuration={8000}
+        message={snackbarMessage}
+      />
+    </Stack>
+  );
+}
+</file>
+
 <file path="frontend/src/components/AnalysisCharts.tsx">
 import { PieChart as PieChartIcon, TrendingUp } from "lucide-react";
 import { useId, useLayoutEffect, useState } from "react";
@@ -1737,7 +2436,7 @@ export function AnalysisCharts({
             >
               <PieChartIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             </span>
-            <h3 className="text-sm font-semibold tracking-tight text-slate-800">SoM 占有率</h3>
+            <h3 className="text-sm font-semibold tracking-tight text-slate-800">SoV（Share of Voice）</h3>
           </div>
           {shareOk ? (
             <div className="h-[280px] w-full min-w-0">
@@ -1750,12 +2449,17 @@ export function AnalysisCharts({
                     cx="50%"
                     cy="50%"
                     innerRadius={58}
-                    outerRadius={92}
-                    paddingAngle={2}
+                    outerRadius={96}
+                    paddingAngle={3}
                     isAnimationActive={anim}
                   >
                     {shareData.map((_, i) => (
-                      <Cell key={`${i}-${shareData[i]?.name ?? ""}`} fill={piePalette[i % piePalette.length]} />
+                      <Cell
+                        key={`${i}-${shareData[i]?.name ?? ""}`}
+                        fill={i === 0 ? brandColor : piePalette[i % piePalette.length]}
+                        stroke={i === 0 ? "#ffffff" : "transparent"}
+                        strokeWidth={i === 0 ? 3 : 0}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -1886,6 +2590,77 @@ export function AnalysisProgress(): JSX.Element {
         </Fade>
       </Box>
     </Stack>
+  );
+}
+</file>
+
+<file path="frontend/src/components/EmotionalAlertBanner.tsx">
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import Alert, { type AlertColor } from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { keyframes } from "@mui/material/styles";
+import type { EmotionalAlertPayload } from "../types/analysis";
+
+const dangerShake = keyframes`
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-3px); }
+  30% { transform: translateX(3px); }
+  45% { transform: translateX(-2px); }
+  60% { transform: translateX(2px); }
+  75% { transform: translateX(-1px); }
+  90% { transform: translateX(1px); }
+`;
+
+function levelToAlertSeverity(level: EmotionalAlertPayload["level"]): AlertColor {
+  switch (level) {
+    case "DANGER":
+      return "error";
+    case "WARNING":
+      return "warning";
+    default:
+      return "info";
+  }
+}
+
+export type EmotionalAlertBannerProps = {
+  payload: EmotionalAlertPayload;
+};
+
+export function EmotionalAlertBanner({ payload }: EmotionalAlertBannerProps): JSX.Element {
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", {
+    defaultMatches: false,
+  });
+  const severity = levelToAlertSeverity(payload.level);
+  const animateDanger = payload.level === "DANGER" && !prefersReducedMotion;
+  return (
+    <Alert
+      severity={severity}
+      variant="filled"
+      icon={<AutoAwesomeOutlinedIcon fontSize="inherit" />}
+      sx={
+        animateDanger
+          ? {
+              animation: `${dangerShake} 0.65s ease-in-out 1`,
+              "@media (prefers-reduced-motion: reduce)": {
+                animation: "none",
+              },
+            }
+          : undefined
+      }
+    >
+      <Stack spacing={0.5}>
+        <Typography variant="body2" component="span">
+          {payload.message}
+        </Typography>
+        {payload.usedFallback ? (
+          <Typography variant="caption" component="p" sx={{ opacity: 0.85, mb: 0 }}>
+            AIが事実に基づき自動構成しました
+          </Typography>
+        ) : null}
+      </Stack>
+    </Alert>
   );
 }
 </file>
@@ -2226,6 +3001,37 @@ export function OnboardingNarrationMonitor(props: OnboardingNarrationMonitorProp
         </Typography>
       )}
     </Stack>
+  );
+}
+</file>
+
+<file path="frontend/src/components/OperationUpsellBanner.tsx">
+import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+
+export function OperationUpsellBanner(): JSX.Element {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 2.5,
+        borderRadius: "14px",
+        border: "1px solid rgba(139,92,246,0.35)",
+        backgroundImage: "linear-gradient(125deg, rgba(238,242,255,0.95) 0%, rgba(250,245,255,0.98) 45%, rgba(224,231,255,0.92) 100%)",
+        boxShadow: "0 10px 40px rgba(79,70,229,0.12)",
+      }}
+    >
+      <Stack spacing={2} alignItems="flex-start">
+        <Typography sx={{ fontSize: 15, lineHeight: 1.65, color: "#1e1b4b", fontWeight: 600 }}>
+          基礎改修が完了しました。ここからAIの推奨順位を維持・向上させるには、継続的な情報更新と口コミの獲得（運用）が必須です。
+        </Typography>
+        <Button variant="contained" component="a" href="#inquiry" sx={{ textTransform: "none", fontWeight: 700 }}>
+          運用代行プランを相談する
+        </Button>
+      </Stack>
+    </Paper>
   );
 }
 </file>
@@ -2667,6 +3473,47 @@ export function ProposalResultView({
 }
 </file>
 
+<file path="frontend/src/components/RubricGapAlertStack.tsx">
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import type { EmotionalAlert as RubricDerivedAlert } from "../lib/buildEmotionalAlerts";
+
+export type RubricGapAlertStackProps = {
+  alerts: RubricDerivedAlert[];
+};
+
+export function RubricGapAlertStack({ alerts }: RubricGapAlertStackProps): JSX.Element | null {
+  if (alerts.length === 0) {
+    return null;
+  }
+  return (
+    <Stack spacing={1} className="pdf-avoid-break mb-4">
+      {alerts.map((a, idx) => (
+        <Alert
+          key={`${idx}-${a.message.slice(0, 40)}`}
+          severity={a.severity}
+          variant="filled"
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() =>
+                document.getElementById("next-action-section")?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              今すぐ対策を見る
+            </Button>
+          }
+        >
+          {a.message}
+        </Alert>
+      ))}
+    </Stack>
+  );
+}
+</file>
+
 <file path="frontend/src/components/SafeHtmlRenderer.tsx">
 import DOMPurify, { type Config } from "dompurify";
 import { useMemo } from "react";
@@ -2740,11 +3587,10 @@ import type { AssetSnapshotChartPoint } from "../../hooks/useProjectAssetSnapsho
 function computeReadinessYMin(values: number[]): number {
   const finite = values.filter((n) => Number.isFinite(n));
   if (finite.length === 0) {
-    return 0;
+    return 0.0;
   }
-  const minScore = Math.min(...finite);
-  const padded = Math.floor(minScore / 5) * 5 - 5;
-  return Math.max(0, padded);
+  const min = Math.min(...finite);
+  return Math.max(0.0, min - 5.0);
 }
 
 function ChartPlaceholder(): JSX.Element {
@@ -2766,7 +3612,6 @@ export function GrowthTrajectoryChart({
   brandColor,
   isPdfMode,
 }: GrowthTrajectoryChartProps): JSX.Element {
-  const anim = !isPdfMode;
   const yMin = useMemo(
     () => computeReadinessYMin(data.map((d) => d.geoReadinessScore)),
     [data],
@@ -2778,7 +3623,7 @@ export function GrowthTrajectoryChart({
       <div className="mb-4 flex items-center gap-2.5">
         <span
           className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm ring-1 ring-slate-200/60"
-          style={{ color: brandColor, backgroundColor: "rgba(255,255,255,0.9)" }}
+          style={{color:brandColor,backgroundColor:"rgba(255,255,255,0.9)"}}
         >
           <TrendingUp className="h-4 w-4" strokeWidth={1.75} aria-hidden />
         </span>
@@ -2787,40 +3632,40 @@ export function GrowthTrajectoryChart({
       {ok ? (
         <div className="h-[280px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart data={data} margin={{top:8,right:8,left:0,bottom:0}}>
               <CartesianGrid strokeDasharray="3 6" stroke="rgba(148,163,184,0.35)" vertical={false} />
               <XAxis
                 dataKey="snapshotDate"
-                tick={{ fontSize: 11, fill: "#64748b" }}
+                tick={{fontSize:11,fill:"#64748b"}}
                 tickFormatter={(v: string) => formatAuditDate(v)}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                domain={[yMin, 100]}
+                domain={[yMin,100.0]}
                 width={40}
-                tick={{ fontSize: 11, fill: "#64748b" }}
+                tick={{fontSize:11,fill:"#64748b"}}
                 axisLine={false}
                 tickLine={false}
               />
               <Tooltip
                 contentStyle={{
-                  borderRadius: "12px",
-                  border: "1px solid rgba(226,232,240,0.9)",
-                  boxShadow: "0 10px 40px rgba(15,23,42,0.08)",
+                  borderRadius:"12px",
+                  border:"1px solid rgba(226,232,240,0.9)",
+                  boxShadow:"0 10px 40px rgba(15,23,42,0.08)",
                 }}
                 labelFormatter={(v: string) => formatAuditDate(String(v))}
               />
-              <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "12px" }} />
+              <Legend wrapperStyle={{fontSize:"12px",paddingTop:"12px"}} />
               <Line
                 type="monotone"
                 dataKey="geoReadinessScore"
                 name="GEO Readiness"
-                stroke={brandColor}
+                stroke="var(--brand-color)"
                 strokeWidth={2}
-                dot={{ r: isPdfMode ? 3 : 4 }}
-                activeDot={{ r: isPdfMode ? 4 : 5 }}
-                isAnimationActive={anim}
+                dot={{r:isPdfMode?3:4}}
+                activeDot={{r:isPdfMode?4:5}}
+                isAnimationActive={!isPdfMode}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -3643,6 +4488,74 @@ export function useJobStreaming(
 }
 </file>
 
+<file path="frontend/src/hooks/useLatestEmotionalAlert.ts">
+import { useEffect, useState } from "react";
+import { getJobAnalysis, getJobStatus } from "../api/jobsApi";
+import { getBannerJobHintJobId } from "../lib/bannerJobHint";
+import type { EmotionalAlertPayload } from "../types/analysis";
+
+function isCompletedLike(status: string): boolean {
+  return status === "COMPLETED" || status === "SUCCEEDED";
+}
+
+export type UseLatestEmotionalAlertResult = {
+  emotionalAlert: EmotionalAlertPayload | null;
+  loading: boolean;
+};
+
+export function useLatestEmotionalAlert(projectId: string): UseLatestEmotionalAlertResult {
+  const [emotionalAlert, setEmotionalAlert] = useState<EmotionalAlertPayload | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const pid = projectId.trim();
+    if (pid.length === 0) {
+      setEmotionalAlert(null);
+      setLoading(false);
+      return;
+    }
+    const hintedJobId = getBannerJobHintJobId(pid);
+    if (hintedJobId === null || hintedJobId.length === 0) {
+      setEmotionalAlert(null);
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+
+    void (async () => {
+      try {
+        const st = await getJobStatus(hintedJobId, controller.signal);
+        if (st === null) {
+          setEmotionalAlert(null);
+          return;
+        }
+        const stPid = st.projectId != null ? st.projectId.trim() : "";
+        if (stPid !== pid) {
+          setEmotionalAlert(null);
+          return;
+        }
+        if (!isCompletedLike(st.jobStatus.trim())) {
+          setEmotionalAlert(null);
+          return;
+        }
+        const detail = await getJobAnalysis(hintedJobId, controller.signal);
+        const ea = detail?.emotionalAlert;
+        setEmotionalAlert(ea ?? null);
+      } catch {
+        setEmotionalAlert(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    return (): void => controller.abort();
+  }, [projectId]);
+
+  return { emotionalAlert, loading };
+}
+</file>
+
 <file path="frontend/src/hooks/useOnboardingStream.ts">
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { keysToCamelDeep } from "../api/apiFetch";
@@ -4085,6 +4998,220 @@ export function useProjectAssetSnapshots(
   }, [reload]);
 
   return { data, loading, error, reload };
+}
+</file>
+
+<file path="frontend/src/lib/bannerJobHint.ts">
+const STORAGE_KEY = "geo.bannerJobHint.v1";
+
+type Entry = { jobId: string; sortMs: number };
+
+function readEntries(): Record<string, Entry> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw === null || raw.length === 0) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const o = parsed as Record<string, unknown>;
+    const out: Record<string, Entry> = {};
+    for (const k of Object.keys(o)) {
+      const row = o[k];
+      if (row === null || typeof row !== "object" || Array.isArray(row)) {
+        continue;
+      }
+      const rec = row as Record<string, unknown>;
+      const jobId = typeof rec.jobId === "string" ? rec.jobId.trim() : "";
+      const sortMsRaw = rec.sortMs;
+      const sortMs =
+        typeof sortMsRaw === "number" && !Number.isNaN(sortMsRaw) ? sortMsRaw : Number.NaN;
+      if (jobId.length === 0 || Number.isNaN(sortMs)) {
+        continue;
+      }
+      out[k.trim()] = { jobId, sortMs };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeEntries(next: Record<string, Entry>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+  }
+}
+
+export function mergeBannerJobHint(projectId: string, jobId: string, sortMs: number): void {
+  const pid = projectId.trim();
+  const jid = jobId.trim();
+  if (pid.length === 0 || jid.length === 0) {
+    return;
+  }
+  const ms = Number.isFinite(sortMs) ? sortMs : Date.now();
+  const map = readEntries();
+  const prev = map[pid];
+  if (prev !== undefined && prev.sortMs > ms) {
+    return;
+  }
+  map[pid] = { jobId: jid, sortMs: ms };
+  writeEntries(map);
+}
+
+export function getBannerJobHintJobId(projectId: string): string | null {
+  const pid = projectId.trim();
+  if (pid.length === 0) {
+    return null;
+  }
+  const row = readEntries()[pid];
+  return row !== undefined ? row.jobId : null;
+}
+</file>
+
+<file path="frontend/src/lib/buildEmotionalAlerts.ts">
+const EEAT = new Set(["VERIFIABLE_AUTHORITY", "ENTITY_BIOGRAPHY", "EXTERNAL_CITATIONS"]);
+
+export type EmotionalAlert = {
+  severity: "error" | "warning";
+  message: string;
+};
+
+export function buildEmotionalAlerts(gaps: string[], industryType: string): EmotionalAlert[] {
+  const ymyl = industryType === "YMYL";
+  const out: EmotionalAlert[] = [];
+  for (let i = 0; i < gaps.length; i++) {
+    const id = gaps[i];
+    const danger = ymyl && EEAT.has(id);
+    const severity = danger ? "error" : "warning";
+    const message = `⚠️【機会損失の警告】${id} で競合に先行されています。AIからの推薦枠を奪われかねません。`;
+    out.push({ severity, message });
+  }
+  return out;
+}
+</file>
+
+<file path="frontend/src/lib/phaseUtils.ts">
+export function isMaintenancePhase(score: number | undefined | null): boolean {
+  return typeof score === "number" && Number.isFinite(score) && score >= 90;
+}
+</file>
+
+<file path="frontend/src/lib/taskUtils.ts">
+import type { RemediationTask } from "../types/analysis";
+
+export const TASK_SECTION_FALLBACK_LABEL = "サイト全体・未分類";
+
+export function getPriorityRank(priority: string): number {
+  if (priority === "S") {
+    return 1;
+  }
+  if (priority === "A") {
+    return 2;
+  }
+  if (priority === "B") {
+    return 3;
+  }
+  return 99;
+}
+
+export function compareTasks(a: RemediationTask, b: RemediationTask): number {
+  const ra = getPriorityRank(a.priority);
+  const rb = getPriorityRank(b.priority);
+  if (ra !== rb) {
+    return ra - rb;
+  }
+  if (b.impactScore !== a.impactScore) {
+    return b.impactScore - a.impactScore;
+  }
+  return a.id.localeCompare(b.id);
+}
+
+export type TaskSectionGroup = {
+  sectionLabel: string;
+  tasks: RemediationTask[];
+};
+
+function effectiveSection(task: RemediationTask): string {
+  const raw = task.targetSection?.trim();
+  if (raw === undefined || raw.length === 0) {
+    return TASK_SECTION_FALLBACK_LABEL;
+  }
+  return raw;
+}
+
+function compareSectionLabels(a: string, b: string): number {
+  if (a === TASK_SECTION_FALLBACK_LABEL && b !== TASK_SECTION_FALLBACK_LABEL) {
+    return 1;
+  }
+  if (b === TASK_SECTION_FALLBACK_LABEL && a !== TASK_SECTION_FALLBACK_LABEL) {
+    return -1;
+  }
+  return a.localeCompare(b, "ja");
+}
+
+export function hasLockedRemediationTasks(tasks: RemediationTask[]): boolean {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return false;
+  }
+  return tasks.some((t) => t.isMasked === true);
+}
+
+export function groupTasksForDisplay(tasks: RemediationTask[]): TaskSectionGroup[] {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return [];
+  }
+  const map = new Map<string, RemediationTask[]>();
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    const key = effectiveSection(task);
+    const bucket = map.get(key);
+    if (bucket !== undefined) {
+      bucket.push(task);
+    } else {
+      map.set(key, [task]);
+    }
+  }
+  const keys = [...map.keys()].sort((x, y) => compareSectionLabels(x, y));
+  const out: TaskSectionGroup[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const list = map.get(k);
+    if (list === undefined) {
+      continue;
+    }
+    const sorted = [...list].sort((a, b) => compareTasks(a, b));
+    out.push({ sectionLabel: k, tasks: sorted });
+  }
+  return out;
+}
+
+function stripMarkupForClipboard(text: string): string {
+  if (typeof text !== "string" || text.length === 0) {
+    return "";
+  }
+  const noTags = text.replace(/<[^>]*>/g, "");
+  return noTags.replace(/\s+/g, " ").trim();
+}
+
+export function buildClipboardText(task: RemediationTask): string {
+  if (task.isMasked === true) {
+    return task.title.trim();
+  }
+  const body = stripMarkupForClipboard(task.content);
+  if (body.length === 0) {
+    return task.title.trim();
+  }
+  return `${task.title.trim()}\n\n${body}`;
 }
 </file>
 
@@ -4564,8 +5691,16 @@ import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
+import { mergeBannerJobHint } from "../lib/bannerJobHint";
 import { AnalysisCharts } from "../components/AnalysisCharts";
+import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
+import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
+import { RubricGapAlertStack } from "../components/RubricGapAlertStack";
+import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
+import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
+import CircularProgress from "@mui/material/CircularProgress";
 import { useJobNotification } from "../hooks/useJobNotification";
 import { useJobStreaming } from "../hooks/useJobStreaming";
 import {
@@ -4580,6 +5715,7 @@ import {
   type JobProjectInfo,
   type ResultDetail,
 } from "../types/analysis";
+import { isMaintenancePhase } from "../lib/phaseUtils";
 
 const PROCESSING_STATUSES = new Set([
   "CREATED",
@@ -5009,9 +6145,64 @@ export function JobAnalysisPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [isReadyForPdf, isPdfMode]);
 
+  useEffect(() => {
+    if (data === null) {
+      return;
+    }
+    if (!isCompletedJobStatus(data.jobStatus)) {
+      return;
+    }
+    const pid = data.project?.projectId?.trim() ?? "";
+    if (pid.length === 0) {
+      return;
+    }
+    const ms = jobStatus !== null ? Date.parse(jobStatus.updatedAt) : Number.NaN;
+    mergeBannerJobHint(pid, data.jobId, Number.isNaN(ms) ? Date.now() : ms);
+  }, [data, jobStatus]);
+
+  const maintenancePhase =
+    data !== null &&
+    isCompletedJobStatus(data.jobStatus) &&
+    isMaintenancePhase(data.factBasedScore);
+
+  const remediationBoardSection =
+    data !== null &&
+    Array.isArray(data.remediationTasks) &&
+    data.remediationTasks.length > 0 ? (
+      <div className="pdf-avoid-break mb-6">
+        <RemediationTaskBoard
+          jobId={data.jobId}
+          tasks={data.remediationTasks}
+          onRemediationTaskReplaced={(updated) => {
+            setData((prev) => {
+              if (prev === null || !Array.isArray(prev.remediationTasks)) {
+                return prev;
+              }
+              const nextTasks = prev.remediationTasks.map((t) =>
+                t.id === updated.id ? updated : t,
+              );
+              return { ...prev, remediationTasks: nextTasks };
+            });
+          }}
+        />
+      </div>
+    ) : null;
+
+  const geoScoreSection =
+    data !== null && data.scoreBreakdown != null ? (
+      <div className="pdf-avoid-break mb-6">
+        <GeoScoreBreakdown breakdown={data.scoreBreakdown} brandName={data.brandName} />
+      </div>
+    ) : null;
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
       <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
+      {data?.emotionalAlert != null ? (
+        <div className="pdf-avoid-break mb-4">
+          <EmotionalAlertBanner payload={data.emotionalAlert} />
+        </div>
+      ) : null}
       {jobNotifyLoading && jobStatus === null && effectiveJobId && (
         <div className="pdf-no-print mb-4 flex items-center gap-3 text-slate-600">
           <span
@@ -5161,11 +6352,13 @@ export function JobAnalysisPage(): JSX.Element {
             </button>
           )}
           {isPdfGeneratingUi && (
-            <span className="inline-flex items-center gap-2 text-sm text-slate-600">
-              <span
-                className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
-                aria-hidden
-              />
+            <span
+              className="inline-flex items-center gap-2 text-sm text-slate-600"
+              aria-live="polite"
+              aria-busy="true"
+              role="status"
+            >
+              <CircularProgress size={16} thickness={5} sx={{color:"#0284c7"}} aria-hidden />
               生成中…
             </span>
           )}
@@ -5197,26 +6390,36 @@ export function JobAnalysisPage(): JSX.Element {
           </button>
         </div>
       )}
-      {showJobStrategyBlock && (
-        <div className="pdf-avoid-break pdf-no-print mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
-          {displayJobRollupMedZ != null && (
-            <p className="mt-1 text-xs text-sky-900/80">
-              中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
-            </p>
-          )}
-          {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
-            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
-          ) : null}
-          {displayJobRollupActions.length > 0 ? (
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
-              {displayJobRollupActions.map((action, idx) => (
-                <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      )}
+      {data != null &&
+        isCompletedJobStatus(data.jobStatus) &&
+        data.rubricGaps != null &&
+        data.rubricGaps.length > 0 && (
+          <RubricGapAlertStack
+            alerts={buildEmotionalAlerts(data.rubricGaps, data.project?.industryType ?? "OTHER")}
+          />
+        )}
+      <div id="next-action-section" className="scroll-mt-28 pdf-no-print">
+        {showJobStrategyBlock && (
+          <div className="pdf-avoid-break mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+            {displayJobRollupMedZ != null && (
+              <p className="mt-1 text-xs text-sky-900/80">
+                中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
+              </p>
+            )}
+            {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
+              <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
+            ) : null}
+            {displayJobRollupActions.length > 0 ? (
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
+                {displayJobRollupActions.map((action, idx) => (
+                  <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+      </div>
       {showTierBlock && (
         <div className="pdf-avoid-break mb-6">
           <TierDiagnosisCard
@@ -5226,6 +6429,13 @@ export function JobAnalysisPage(): JSX.Element {
           />
         </div>
       )}
+      {!maintenancePhase ? remediationBoardSection : null}
+      {maintenancePhase ? (
+        <div className="pdf-avoid-break mb-6 pdf-no-print">
+          <OperationUpsellBanner />
+        </div>
+      ) : null}
+      {geoScoreSection}
       {showCharts &&
         (isProcessingDisplay ||
           (data !== null && isCompletedJobStatus(data.jobStatus))) && (
@@ -5359,6 +6569,7 @@ export function JobAnalysisPage(): JSX.Element {
           </div>
         </div>
       )}
+      {maintenancePhase ? remediationBoardSection : null}
       {showPdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
     </div>
   );
@@ -6672,22 +7883,24 @@ import { useBranding } from "../branding/useBranding";
 import { AbsoluteEvaluationSection } from "../components/strategy/AbsoluteEvaluationSection";
 import { RelativeEvaluationSection } from "../components/strategy/RelativeEvaluationSection";
 import { LockedInsightCallout } from "../components/policy/LockedInsightCallout";
+import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { useProjectAssetSnapshots } from "../hooks/useProjectAssetSnapshots";
+import { useLatestEmotionalAlert } from "../hooks/useLatestEmotionalAlert";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 function localIsoDate(d: Date): string {
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
   return `${y}-${m}-${day}`;
 }
 
-function defaultRange(): { from: string; to: string } {
+function defaultRange(): {from: string; to: string} {
   const to = new Date();
   const from = new Date(to);
-  from.setDate(from.getDate() - 90);
-  return { from: localIsoDate(from), to: localIsoDate(to) };
+  from.setDate(from.getDate()-90);
+  return {from: localIsoDate(from), to: localIsoDate(to)};
 }
 
 function usePrintSnapshot(): boolean {
@@ -6710,23 +7923,56 @@ function usePrintSnapshot(): boolean {
 }
 
 export default function StrategyDashboardPage(): JSX.Element {
-  const { projectId = "" } = useParams<{ projectId: string }>();
-  const { toolName, logoBlobUrl, brandColor } = useBranding();
+  const {projectId = ""} = useParams<{projectId: string}>();
+  const {toolName, logoBlobUrl, brandColor} = useBranding();
+  const { emotionalAlert } = useLatestEmotionalAlert(projectId);
   const range = useMemo(() => defaultRange(), []);
-  const { data, loading, error } = useProjectAssetSnapshots(projectId, range.from, range.to);
+  const {data, loading, error} = useProjectAssetSnapshots(projectId, range.from, range.to);
   const isPdfMode = usePrintSnapshot();
+  const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
 
   const printedAt = useMemo(() => new Date().toLocaleString("ja-JP"), []);
+
+  useEffect(() => {
+    if (loading || error != null) {
+      setPdfReadyFlag(false);
+      return;
+    }
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        setPdfReadyFlag(true);
+      });
+    });
+    return () => {
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
+  }, [loading, error, data]);
+
+  useEffect(() => {
+    if (!pdfReadyFlag) {
+      return;
+    }
+    const handle = window.requestAnimationFrame(() => {
+      const el = document.getElementById("pdf-ready-flag");
+      if (el == null) {
+        setPdfReadyFlag(false);
+      }
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [pdfReadyFlag]);
 
   return (
     <div className="min-h-screen bg-slate-50/80 pb-16 pt-8">
       <div
         className="strategy-dashboard-print-root mx-auto px-4 text-slate-900"
         style={{
-          width: "min(100%, 794px)",
-          maxWidth: "100%",
-          printColorAdjust: "exact",
-          WebkitPrintColorAdjust: "exact",
+          width:"min(100%,794px)",
+          maxWidth:"100%",
+          printColorAdjust:"exact",
+          WebkitPrintColorAdjust:"exact",
         }}
       >
         <nav className="pdf-no-print mb-6 text-sm text-slate-600">
@@ -6761,6 +8007,12 @@ export default function StrategyDashboardPage(): JSX.Element {
           </div>
         </header>
 
+        {emotionalAlert != null ? (
+          <div className="pdf-no-print pdf-avoid-break mb-6">
+            <EmotionalAlertBanner payload={emotionalAlert} />
+          </div>
+        ) : null}
+
         <div className="pdf-no-print mb-6 rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
           <LockedInsightCallout message="🔒 基礎スコアが上位プランで開示されます（プレースホルダ）。" />
         </div>
@@ -6774,6 +8026,8 @@ export default function StrategyDashboardPage(): JSX.Element {
 
         <AbsoluteEvaluationSection data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
         <RelativeEvaluationSection />
+
+        {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
       </div>
     </div>
   );
@@ -6967,6 +8221,7 @@ export interface JobProjectInfo {
   competitorUrls: string[];
   brandColor: string;
   logoUrl: string | null;
+  industryType?: string;
 }
 export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
   if (raw === null || typeof raw !== "object") {
@@ -6995,6 +8250,8 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
       : typeof luRaw === "string" && luRaw.length > 0
         ? luRaw
         : null;
+  const indRaw = p.industryType ?? p.industry_type;
+  const industryType = typeof indRaw === "string" && indRaw.length > 0 ? indRaw : undefined;
   return {
     projectId,
     projectName,
@@ -7002,6 +8259,7 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
     competitorUrls: comp,
     brandColor: bc,
     logoUrl: lu,
+    industryType,
   };
 }
 export interface LiveResultMetrics {
@@ -7237,6 +8495,58 @@ export interface ResultDetail {
   createdAt: string;
 }
 
+export interface ScoreBreakdown {
+  aiAuditTotal: number;
+  meoTotal: number;
+  machineReadabilityTotal: number;
+  finalScore: number;
+}
+
+export type RemediationTaskCategory = "SPIKE" | "SLAB";
+export type RemediationTaskPriority = "S" | "A" | "B";
+
+export interface RemediationTask {
+  id: string;
+  category: RemediationTaskCategory;
+  priority: RemediationTaskPriority;
+  title: string;
+  content: string;
+  impactScore: number;
+  level: number;
+  requiredScoreThreshold: number;
+  isMasked: boolean;
+  targetSection?: string;
+}
+
+export type RemediationTaskTone = "PROFESSIONAL" | "FRIENDLY" | "AGGRESSIVE";
+
+export type EmotionalAlertLevel = "DANGER" | "WARNING" | "INFO";
+
+export interface EmotionalAlertPayload {
+  level: EmotionalAlertLevel;
+  message: string;
+  usedFallback: boolean;
+}
+
+export function parseEmotionalAlertPayload(raw: unknown): EmotionalAlertPayload | null {
+  if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const levelRaw = r.level;
+  if (levelRaw !== "DANGER" && levelRaw !== "WARNING" && levelRaw !== "INFO") {
+    return null;
+  }
+  const messageRaw = r.message;
+  const message = typeof messageRaw === "string" ? messageRaw.trim() : "";
+  if (message.length === 0) {
+    return null;
+  }
+  const uf = r.usedFallback !== undefined ? r.usedFallback : r.used_fallback;
+  const usedFallback = uf === true;
+  return { level: levelRaw, message, usedFallback };
+}
+
 export interface JobAnalysisDetail {
   jobId: string;
   jobStatus: string;
@@ -7250,6 +8560,11 @@ export interface JobAnalysisDetail {
   jobMedianModifiedZ?: number | null;
   jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
+  factBasedScore?: number;
+  rubricGaps?: string[];
+  scoreBreakdown?: ScoreBreakdown | null;
+  remediationTasks?: RemediationTask[];
+  emotionalAlert?: EmotionalAlertPayload | null;
 }
 
 function auditDateString(v: unknown): string | null {
@@ -7507,6 +8822,15 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       : typeof r.jobMedianVisibilityStage === "number" && !Number.isNaN(r.jobMedianVisibilityStage)
         ? r.jobMedianVisibilityStage
         : null;
+  const fbsRaw = r.factBasedScore ?? r.fact_based_score;
+  const factBasedScore =
+    typeof fbsRaw === "number" && !Number.isNaN(fbsRaw) ? fbsRaw : undefined;
+  const rgRaw = r.rubricGaps ?? r.rubric_gaps;
+  const rubricGaps =
+    Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
+  const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
+  const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
+  const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   return {
     jobId,
     jobStatus,
@@ -7520,7 +8844,121 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     jobMedianModifiedZ: jmz,
     jobMedianVisibilityStage: jmvs,
     results,
+    factBasedScore,
+    rubricGaps,
+    scoreBreakdown,
+    remediationTasks,
+    ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
   };
+}
+
+function remediationCapsFromPriority(
+  priority: RemediationTaskPriority,
+): { level: number; requiredScoreThreshold: number } {
+  if (priority === "B") {
+    return { level: 1, requiredScoreThreshold: 0 };
+  }
+  if (priority === "A") {
+    return { level: 2, requiredScoreThreshold: 60 };
+  }
+  return { level: 3, requiredScoreThreshold: 80 };
+}
+
+function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const ai = pickNum(r, "aiAuditTotal", "ai_audit_total");
+  const meo = pickNum(r, "meoTotal", "meo_total");
+  const mr = pickNum(r, "machineReadabilityTotal", "machine_readability_total");
+  const finalScore = pickNum(r, "finalScore", "final_score");
+  if (ai === undefined || meo === undefined || mr === undefined || finalScore === undefined) {
+    return null;
+  }
+  return {
+    aiAuditTotal: ai,
+    meoTotal: meo,
+    machineReadabilityTotal: mr,
+    finalScore,
+  };
+}
+
+export function parseRemediationTaskItem(item: unknown): RemediationTask | null {
+  if (item === null || typeof item !== "object") {
+    return null;
+  }
+  const r = item as JsonDict;
+  const id = typeof r.id === "string" ? r.id : undefined;
+  const categoryRaw = typeof r.category === "string" ? r.category : undefined;
+  const priorityRaw = typeof r.priority === "string" ? r.priority : undefined;
+  const title = typeof r.title === "string" ? r.title : undefined;
+  const content = typeof r.content === "string" ? r.content : undefined;
+  const impactRaw = pickNum(r, "impactScore", "impact_score");
+  if (
+    id === undefined ||
+    categoryRaw === undefined ||
+    priorityRaw === undefined ||
+    title === undefined ||
+    content === undefined ||
+    impactRaw === undefined
+  ) {
+    return null;
+  }
+  if (categoryRaw !== "SPIKE" && categoryRaw !== "SLAB") {
+    return null;
+  }
+  if (priorityRaw !== "S" && priorityRaw !== "A" && priorityRaw !== "B") {
+    return null;
+  }
+  const tsRaw = r.targetSection !== undefined ? r.targetSection : r.target_section;
+  const sectionTrimmed =
+    typeof tsRaw === "string" ? tsRaw.trim() : "";
+  const caps = remediationCapsFromPriority(priorityRaw);
+  const levelParsed = pickNum(r, "level", "level");
+  const thresholdParsed = pickNum(r, "requiredScoreThreshold", "required_score_threshold");
+  const level = levelParsed !== undefined ? levelParsed : caps.level;
+  const requiredScoreThreshold =
+    thresholdParsed !== undefined ? thresholdParsed : caps.requiredScoreThreshold;
+  const maskedRaw = pickBool(r, "isMasked", "is_masked");
+  const isMasked = maskedRaw === true;
+  const targetSectionPayload =
+    sectionTrimmed.length > 0 ? ({ targetSection: sectionTrimmed } as const) : ({} as const);
+  return {
+    id,
+    category: categoryRaw,
+    priority: priorityRaw,
+    title,
+    content,
+    impactScore: impactRaw,
+    level,
+    requiredScoreThreshold,
+    isMasked,
+    ...targetSectionPayload,
+  };
+}
+
+export function parseTaskToneRegenerateEnvelope(raw: unknown): RemediationTask | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const t = r.task;
+  return parseRemediationTaskItem(t);
+}
+
+function parseRemediationTasks(raw: unknown): RemediationTask[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: RemediationTask[] = [];
+  for (const item of raw) {
+    const parsed = parseRemediationTaskItem(item);
+    if (parsed !== null) {
+      out.push(parsed);
+    }
+  }
+  return out;
 }
 </file>
 

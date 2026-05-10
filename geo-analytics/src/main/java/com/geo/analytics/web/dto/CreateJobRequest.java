@@ -10,9 +10,30 @@ public record CreateJobRequest(
     @NotBlank(message = "brandName must not be blank")
     @Size(max = 255, message = "brandName must not exceed 255 characters")
     String brandName,
+    @NotBlank(message = "targetUrl must not be blank")
+    @Size(max = 2048, message = "targetUrl must not exceed 2048 characters")
+    String targetUrl,
+    @Size(max = 16000)
+    String businessSummary,
+    @Size(max = 16000)
+    String targetAudience,
+    @Size(max = 16000)
+    String focusPoints,
     @JsonProperty("idempotency_key") UUID idempotencyKey
 ) {
     public CreateJobRequest {
         brandName = TextWhitespaceNormalizer.normalize(brandName);
+        targetUrl = TextWhitespaceNormalizer.normalize(targetUrl);
+        businessSummary = optionalText(businessSummary);
+        targetAudience = optionalText(targetAudience);
+        focusPoints = optionalText(focusPoints);
+    }
+
+    private static String optionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String s = value.strip();
+        return s.isEmpty() ? null : s;
     }
 }

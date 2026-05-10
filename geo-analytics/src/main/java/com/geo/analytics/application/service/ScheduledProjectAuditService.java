@@ -59,7 +59,14 @@ public class ScheduledProjectAuditService {
             if (subscriptionPlan == null) {
                 subscriptionPlan = SubscriptionPlan.STANDARD;
             }
-            JobEntity jobEntity = jobPersistenceService.createJob(projectEntity.getName());
+            String targetUrl = projectEntity.getTargetUrl();
+            if (targetUrl == null || targetUrl.isBlank()) {
+                targetUrl = "https://placeholder.invalid/scheduled-audit";
+            }
+            var jobFields =
+                    new JobPersistenceService.JobCreateFields(
+                            projectEntity.getName(), targetUrl, null, null, null);
+            JobEntity jobEntity = jobPersistenceService.createJob(jobFields);
             List<String> texts = keywords.stream().map(ProjectKeywordEntity::getKeywordText).distinct().toList();
             jobQuerySubmissionService.submitQueries(jobEntity.getId(), texts, subscriptionPlan);
             log.info("scheduled audit enqueued jobId={} projectId={}", jobEntity.getId(), projectId);

@@ -28,6 +28,8 @@ import io.github.bucket4j.caffeine.CaffeineProxyManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -37,6 +39,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.web.reactive.function.BodyInserters;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,6 +53,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -66,6 +71,9 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
 
     @Autowired
     private WebTestClient webTestClient;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -109,6 +117,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
 
     @BeforeEach
     void stubSync() {
+        webTestClient = webTestClient.mutate().responseTimeout(Duration.ofSeconds(120)).build();
         when(syncVerificationService.verify(
                 anyString(),
                 anyString(),
@@ -162,6 +171,9 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .bodyValue(Map.of("queries", ten, "plan", "STANDARD"))
                 .exchange()
                 .expectStatus().isNoContent();
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(50))
+                .untilAsserted(() -> assertThat(queryRepository.countByJobId(jobId)).isGreaterThanOrEqualTo(10));
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
                 .header(TENANT_HEADER, WID.toString())
@@ -346,16 +358,27 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     }
 
     private UUID createJob(String brandName) {
-        var body = webTestClient.post()
-                .uri("/api/v1/jobs")
-                .header(TENANT_HEADER, WID.toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("brandName", brandName))
-                .exchange()
-                .expectStatus().isCreated()
-                .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
-                .returnResult()
-                .getResponseBody();
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(
+                    Map.of("brandName", brandName, "targetUrl", "https://example.test/jobs/" + brandName));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+        MultipartBodyBuilder multipart = new MultipartBodyBuilder();
+        multipart.part("request", json).contentType(MediaType.APPLICATION_JSON);
+        var body =
+                webTestClient
+                        .post()
+                        .uri("/api/v1/jobs")
+                        .header(TENANT_HEADER, WID.toString())
+                        .body(BodyInserters.fromMultipartData(multipart.build()))
+                        .exchange()
+                        .expectStatus()
+                        .isCreated()
+                        .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                        .returnResult()
+                        .getResponseBody();
         assertThat(body).isNotNull();
         var raw = body.get("job_id");
         return raw instanceof UUID u ? u : UUID.fromString(String.valueOf(raw));

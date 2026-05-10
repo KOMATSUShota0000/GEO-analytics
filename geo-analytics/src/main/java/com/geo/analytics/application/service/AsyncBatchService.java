@@ -31,6 +31,7 @@ public class AsyncBatchService {
     private final GapAnalysisService gapAnalysisService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
+    private final AiRubricAuditService aiRubricAuditService;
 
     public AsyncBatchService(
             BatchPersistenceService batchPersistence,
@@ -42,7 +43,8 @@ public class AsyncBatchService {
             GapAnalysisBatchProcessor gapAnalysisBatchProcessor,
             GapAnalysisService gapAnalysisService,
             PlanBasedQuotaManager planBasedQuotaManager,
-            JobBenchmarkCaptureService jobBenchmarkCaptureService) {
+            JobBenchmarkCaptureService jobBenchmarkCaptureService,
+            AiRubricAuditService aiRubricAuditService) {
         this.batchPersistence = batchPersistence;
         this.geminiBatchExecutorService = geminiBatchExecutorService;
         this.geminiBatchClient = geminiBatchClient;
@@ -53,6 +55,7 @@ public class AsyncBatchService {
         this.gapAnalysisService = gapAnalysisService;
         this.planBasedQuotaManager = planBasedQuotaManager;
         this.jobBenchmarkCaptureService = jobBenchmarkCaptureService;
+        this.aiRubricAuditService = aiRubricAuditService;
     }
 
     private void broadcastJobStatusOverStomp(UUID jobId) {
@@ -119,6 +122,7 @@ public class AsyncBatchService {
                         geminiBatchClient.downloadOutputFileContent(outputFileName);
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
                     jobBenchmarkCaptureService.capture(jobEntity.getId());
+                    aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobEntity.getId());
                     batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     broadcastJobStatusOverStomp(jobEntity.getId());
                     projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobEntity.getId()));

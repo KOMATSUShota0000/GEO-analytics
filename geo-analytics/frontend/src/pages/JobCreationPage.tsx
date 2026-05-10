@@ -1,4 +1,5 @@
-import AddIcon from "@mui/icons-material/Add";
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import {
   Alert,
   Box,
@@ -6,410 +7,398 @@ import {
   Card,
   CardContent,
   CardHeader,
-  Chip,
   Container,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Link,
+  IconButton,
   Snackbar,
   Stack,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import type { MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { convertProposalToJob } from "../api/queryProposalApi";
-import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
+import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createJob, CreateJobHttpError } from "../api/jobsApi";
 import { useBranding } from "../branding/useBranding";
-import { AIStrategyProposalWizard } from "../components/AIStrategyProposalWizard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
-import { extractApiErrorMessage, normalizeJobStatusResponse } from "../types/analysis";
 
-const CONVERT_NAVIGATE_DELAY_MS = 600;
+const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_KNOWLEDGE_EXTENSIONS = [".pdf", ".docx", ".txt", ".csv"] as const;
 
-/** 解析開始フロー: 握り潰し禁止（コンソール + アラート + 呼び出し元で UI 表示用メッセージ返却） */
-function exposeAndFormatJobApiError(context: string, e: unknown): string {
-  console.error(`[JobCreationPage:${context}]`, e);
-  const message =
-    e instanceof Error ? e.message : typeof e === "string" ? e : `不明なエラー: ${String(e)}`;
-  window.alert(`エラーが発生しました: ${message}`);
-  return message;
+type KnowledgeFilePartition = {
+  accepted: File[];
+  rejectedOversize: number;
+  rejectedExtension: number;
+};
+
+function partitionKnowledgeFiles(files: Iterable<File>): KnowledgeFilePartition {
+  const accepted: File[] = [];
+  let rejectedOversize = 0;
+  let rejectedExtension = 0;
+  for (const file of files) {
+    if (file.size > MAX_KNOWLEDGE_FILE_BYTES) {
+      rejectedOversize++;
+      continue;
+    }
+    const lower = file.name.toLowerCase();
+    const ok = ALLOWED_KNOWLEDGE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+    if (!ok) {
+      rejectedExtension++;
+      continue;
+    }
+    accepted.push(file);
+  }
+  return { accepted, rejectedOversize, rejectedExtension };
 }
 
-function isThresholdError(message: string): boolean {
-  return (
-    message.includes("キーワードの上限を超えています") ||
-    message.includes("クエリの上限を超えています")
-  );
+function buildKnowledgeSkipMessage(partition: KnowledgeFilePartition): string {
+  const parts: string[] = [];
+  if (partition.rejectedOversize > 0) {
+    parts.push(`${partition.rejectedOversize}件は10MBを超えたため追加できませんでした`);
+  }
+  if (partition.rejectedExtension > 0) {
+    parts.push(
+      `${partition.rejectedExtension}件は許可形式（.pdf / .docx / .txt / .csv）以外のため追加できませんでした`,
+    );
+  }
+  return parts.join("。") + "。";
+}
+
+function formatKnowledgeFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kb = bytes / 1024;
+  if (kb < 1024) {
+    return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  }
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
+const JOB_CREATE_TIMEOUT_MS = 7 * 60 * 1000;
+
+const MSG_PAYLOAD_TOO_LARGE =
+  "アップロード可能なサイズを超えています。1ファイルあたり最大10MB、リクエスト全体は50MB以内にしてください。ファイルを減らすか容量を小さくしてから再度お試しください。";
+
+const MSG_TIMEOUT =
+  "通信がタイムアウトしました。ネットワークとファイルサイズを確認し、再度お試しください。";
+
+function formatJobCreateFailure(e: unknown): string {
+  if (e instanceof DOMException && e.name === "AbortError") {
+    return MSG_TIMEOUT;
+  }
+  if (e instanceof Error && e.name === "AbortError") {
+    return MSG_TIMEOUT;
+  }
+  if (e instanceof CreateJobHttpError) {
+    if (e.status === 413 || e.errorCode === "payload_too_large") {
+      return MSG_PAYLOAD_TOO_LARGE;
+    }
+    return e.message.length > 0 ? e.message : `リクエストに失敗しました（HTTP ${e.status}）`;
+  }
+  if (e instanceof Error) {
+    return e.message.length > 0 ? e.message : "予期しないエラーが発生しました。";
+  }
+  return `予期しないエラー: ${String(e)}`;
 }
 
 export default function JobCreationPage(): JSX.Element {
   const navigate = useNavigate();
   const muiTheme = useTheme();
   const { toolName, logoBlobUrl } = useBranding();
-  const navigateTimeoutRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [brandName, setBrandName] = useState("");
-  const [queryDraft, setQueryDraft] = useState("");
-  const [queries, setQueries] = useState<string[]>([]);
+  const [targetUrl, setTargetUrl] = useState("");
+  const [businessSummary, setBusinessSummary] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [focusPoints, setFocusPoints] = useState("");
+  const [knowledgeFiles, setKnowledgeFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [analysisMode, setAnalysisMode] = useState<"realtime" | "deep">("realtime");
-  const [upsellOpen, setUpsellOpen] = useState(false);
-  const [wizardBusy, setWizardBusy] = useState(false);
-  const [convertSuccessOpen, setConvertSuccessOpen] = useState(false);
+  const [skipSnackbarOpen, setSkipSnackbarOpen] = useState(false);
+  const [skipSnackbarMessage, setSkipSnackbarMessage] = useState("");
 
-  useEffect(() => {
-    return () => {
-      if (navigateTimeoutRef.current !== null) {
-        window.clearTimeout(navigateTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleWizardBusyChange = useCallback((busy: boolean) => {
-    setWizardBusy(busy);
-  }, []);
-
-  const handleProposalComplete = async (_queries: string[], proposalId: string): Promise<void> => {
-    const jobId = await convertProposalToJob(proposalId, "STANDARD");
-    setConvertSuccessOpen(true);
-    if (navigateTimeoutRef.current !== null) {
-      window.clearTimeout(navigateTimeoutRef.current);
+  const mergeIncomingFiles = (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    const partition = partitionKnowledgeFiles(arr);
+    if (partition.accepted.length > 0) {
+      setKnowledgeFiles((prev) => [...prev, ...partition.accepted]);
     }
-    navigateTimeoutRef.current = window.setTimeout(() => {
-      navigateTimeoutRef.current = null;
-      navigate(`/job/${jobId}`);
-    }, CONVERT_NAVIGATE_DELAY_MS);
+    if (partition.rejectedOversize > 0 || partition.rejectedExtension > 0) {
+      setSkipSnackbarMessage(buildKnowledgeSkipMessage(partition));
+      setSkipSnackbarOpen(true);
+    }
   };
 
-  const handleAnalysisModeChange = (
-    _event: MouseEvent<HTMLElement>,
-    newValue: "realtime" | "deep" | null,
-  ) => {
-    if (newValue === null) {
+  const handleSubmit = async () => {
+    if (submitting) {
       return;
     }
-    if (newValue === "deep") {
-      setUpsellOpen(true);
-      return;
-    }
-    setAnalysisMode(newValue);
-  };
-
-  const addQuery = () => {
-    const trimmed = queryDraft.trim();
-    if (!trimmed) return;
-    if (queries.includes(trimmed)) {
-      setQueryDraft("");
-      return;
-    }
-    setQueries((prev) => [...prev, trimmed]);
-    setQueryDraft("");
-  };
-
-  const removeQuery = (value: string) => {
-    setQueries((prev) => prev.filter((q) => q !== value));
-  };
-
-  const createJob = async () => {
     setError(null);
-    const brand = brandName.trim();
-    if (!brand) {
-      setError("ブランド名を入力してください。");
+    const bn = brandName.trim();
+    const tu = targetUrl.trim();
+    if (!bn) {
+      setError("屋号・ブランド名を入力してください。");
+      return;
+    }
+    if (!tu) {
+      setError("解析対象URLを入力してください。");
       return;
     }
     setSubmitting(true);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), JOB_CREATE_TIMEOUT_MS);
     try {
-      const createRes = await apiFetch("/api/v1/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName: brand }),
-      });
-      if (!createRes.ok) {
-        const text = await createRes.text();
-        throw new Error(text || `HTTP ${createRes.status}`);
-      }
-      const raw: unknown = await responseJsonAsCamel(createRes);
-      const created = normalizeJobStatusResponse(raw);
-      if (created === null) {
-        throw new Error("ジョブ作成レスポンスの形式が不正です");
-      }
-      const jobId = created.jobId;
-      if (queries.length > 0) {
-        const queriesRes = await apiFetch(`/api/v1/jobs/${jobId}/queries`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ queries, plan: "STANDARD" }),
-        });
-        if (!queriesRes.ok) {
-          const text = await queriesRes.text();
-          let message = text || `HTTP ${queriesRes.status}`;
-          try {
-            const parsed: unknown = parseJsonTextAsCamel(text);
-            const em = extractApiErrorMessage(parsed);
-            if (em !== undefined) {
-              message = em;
-            }
-          } catch {
-            /* use message as-is */
-          }
-          throw new Error(message);
-        }
-      }
-      navigate(`/job/${jobId}`);
+      const created = await createJob(
+        {
+          brandName: bn,
+          targetUrl: tu,
+          businessSummary,
+          targetAudience,
+          focusPoints,
+          files: knowledgeFiles.length > 0 ? knowledgeFiles : undefined,
+        },
+        controller.signal,
+      );
+      navigate(`/job/${created.jobId}`);
     } catch (e: unknown) {
-      setError(exposeAndFormatJobApiError("createJob", e));
+      console.error("[JobCreationPage:createJob]", e);
+      setError(formatJobCreateFailure(e));
     } finally {
+      window.clearTimeout(timeoutId);
       setSubmitting(false);
     }
   };
 
   return (
-    <>
-      <Container maxWidth="md" sx={{ py: 4 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
-          {logoBlobUrl !== null ? (
-            <Box component="img" src={logoBlobUrl} alt="" sx={{ height: 36, width: "auto", display: "block" }} />
-          ) : null}
-          <Typography variant="subtitle1" fontWeight={700}>
-            {toolName}
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+        {logoBlobUrl !== null ? (
+          <Box component="img" src={logoBlobUrl} alt="" sx={{ height: 36, width: "auto", display: "block" }} />
+        ) : null}
+        <Typography variant="subtitle1" fontWeight={700}>
+          {toolName}
+        </Typography>
+      </Box>
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>
+          ジョブ作成
+        </Typography>
+        <Typography color="text.secondary">
+          解析対象のURLとコンテキスト（任意）を入力して、GEO解析ジョブを開始できます。
+        </Typography>
+      </Box>
+      {error ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          <Typography variant="body2" component="span">
+            {error}
           </Typography>
-        </Box>
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            gap: 2,
-            mb: 3,
-            flexWrap: "wrap",
-          }}
-        >
-          <Box sx={{ flex: "1 1 auto", minWidth: 0 }}>
-            <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>
-              ジョブ作成
-            </Typography>
-            <Typography color="text.secondary">
-              AIによるクエリ提案と手動入力のどちらでも、解析ジョブを開始できます。
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              flexShrink: 0,
-            }}
-          >
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              fontWeight={600}
-              sx={{ mb: 0.75, display: "block" }}
-            >
-              解析モード
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={analysisMode}
-              onChange={handleAnalysisModeChange}
-              color="primary"
-              sx={{
-                gap: 0.75,
-                "& .MuiToggleButtonGroup-grouped": {
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: "8px !important",
-                  mx: 0,
-                  px: 1.25,
-                  fontWeight: 600,
-                  textTransform: "none",
-                  "&.Mui-selected": {
-                    bgcolor: "primary.main",
-                    color: "primary.contrastText",
-                    borderColor: "primary.main",
-                    "&:hover": {
-                      bgcolor: "primary.dark",
-                    },
-                  },
-                },
-              }}
-            >
-              <ToggleButton value="realtime" sx={{ whiteSpace: "nowrap" }}>
-                Realtime Mode
-              </ToggleButton>
-              <ToggleButton value="deep" sx={{ whiteSpace: "nowrap" }}>
-                Deep Analysis Mode 💎
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        </Box>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-            <Stack spacing={0.5}>
-              <Typography variant="body2" component="span">
-                {error}
-              </Typography>
-              {isThresholdError(error) && (
-                <Box sx={{ mt: 1.5 }}>
-                  <Link
-                    component={RouterLink}
-                    to="/pricing"
-                    variant="body2"
-                    fontWeight={600}
-                    underline="hover"
-                  >
-                    Proプランへのアップグレードはこちら
-                  </Link>
-                </Box>
-              )}
-            </Stack>
-          </Alert>
-        )}
-        <Card variant="outlined" sx={{ mb: 3 }}>
-          <CardHeader
-            title="AI戦略クエリ提案"
-            titleTypographyProps={{ variant: "h6", component: "h2", fontWeight: 600 }}
-          />
-          <CardContent>
-            <AIStrategyProposalWizard
+        </Alert>
+      ) : null}
+      <Card variant="outlined">
+        <CardHeader
+          title="GEOコンテキスト"
+          titleTypographyProps={{ variant: "h6", component: "h2", fontWeight: 600 }}
+        />
+        <CardContent>
+          <Stack spacing={3}>
+            <TextField
+              label="屋号・ブランド名"
+              value={brandName}
+              onChange={(ev) => setBrandName(ev.target.value)}
+              fullWidth
+              required
+              autoComplete="organization"
+              inputProps={{ maxLength: 255 }}
               disabled={submitting}
-              onWizardBusyChange={handleWizardBusyChange}
-              onProposalComplete={handleProposalComplete}
             />
-          </CardContent>
-        </Card>
-
-        <Card variant="outlined">
-          <CardHeader
-            title="手動でジョブを作成"
-            titleTypographyProps={{ variant: "h6", component: "h2", fontWeight: 600 }}
-          />
-          <CardContent>
-            <Stack spacing={3}>
-              <TextField
-                label="ブランド名"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                fullWidth
-                required
-                autoComplete="organization"
+            <TextField
+              label="解析対象URL"
+              value={targetUrl}
+              onChange={(ev) => setTargetUrl(ev.target.value)}
+              fullWidth
+              required
+              type="url"
+              placeholder="https://example.com"
+              inputProps={{ maxLength: 2048 }}
+              disabled={submitting}
+            />
+            <Box>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                参考資料（任意）
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                PDF・Word・テキスト・CSVをドラッグするか、枠内をクリックして選択できます。
+              </Typography>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.docx,.txt,.csv"
+                style={{ display: "none" }}
+                disabled={submitting}
+                onChange={(ev) => {
+                  const list = ev.target.files;
+                  if (list !== null && list.length > 0) {
+                    mergeIncomingFiles(list);
+                  }
+                  ev.target.value = "";
+                }}
               />
-              <Box>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
-                  <TextField
-                    label="クエリ"
-                    value={queryDraft}
-                    onChange={(e) => setQueryDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addQuery();
-                      }
-                    }}
-                    fullWidth
-                    placeholder="クエリを入力して追加"
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={addQuery}
-                    sx={{ flexShrink: 0, alignSelf: { xs: "stretch", sm: "center" } }}
-                  >
-                    追加
-                  </Button>
-                </Stack>
-                {queries.length > 0 && (
-                  <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 2 }}>
-                    {queries.map((q) => (
-                      <Chip key={q} label={q} onDelete={() => removeQuery(q)} />
-                    ))}
-                  </Stack>
-                )}
-              </Box>
-              {submitting && (
-                <Box sx={{ mb: 1 }}>
-                  <LoadingCharacter />
-                </Box>
-              )}
-              <Button
-                variant="contained"
-                size="large"
-                onClick={createJob}
-                disabled={submitting || wizardBusy}
-                sx={
-                  submitting
-                    ? {
-                        py: 1.5,
-                        background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
-                        color: "#fff",
-                        boxShadow: `0 8px 24px ${muiTheme.palette.primary.main}59`,
-                        "&.Mui-disabled": {
-                          color: "rgba(255,255,255,0.95)",
-                          opacity: 1,
-                          background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
-                        },
-                      }
-                    : { py: 1.5 }
-                }
+              <Box
+                onClick={() => {
+                  if (!submitting) {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                }}
+                onDrop={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  if (submitting) {
+                    return;
+                  }
+                  const dt = ev.dataTransfer.files;
+                  if (dt !== null && dt.length > 0) {
+                    mergeIncomingFiles(dt);
+                  }
+                }}
+                sx={{
+                  borderStyle: "dashed",
+                  borderWidth: 2,
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  p: 2.5,
+                  textAlign: "center",
+                  cursor: submitting ? "default" : "pointer",
+                  bgcolor: submitting ? "action.disabledBackground" : "action.hover",
+                  transition: "background-color 0.2s",
+                  pointerEvents: submitting ? "none" : "auto",
+                }}
               >
-                {submitting ? "作成中…" : "ジョブを作成"}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        <Snackbar
-          open={convertSuccessOpen}
-          autoHideDuration={4000}
-          onClose={(_, reason) => {
-            if (reason === "clickaway") {
-              return;
-            }
-            setConvertSuccessOpen(false);
-          }}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        >
-          <Alert
-            severity="success"
-            variant="filled"
-            sx={{ width: "100%" }}
-            onClose={() => setConvertSuccessOpen(false)}
-          >
-            分析ジョブを開始しました。解析画面へ移動します。
-          </Alert>
-        </Snackbar>
-
-        <Dialog open={upsellOpen} onClose={() => setUpsellOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle fontWeight={700}>Proプラン限定機能</DialogTitle>
-          <DialogContent>
-            <Typography variant="body1" color="text.secondary">
-              Deep Analysis Modeによる大規模・一括解析は、Proプラン限定の機能です。
-            </Typography>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-            <Button onClick={() => setUpsellOpen(false)} color="inherit">
-              閉じる
-            </Button>
+                <CloudUploadOutlinedIcon sx={{ fontSize: 40, color: "primary.main", mb: 0.5 }} />
+                <Typography variant="body2" fontWeight={500}>
+                  ここにファイルをドロップ
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                  最大10MB・.pdf / .docx / .txt / .csv
+                </Typography>
+              </Box>
+              {knowledgeFiles.length > 0 ? (
+                <Stack spacing={1} sx={{ mt: 2 }}>
+                  {knowledgeFiles.map((f, index) => (
+                    <Box
+                      key={`${f.name}-${String(f.lastModified)}-${String(f.size)}-${String(index)}`}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        py: 0.75,
+                        px: 1.5,
+                        borderRadius: 1,
+                        bgcolor: "action.selected",
+                        border: 1,
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap title={f.name}>
+                        {f.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                        {formatKnowledgeFileSize(f.size)}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        aria-label="remove file"
+                        disabled={submitting}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          setKnowledgeFiles((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Stack>
+              ) : null}
+            </Box>
+            <TextField
+              label="事業概要"
+              value={businessSummary}
+              onChange={(ev) => setBusinessSummary(ev.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              inputProps={{ maxLength: 16000 }}
+              disabled={submitting}
+            />
+            <TextField
+              label="想定顧客"
+              value={targetAudience}
+              onChange={(ev) => setTargetAudience(ev.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              inputProps={{ maxLength: 16000 }}
+              disabled={submitting}
+            />
+            <TextField
+              label="重点課題・今後の戦略"
+              value={focusPoints}
+              onChange={(ev) => setFocusPoints(ev.target.value)}
+              fullWidth
+              multiline
+              minRows={5}
+              placeholder="例：現在は20代向けサロンとして認知されていますが、今後は30代フォーマルを取り込みつつオンライン予約強化したい／AI回答では〇〇という差別化を伝えてほしい、など。"
+              helperText="💡ヒント：まだサイトに書いていない経営方針・優先順位でも構いません。AIが本文生成やクエリ選定で参照します。"
+              inputProps={{ maxLength: 16000 }}
+              disabled={submitting}
+            />
+            {submitting ? (
+              <Box sx={{ mb: 1 }}>
+                <LoadingCharacter />
+              </Box>
+            ) : null}
             <Button
               variant="contained"
-              color="primary"
-              component={RouterLink}
-              to="/pricing"
-              onClick={() => setUpsellOpen(false)}
+              size="large"
+              onClick={handleSubmit}
+              disabled={submitting}
+              sx={
+                submitting
+                  ? {
+                      py: 1.5,
+                      background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
+                      color: "#fff",
+                      boxShadow: `0 8px 24px ${muiTheme.palette.primary.main}59`,
+                      "&.Mui-disabled": {
+                        color: "rgba(255,255,255,0.95)",
+                        opacity: 1,
+                        background: `linear-gradient(135deg, ${muiTheme.palette.primary.main} 0%, #7c3aed 50%, #0284c7 100%)`,
+                      },
+                    }
+                  : { py: 1.5 }
+              }
             >
-              アップグレードはこちら
+              {submitting ? "作成中…" : "ジョブを作成"}
             </Button>
-          </DialogActions>
-        </Dialog>
-      </Container>
-    </>
+          </Stack>
+        </CardContent>
+      </Card>
+      <Snackbar
+        open={skipSnackbarOpen}
+        autoHideDuration={8000}
+        onClose={() => setSkipSnackbarOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="warning" variant="filled" onClose={() => setSkipSnackbarOpen(false)} sx={{ width: "100%" }}>
+          {skipSnackbarMessage}
+        </Alert>
+      </Snackbar>
+    </Container>
   );
 }

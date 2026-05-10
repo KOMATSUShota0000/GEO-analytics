@@ -700,8 +700,21 @@ export function extractApiErrorMessage(parsed: unknown): string | undefined {
     return undefined;
   }
   const r = parsed as JsonDict;
-  const v = r.errorMessage;
-  return typeof v === "string" ? v : undefined;
+  const m = r.message;
+  if (typeof m === "string" && m.length > 0) {
+    return m;
+  }
+  const em = r.errorMessage;
+  return typeof em === "string" && em.length > 0 ? em : undefined;
+}
+
+export function extractApiErrorCode(parsed: unknown): string | undefined {
+  if (parsed === null || typeof parsed !== "object") {
+    return undefined;
+  }
+  const r = parsed as JsonDict;
+  const c = r.errorCode;
+  return typeof c === "string" && c.length > 0 ? c : undefined;
 }
 
 export function mergeJobAnalysisWithPdfContext(data: JobAnalysisDetail): JobAnalysisDetail {

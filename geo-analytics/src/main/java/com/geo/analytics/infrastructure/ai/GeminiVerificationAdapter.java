@@ -107,37 +107,52 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private record PreparedHandoff(String userMessage, boolean structured) {}
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
+        PreparedHandoff prepared;
         var crawled = verificationRequest.crawledContent();
-        if (crawled == null || crawled.isBlank()) {
+        var clippedCrawl = crawled != null ? LlmWebsiteTextClip.clipWebsiteText(crawled) : null;
+        if (clippedCrawl == null || clippedCrawl.isBlank()) {
             log.warn(
                     "Crawl data is empty/blank. Falling back to internal knowledge mode. brand=\"{}\" query=\"{}\"",
                     verificationRequest.brandName(),
                     verificationRequest.query());
-            return new PreparedHandoff(
+            prepared = new PreparedHandoff(
                 ConsultantPrompts.userTextBrandQueryOnly(verificationRequest.brandName(), verificationRequest.query()),
                 false);
-        }
-        try {
+        } else {
+            try {
             var rawJson = deepSeekAdapter.extractStructuredJsonBlocking(
-                crawled,
+                clippedCrawl,
                 verificationRequest.url(),
                 verificationRequest.brandName());
-            var canonical = strictSchemaValidator.validateToCanonicalJson(rawJson);
-            var trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
-            return new PreparedHandoff(
+                var canonical = strictSchemaValidator.validateToCanonicalJson(rawJson);
+                var trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
+                prepared = new PreparedHandoff(
                 ConsultantPrompts.userTextStructuredHandoff(
                     verificationRequest.brandName(),
                     verificationRequest.query(),
                     canonical,
                     trust),
                 true);
-        } catch (StructuredExtractValidationException e) {
-            log.error("structured_extract_validation_failed detail={}", e.getMessage());
-            throw e;
-        } catch (Exception e) {
-            log.error("deepseek_structured_pipeline_failed", e);
-            throw new IllegalStateException(e);
+            } catch (StructuredExtractValidationException e) {
+                log.error("structured_extract_validation_failed detail={}", e.getMessage());
+                throw e;
+            } catch (Exception e) {
+                log.error("deepseek_structured_pipeline_failed", e);
+                throw new IllegalStateException(e);
+            }
         }
+        return new PreparedHandoff(applyJobContextPrefix(verificationRequest, prepared.userMessage()), prepared.structured());
+    }
+
+    private String applyJobContextPrefix(VerificationRequest verificationRequest, String userMessage) {
+        UUID jobId = verificationRequest.jobId();
+        if (jobId == null) {
+            return userMessage;
+        }
+        return jobPersistenceService
+                .findJobByIdOptional(jobId)
+                .map(job -> JobPromptContextFormatter.format(job) + "\n\n" + userMessage)
+                .orElse(userMessage);
     }
 
     private static String evaluatedBrandLabel(VerificationRequest verificationRequest) {
@@ -163,10 +178,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         return List.of(SystemMessage.from(system), UserMessage.from(handoff.userMessage()));
     }
 
-    /**
-     * Debug wiretap: reconstructs the plain-text prompt (system + user, including embedded RAG) as sent to Gemini.
-     * Structured output schema is applied via {@link ChatRequest.Builder#responseFormat} and is not part of message text.
-     */
     private static String formatWiretapPrompt(List<ChatMessage> messages) {
         if (messages == null || messages.isEmpty()) {
             return "(no messages)";
@@ -301,8 +312,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             ? verificationRequest.registeredCompetitorBrands()
             : List.of();
         boolean isProPlan = subscriptionPlan.usesProTierFeatures();
-        // GBVS NLP/stuffing must use the model's natural-language `response` only — never raw JSON (RAG payloads
-        // inflate density and falsely trigger stuffing wipe-out).
         String nlpSource = full.response() != null ? full.response().strip() : "";
         si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
         var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);

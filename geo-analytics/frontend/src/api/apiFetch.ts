@@ -168,6 +168,10 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   const method = (init.method ?? baseReq?.method ?? "GET").toUpperCase();
   const headers = new Headers(baseReq?.headers);
   new Headers(init.headers ?? undefined).forEach((v, k) => headers.set(k, v));
+  const resolvedBody = init.body ?? (baseReq !== null ? baseReq.body : undefined);
+  if (resolvedBody instanceof FormData) {
+    headers.delete("Content-Type");
+  }
   headers.set("X-Tenant-ID", resolveTenantHeader());
   const accessToken = getAccessToken();
   if (accessToken !== null && accessToken.length > 0) {

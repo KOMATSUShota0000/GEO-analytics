@@ -39,6 +39,10 @@ spring:
       write-dates-as-timestamps: false
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
 
 server:
   shutdown: graceful

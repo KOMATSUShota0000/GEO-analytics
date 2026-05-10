@@ -39,6 +39,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -313,6 +314,17 @@ public class GlobalExceptionHandler {
                     exception.getCause());
         }
         return json(status, ApiErrorResponse.of(errorCode, exception.getUserMessage(), details));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException exception) {
+        logger.warn("Multipart upload size exceeded: {}", exception.getMessage());
+        return json(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                ApiErrorResponse.of(
+                        "payload_too_large",
+                        "アップロード可能なサイズを超えています。1ファイルあたり最大10MB、リクエスト全体は50MB以内にしてください。",
+                        Map.of()));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

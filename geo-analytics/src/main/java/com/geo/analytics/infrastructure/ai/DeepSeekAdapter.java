@@ -43,9 +43,7 @@ public final class DeepSeekAdapter {
         if (apiKey == null || apiKey.isBlank()) {
             return Mono.error(new IllegalStateException("deepseek_key_missing"));
         }
-        var clipped = rawPageText != null && rawPageText.length() > 120_000
-            ? rawPageText.substring(0, 120_000)
-            : rawPageText != null ? rawPageText : "";
+        var clipped = rawPageText != null ? LlmWebsiteTextClip.clipWebsiteText(rawPageText) : "";
         var userBody = "source_url: "
             + (sourceUrl != null ? sourceUrl : "")
             + "\nbrand_scope: "

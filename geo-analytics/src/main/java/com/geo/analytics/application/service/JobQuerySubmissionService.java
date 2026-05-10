@@ -52,6 +52,7 @@ public class JobQuerySubmissionService {
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager quotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
+    private final AiRubricAuditService aiRubricAuditService;
 
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
@@ -67,7 +68,8 @@ public class JobQuerySubmissionService {
             HybridCompetitorPipelineService hybridCompetitorPipelineService,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager quotaManager,
-            JobBenchmarkCaptureService jobBenchmarkCaptureService) {
+            JobBenchmarkCaptureService jobBenchmarkCaptureService,
+            AiRubricAuditService aiRubricAuditService) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -82,6 +84,7 @@ public class JobQuerySubmissionService {
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
         this.jobBenchmarkCaptureService = Objects.requireNonNull(jobBenchmarkCaptureService);
+        this.aiRubricAuditService = Objects.requireNonNull(aiRubricAuditService);
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -102,11 +105,18 @@ public class JobQuerySubmissionService {
         }
         if (limits.isRealtimeAllowed(keywordCount)) {
             UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            long realtimeDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+            var realtimeProbe = quotaManager.resolve(workspaceId).tryConsumeAndReturnRemaining(realtimeDeposit);
+            if (!realtimeProbe.isConsumed()) {
+                var workspacePlan = quotaManager.resolveWorkspacePlan(workspaceId);
+                throw new RateLimitExceededException(
+                        realtimeProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
+            }
             UUID organizationId = resolveOrganizationId(workspaceId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.EXTRACTING_COMPETITORS, null);
             jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
             scheduleHybridContinuation(
-                    jobId, queryTexts, planEnum, workspaceId, organizationId, true, 0L, workspaceId);
+                    jobId, queryTexts, planEnum, workspaceId, organizationId, true, realtimeDeposit, workspaceId);
             return;
         }
         if (!planEnum.usesProTierFeatures()) {
@@ -203,7 +213,7 @@ public class JobQuerySubmissionService {
                 continueAfterCompetitorsPersisted(
                         jobId, queryTexts, planEnum, realtime, batchDeposit, batchTenantId);
             } catch (Throwable throwable2) {
-                if (!realtime && batchDeposit > 0L && batchTenantId != null) {
+                if (batchDeposit > 0L && batchTenantId != null) {
                     quotaManager.addTokens(batchTenantId, batchDeposit);
                 }
                 jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, throwable2.getMessage());
@@ -281,14 +291,6 @@ public class JobQuerySubmissionService {
         var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        var bucket = quotaManager.resolve(tenantId);
-        int n = queryEntities.size();
-        long realtimeDeposit = (long) n * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
-        var probe = bucket.tryConsumeAndReturnRemaining(realtimeDeposit);
-        if (!probe.isConsumed()) {
-            var workspacePlan = quotaManager.resolveWorkspacePlan(tenantId);
-            throw new RateLimitExceededException(probe, workspacePlan.getDailyLimit(), workspacePlan.name());
-        }
         @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = queryEntities.stream()
                 .map(qe -> CompletableFuture.runAsync(
@@ -310,6 +312,7 @@ public class JobQuerySubmissionService {
         try {
             CompletableFuture.allOf(futures).join();
             jobBenchmarkCaptureService.capture(jobId);
+            aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
             jobStatusBroadcastPublisher.publish(completedJobEntity);
