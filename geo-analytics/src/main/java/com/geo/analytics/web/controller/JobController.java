@@ -111,7 +111,8 @@ public class JobController {
                 createJobRequest.targetUrl(),
                 createJobRequest.businessSummary(),
                 createJobRequest.targetAudience(),
-                createJobRequest.focusPoints());
+                createJobRequest.focusPoints(),
+                createJobRequest.competitorExtractionMode());
         var outcome = jobPersistenceService.createJobWithIdempotency(fields, idempotencyKey);
         JobEntity createdJobEntity = outcome.jobEntity();
         if (outcome.created() && files != null && files.length > 0) {

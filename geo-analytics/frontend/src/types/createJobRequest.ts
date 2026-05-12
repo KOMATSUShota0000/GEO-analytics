@@ -1,6 +1,9 @@
+export type CompetitorExtractionMode = "LOCAL_STORE" | "CORPORATE_SERVICE" | "ONLINE_SERVICE";
+
 export type CreateJobRequestPayload = {
   brandName: string;
   targetUrl: string;
+  industryType?: CompetitorExtractionMode;
   businessSummary?: string;
   targetAudience?: string;
   focusPoints?: string;
@@ -19,6 +22,7 @@ export function buildCreateJobBody(input: CreateJobRequestPayload): Record<strin
   const out: Record<string, unknown> = {
     brandName: input.brandName.trim(),
     targetUrl: input.targetUrl.trim(),
+    industryType: input.industryType ?? "LOCAL_STORE",
   };
   const businessSummary = optionalTrim(input.businessSummary);
   const targetAudience = optionalTrim(input.targetAudience);

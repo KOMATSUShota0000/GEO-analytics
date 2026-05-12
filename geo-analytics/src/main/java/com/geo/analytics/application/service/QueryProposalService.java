@@ -11,6 +11,7 @@ import com.geo.analytics.application.validator.QueryQualityValidator;
 import com.geo.analytics.domain.entity.DomainAnalysisSnapshotEntity;
 import com.geo.analytics.domain.entity.QueryProposalEntity;
 import com.geo.analytics.domain.entity.QueryProposalSuggestedQueryEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.ScrapingException;
 import com.geo.analytics.domain.port.UrlContentFetcher;
@@ -210,7 +211,7 @@ public class QueryProposalService {
         }
         UUID proposalWorkspaceId = proposal.getWorkspaceId();
         var proposalFields =
-                new JobPersistenceService.JobCreateFields(brandName, proposalTargetUrl, null, null, null);
+                new JobPersistenceService.JobCreateFields(brandName, proposalTargetUrl, null, null, null, CompetitorExtractionMode.LOCAL_STORE);
         var outcome = jobPersistenceService.createJobWithIdempotency(proposalFields, proposalId, proposalWorkspaceId);
         var job = outcome.jobEntity();
         UUID jobId = job.getId();

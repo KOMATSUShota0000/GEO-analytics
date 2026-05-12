@@ -3,6 +3,7 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.ProjectKeywordEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.repository.ProjectKeywordRepository;
@@ -65,7 +66,7 @@ public class ScheduledProjectAuditService {
             }
             var jobFields =
                     new JobPersistenceService.JobCreateFields(
-                            projectEntity.getName(), targetUrl, null, null, null);
+                            projectEntity.getName(), targetUrl, null, null, null, CompetitorExtractionMode.LOCAL_STORE);
             JobEntity jobEntity = jobPersistenceService.createJob(jobFields);
             List<String> texts = keywords.stream().map(ProjectKeywordEntity::getKeywordText).distinct().toList();
             jobQuerySubmissionService.submitQueries(jobEntity.getId(), texts, subscriptionPlan);

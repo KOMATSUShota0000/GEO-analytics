@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.port.SgeMeasurementPort;
 import com.geo.analytics.infrastructure.api.dto.SerpApiResponse;
+import com.geo.analytics.infrastructure.api.dto.SerpOrganicResult;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,8 @@ import java.lang.StrictMath;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 @Component
@@ -58,6 +61,73 @@ public class SerpApiAdapter implements SgeMeasurementPort {
             builder.queryParam("num", num);
         }
         return builder.encode(StandardCharsets.UTF_8).build().toUri();
+    }
+
+    public List<SerpOrganicResult> fetchOrganicResults(String searchQuery, int num) {
+        if (serpApiKey.isBlank()) {
+            throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
+        }
+        String trimmed = searchQuery == null ? "" : searchQuery.trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("searchQuery");
+        }
+        int n = num > 0 ? num : 15;
+        URI uri = buildSerpUri(trimmed, n);
+        String body;
+        try {
+            body = restClient.get().uri(uri).retrieve().body(String.class);
+        } catch (RestClientResponseException restClientResponseException) {
+            throw new SerpApiHttpException(
+                    restClientResponseException.getStatusCode().value(),
+                    restClientResponseException.getStatusText(),
+                    restClientResponseException.getResponseBodyAsString(StandardCharsets.UTF_8),
+                    restClientResponseException);
+        }
+        if (body == null || body.isBlank()) {
+            throw new IllegalStateException("AI visibility provider returned empty body");
+        }
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(body);
+        } catch (JsonProcessingException jsonProcessingException) {
+            throw new IllegalStateException(jsonProcessingException);
+        }
+        return parseOrganicResults(root);
+    }
+
+    private static List<SerpOrganicResult> parseOrganicResults(JsonNode root) {
+        if (root == null || root.isNull()) {
+            return List.of();
+        }
+        JsonNode organic = root.get("organic_results");
+        if (organic == null || !organic.isArray()) {
+            return List.of();
+        }
+        List<SerpOrganicResult> out = new ArrayList<>();
+        for (JsonNode node : organic) {
+            if (node == null || node.isNull()) {
+                continue;
+            }
+            String title = readText(node, "title");
+            String link = readText(node, "link");
+            String snippet = readText(node, "snippet");
+            if (link == null || link.isBlank()) {
+                continue;
+            }
+            out.add(new SerpOrganicResult(
+                    title != null ? title : "",
+                    link.trim(),
+                    snippet != null ? snippet : ""));
+        }
+        return List.copyOf(out);
+    }
+
+    private static String readText(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v == null || v.isNull() || !v.isTextual()) {
+            return "";
+        }
+        return v.asText();
     }
 
     @Override

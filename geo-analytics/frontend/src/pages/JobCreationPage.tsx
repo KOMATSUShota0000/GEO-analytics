@@ -1,5 +1,8 @@
+import BusinessIcon from "@mui/icons-material/Business";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import ShoppingBagIcon from "@mui/icons-material/ShoppingBag";
+import StorefrontIcon from "@mui/icons-material/Storefront";
 import {
   Alert,
   Box,
@@ -8,7 +11,13 @@ import {
   CardContent,
   CardHeader,
   Container,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
   IconButton,
+  Paper,
+  Radio,
+  RadioGroup,
   Snackbar,
   Stack,
   TextField,
@@ -20,6 +29,7 @@ import { useNavigate } from "react-router-dom";
 import { createJob, CreateJobHttpError } from "../api/jobsApi";
 import { useBranding } from "../branding/useBranding";
 import { LoadingCharacter } from "../components/LoadingCharacter";
+import type { CompetitorExtractionMode } from "../types/createJobRequest";
 
 const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_KNOWLEDGE_EXTENSIONS = [".pdf", ".docx", ".txt", ".csv"] as const;
@@ -102,12 +112,39 @@ function formatJobCreateFailure(e: unknown): string {
   return `予期しないエラー: ${String(e)}`;
 }
 
+const INDUSTRY_OPTIONS: {
+  value: CompetitorExtractionMode;
+  title: string;
+  description: string;
+  Icon: typeof StorefrontIcon;
+}[] = [
+  {
+    value: "LOCAL_STORE",
+    title: "地域密着・店舗型",
+    description: "来店・近隣集客が中心のクライアント向け",
+    Icon: StorefrontIcon,
+  },
+  {
+    value: "CORPORATE_SERVICE",
+    title: "企業向け・専門サービス",
+    description: "BtoB・受託・SaaS など全国の提案が中心",
+    Icon: BusinessIcon,
+  },
+  {
+    value: "ONLINE_SERVICE",
+    title: "ネット通販・Webサービス",
+    description: "EC・デジタル商品・宅配型などオンライン完結型",
+    Icon: ShoppingBagIcon,
+  },
+];
+
 export default function JobCreationPage(): JSX.Element {
   const navigate = useNavigate();
   const muiTheme = useTheme();
   const { toolName, logoBlobUrl } = useBranding();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [brandName, setBrandName] = useState("");
+  const [industryType, setIndustryType] = useState<CompetitorExtractionMode>("LOCAL_STORE");
   const [targetUrl, setTargetUrl] = useState("");
   const [businessSummary, setBusinessSummary] = useState("");
   const [targetAudience, setTargetAudience] = useState("");
@@ -153,6 +190,7 @@ export default function JobCreationPage(): JSX.Element {
         {
           brandName: bn,
           targetUrl: tu,
+          industryType,
           businessSummary,
           targetAudience,
           focusPoints,
@@ -212,6 +250,59 @@ export default function JobCreationPage(): JSX.Element {
               inputProps={{ maxLength: 255 }}
               disabled={submitting}
             />
+            <FormControl component="fieldset" variant="standard" fullWidth disabled={submitting}>
+              <FormLabel component="legend" sx={{ mb: 1, fontWeight: 600, color: "text.primary" }}>
+                クライアントの事業タイプ
+              </FormLabel>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                競合の探し方を最適化するために、エンドクライアントに近い形を選んでください。
+              </Typography>
+              <RadioGroup
+                value={industryType}
+                onChange={(_, v) => setIndustryType(v as CompetitorExtractionMode)}
+              >
+                <Stack spacing={1.5}>
+                  {INDUSTRY_OPTIONS.map((opt) => {
+                    const selected = industryType === opt.value;
+                    const IconComp = opt.Icon;
+                    return (
+                      <Paper
+                        key={opt.value}
+                        variant="outlined"
+                        sx={{
+                          borderWidth: 2,
+                          borderColor: selected ? "primary.main" : "divider",
+                          bgcolor: selected ? "action.selected" : "background.paper",
+                          transition: "border-color 0.15s, background-color 0.15s",
+                        }}
+                      >
+                        <FormControlLabel
+                          value={opt.value}
+                          control={<Radio sx={{ alignSelf: "flex-start", mt: 0.5 }} />}
+                          label={
+                            <Stack direction="row" spacing={1.5} sx={{ py: 1, pr: 1, alignItems: "flex-start" }}>
+                              <IconComp
+                                color={selected ? "primary" : "action"}
+                                sx={{ fontSize: 32, flexShrink: 0, mt: 0.25 }}
+                              />
+                              <Box>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                  {opt.title}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {opt.description}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          }
+                          sx={{ m: 0, ml: 1, mr: 0, alignItems: "stretch", width: "100%" }}
+                        />
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              </RadioGroup>
+            </FormControl>
             <TextField
               label="解析対象URL"
               value={targetUrl}

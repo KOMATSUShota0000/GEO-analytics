@@ -6,7 +6,9 @@ import com.geo.analytics.application.dto.CompetitorFilterAiSelection;
 import com.geo.analytics.application.dto.ExtractedPlace;
 import com.geo.analytics.application.dto.SelectedCompetitor;
 import com.geo.analytics.domain.enums.IndustryType;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.infrastructure.ai.CompetitorFilterPrompts;
+import com.geo.analytics.infrastructure.api.dto.SerpOrganicResult;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -62,6 +64,53 @@ public class CompetitorFilterService {
             List<SelectedCompetitor> merged = mergeSelections(selections, safePlaces);
             padSyntheticToThree(merged, safeIndustry, area);
             creditVaultService.settle(reservationId, COMPETITOR_FILTER_CREDIT, "competitor_filter");
+            return List.copyOf(merged);
+        } catch (Throwable throwable) {
+            creditVaultService.refund(reservationId);
+            return List.of(
+                    syntheticSelected(safeIndustry, area, 0),
+                    syntheticSelected(safeIndustry, area, 1),
+                    syntheticSelected(safeIndustry, area, 2));
+        }
+    }
+
+    public List<SelectedCompetitor> filterFromSerpOrganic(
+            UUID projectId,
+            IndustryType industry,
+            String contextLabel,
+            String targetBrand,
+            String targetUrl,
+            List<SerpOrganicResult> organics,
+            CompetitorExtractionMode promptProfile) {
+        IndustryType safeIndustry = industry != null ? industry : IndustryType.OTHER;
+        String area = contextLabel != null ? contextLabel.trim() : "";
+        List<SerpOrganicResult> safeOrganics = organics != null ? organics : List.of();
+        if (safeOrganics.isEmpty()) {
+            return List.of(
+                    syntheticSelected(safeIndustry, area, 0),
+                    syntheticSelected(safeIndustry, area, 1),
+                    syntheticSelected(safeIndustry, area, 2));
+        }
+        String systemMsg =
+                promptProfile == CompetitorExtractionMode.ONLINE_SERVICE
+                        ? CompetitorFilterPrompts.systemMessageOnlineService()
+                        : CompetitorFilterPrompts.systemMessageCorporateService();
+        List<ExtractedPlace> places = new ArrayList<>();
+        for (SerpOrganicResult o : safeOrganics) {
+            places.add(new ExtractedPlace(o.title(), o.link(), null, null));
+        }
+        UUID reservationId = creditVaultService.reserve(projectId, COMPETITOR_FILTER_CREDIT);
+        try {
+            String rawJson = geminiCompetitorFilterModel.chat(ChatRequest.builder()
+                    .messages(
+                            SystemMessage.from(systemMsg),
+                            UserMessage.from(CompetitorFilterPrompts.userMessageSerp(
+                                    safeIndustry, area, targetBrand, targetUrl, safeOrganics)))
+                    .build()).aiMessage().text();
+            List<CompetitorFilterAiSelection> selections = parseSelections(rawJson);
+            List<SelectedCompetitor> merged = mergeSelections(selections, places);
+            padSyntheticToThree(merged, safeIndustry, area);
+            creditVaultService.settle(reservationId, COMPETITOR_FILTER_CREDIT, "competitor_filter_serp");
             return List.copyOf(merged);
         } catch (Throwable throwable) {
             creditVaultService.refund(reservationId);

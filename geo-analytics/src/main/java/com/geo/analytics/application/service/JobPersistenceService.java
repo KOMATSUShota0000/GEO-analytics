@@ -16,6 +16,7 @@ import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.entity.JobCompetitorScoreEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
@@ -68,7 +69,8 @@ public class JobPersistenceService {
             String targetUrl,
             String businessSummary,
             String targetAudience,
-            String focusPoints) {
+            String focusPoints,
+            CompetitorExtractionMode competitorExtractionMode) {
         public JobCreateFields {
             brandName = TextWhitespaceNormalizer.normalize(brandName);
             targetUrl = TextWhitespaceNormalizer.normalize(targetUrl);
@@ -78,6 +80,9 @@ public class JobPersistenceService {
             businessSummary = optionalText(businessSummary);
             targetAudience = optionalText(targetAudience);
             focusPoints = optionalText(focusPoints);
+            if (competitorExtractionMode == null) {
+                competitorExtractionMode = CompetitorExtractionMode.LOCAL_STORE;
+            }
         }
 
         private static String optionalText(String value) {
@@ -558,6 +563,7 @@ public class JobPersistenceService {
         jobEntity.setBusinessSummary(fields.businessSummary());
         jobEntity.setTargetAudience(fields.targetAudience());
         jobEntity.setFocusPoints(fields.focusPoints());
+        jobEntity.setCompetitorExtractionMode(fields.competitorExtractionMode());
         jobEntity.setWorkspaceId(workspaceId);
         jobEntity.setProjectId(projectId);
         jobEntity.setCreateIdempotencyKey(idempotencyKey);

@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
@@ -196,8 +197,10 @@ public class JobQuerySubmissionService {
                 throw new IllegalStateException("projectId");
             }
             String targetUrl = jobPersistenceService.loadTargetUrlForProject(projectId);
+            CompetitorExtractionMode competitorExtractionMode =
+                    Objects.requireNonNullElse(jobEntity.getCompetitorExtractionMode(), CompetitorExtractionMode.LOCAL_STORE);
             List<SelectedCompetitor> selected =
-                    hybridCompetitorPipelineService.executePipeline(jobId, projectId, targetUrl);
+                    hybridCompetitorPipelineService.executePipeline(jobId, projectId, targetUrl, competitorExtractionMode);
             List<String> urls = competitorUrlsFromSelected(selected);
             jobPersistenceService.saveProjectCompetitorUrls(projectId, urls);
             continueAfterCompetitorsPersisted(
