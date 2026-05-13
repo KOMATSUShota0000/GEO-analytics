@@ -18,25 +18,11 @@ public final class NormalizationLayer {
         return tokenizerManager.withPerTaskTokenizer(tokenizer -> buildNormalizedConcat(tokenizer, t));
     }
 
-    public String surfaceForPhoneticEncoding(String text) {
-        String t = text == null ? "" : text.strip();
-        return tokenizerManager.withPerTaskTokenizer(tokenizer -> buildReadingConcat(tokenizer, t));
-    }
-
     private static String buildNormalizedConcat(Tokenizer tokenizer, String text) {
         MorphemeList list = tokenizer.tokenize(Tokenizer.SplitMode.C, text);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
             sb.append(safeNormalizedForm(list.get(i)));
-        }
-        return sb.toString();
-    }
-
-    private static String buildReadingConcat(Tokenizer tokenizer, String text) {
-        MorphemeList list = tokenizer.tokenize(Tokenizer.SplitMode.C, text);
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < list.size(); i++) {
-            sb.append(safeReadingForm(list.get(i)));
         }
         return sb.toString();
     }
@@ -48,13 +34,5 @@ public final class NormalizationLayer {
             return s != null ? s : "";
         }
         return n;
-    }
-
-    private static String safeReadingForm(Morpheme morpheme) {
-        String r = morpheme.readingForm();
-        if (r == null || r.isBlank() || "*".equals(r)) {
-            return safeNormalizedForm(morpheme);
-        }
-        return r;
     }
 }

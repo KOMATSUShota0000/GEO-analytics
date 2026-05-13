@@ -2,7 +2,6 @@ package com.geo.analytics.domain.service;
 
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.lang.StrictMath;
@@ -62,30 +61,13 @@ public final class GeoVisibilityCalculatorService {
             return 0;
         }
 
-        int[] patWork = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-        int[] failBuf = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-
         int mentions = 0;
         int charFrom = 0;
         while (charFrom < hay.length()) {
             int best = -1;
             int bestLen = 0;
             for (String needle : needleStrs) {
-                int found;
-                if (needle.length() < 2) {
-                    found = hay.indexOf(needle, charFrom);
-                } else {
-                    int nk = ZeroAllocationTokenizer.fillPackedBigrams(needle, patWork, patWork.length);
-                    if (nk <= 0) {
-                        found = hay.indexOf(needle, charFrom);
-                    } else {
-                        int start = StrictMath.min(charFrom, StrictMath.max(0, hay.length() - 2));
-                        found = ZeroAllocationTokenizer.kmpFirstPackedBigramMatch(hay, start, patWork, nk, failBuf);
-                        if (found >= 0 && !hay.regionMatches(found, needle, 0, needle.length())) {
-                            found = hay.indexOf(needle, charFrom);
-                        }
-                    }
-                }
+                int found = hay.indexOf(needle, charFrom);
                 if (found >= 0
                         && found >= charFrom
                         && (best < 0

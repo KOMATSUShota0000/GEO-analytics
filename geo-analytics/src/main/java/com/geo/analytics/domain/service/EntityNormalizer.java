@@ -1,6 +1,6 @@
 package com.geo.analytics.domain.service;
 
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
+import com.geo.analytics.domain.matching.StringBigramTokenizer;
 import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.text.Normalizer;
@@ -82,13 +82,11 @@ public final class EntityNormalizer {
                 return cand.canonical;
             }
         }
-        int[] wA = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-        int[] wB = new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
         for (NameCandidate cand : cands) {
             if (cand.normSudachi.isBlank()) {
                 continue;
             }
-            if (ZeroAllocationTokenizer.diceCoefficient(rawNorm, cand.normSudachi, wA, wB) >= LEXICAL_DICE_THRESHOLD) {
+            if (StringBigramTokenizer.diceCoefficient(rawNorm, cand.normSudachi) >= LEXICAL_DICE_THRESHOLD) {
                 return cand.canonical;
             }
         }

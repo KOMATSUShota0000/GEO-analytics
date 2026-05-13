@@ -153,17 +153,12 @@ public final class EntityResolutionService {
     public record EntityResolutionScope(
             String tenantId,
             long auditContext,
-            PrimitiveInvertedIndex index,
+            BigramInvertedIndex index,
             double smoothingN,
             double smoothingC,
             double priorMu) {
     }
 
-    public record EntityMatchSpec(
-            int bigramKey,
-            CharSequence querySurface,
-            CharSequence candidateSurface,
-            int packedPhoneticQuery,
-            int packedPhoneticCandidate) {
+    public record EntityMatchSpec(String bigramKey, CharSequence querySurface, CharSequence candidateSurface) {
     }
 }

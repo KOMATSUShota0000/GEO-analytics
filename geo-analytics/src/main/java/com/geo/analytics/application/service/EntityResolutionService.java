@@ -1,7 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.ResolutionResult;
-import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
+import com.geo.analytics.domain.matching.StringBigramTokenizer;
 import com.geo.analytics.domain.model.ResolvableEntity;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.EntityResolutionBlockingService;
@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Service
 public final class EntityResolutionService {
@@ -19,8 +18,6 @@ public final class EntityResolutionService {
     public static final String CALCULATION_VERSION = "ER_PIPELINE_V2_GEMINI_SLIM";
 
     private static final double LEXICAL_DICE_HIGH = 0.85;
-
-    private static final ConcurrentLinkedQueue<int[]> BIGRAM_BUFFER_POOL = new ConcurrentLinkedQueue<>();
 
     private final JapaneseNlpService japaneseNlpService;
     private final EntityResolutionBlockingService entityResolutionBlockingService;
@@ -73,28 +70,7 @@ public final class EntityResolutionService {
         if (nfa.isBlank() && nfb.isBlank()) {
             return 1.0;
         }
-        int[] wA = borrowBigramBuffer();
-        int[] wB = borrowBigramBuffer();
-        try {
-            return ZeroAllocationTokenizer.diceCoefficient(nfa, nfb, wA, wB);
-        } finally {
-            releaseBigramBuffer(wA);
-            releaseBigramBuffer(wB);
-        }
-    }
-
-    private static int[] borrowBigramBuffer() {
-        int[] buf = BIGRAM_BUFFER_POOL.poll();
-        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
-            return buf;
-        }
-        return new int[ZeroAllocationTokenizer.MAX_BIGRAMS_CAP];
-    }
-
-    private static void releaseBigramBuffer(int[] buf) {
-        if (buf != null && buf.length == ZeroAllocationTokenizer.MAX_BIGRAMS_CAP) {
-            BIGRAM_BUFFER_POOL.offer(buf);
-        }
+        return StringBigramTokenizer.diceCoefficient(nfa, nfb);
     }
 
     private static String pickCanonical(String rawA, String rawB, String prepA, String prepB) {
