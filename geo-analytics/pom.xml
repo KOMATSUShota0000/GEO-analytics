@@ -16,7 +16,6 @@
     <properties>
         <java.version>25</java.version>
         <langchain4j.version>0.36.2</langchain4j.version>
-        <playwright.version>1.48.0</playwright.version>
         <sudachi.version>0.7.5</sudachi.version>
         <commons-text.version>1.12.0</commons-text.version>
         <sudachi.dict.release>v20260116</sudachi.dict.release>
@@ -127,11 +126,6 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
-            <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc11</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
@@ -156,11 +150,6 @@
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-parsers-standard-package</artifactId>
             <version>${apache-tika.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.microsoft.playwright</groupId>
-            <artifactId>playwright</artifactId>
-            <version>${playwright.version}</version>
         </dependency>
         <dependency>
             <groupId>commons-codec</groupId>
@@ -310,6 +299,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>--enable-preview -Djdk.tracePinnedThreads=short</argLine>
+                    <reuseForks>false</reuseForks>
+                    <environmentVariables>
+                        <JAVA_TOOL_OPTIONS>--enable-preview</JAVA_TOOL_OPTIONS>
+                    </environmentVariables>
                 </configuration>
             </plugin>
             <plugin>

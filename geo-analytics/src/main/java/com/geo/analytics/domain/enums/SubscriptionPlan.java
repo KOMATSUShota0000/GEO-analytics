@@ -39,6 +39,17 @@ public enum SubscriptionPlan {
         return this == PRO || this == EXPERT;
     }
 
+    /**
+     * RAG で組み込む競合エビデンス（XML 換算文字数の目安／クリッピング上限）。
+     */
+    public int maxCompetitorEvidenceXmlChars() {
+        return switch (this) {
+            case STANDARD -> 12_000;
+            case PRO -> 24_000;
+            case EXPERT -> 48_000;
+        };
+    }
+
     public boolean hasModelAccess(ModelType modelType) {
         return switch (modelType) {
             case GEMINI -> true;

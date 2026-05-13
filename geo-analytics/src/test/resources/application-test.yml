@@ -54,9 +54,6 @@ app:
     gemini:
       api-key: test-key
       model-name: gemini-2.5-flash
-    deepseek:
-      api-key: ""
-      base-url: "https://api.deepseek.com"
   pdf:
     base-url: "http://127.0.0.1:5173"
     temp-dir: "./target/pdf-temp-test"

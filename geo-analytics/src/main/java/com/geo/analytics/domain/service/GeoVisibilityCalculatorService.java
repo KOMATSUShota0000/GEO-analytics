@@ -25,10 +25,6 @@ public final class GeoVisibilityCalculatorService {
     private static final double SOURCE_WEIGHT_HIGH = 1.5;
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
     private static final double SOURCE_WEIGHT_LOW = 0.3;
-    private static final double STUFFING_DENSITY_THRESHOLD = 0.03;
-    private static final double STUFFING_PENALTY_K = 400.0;
-    /** Lower bound so stuffing never zeroes {@code brandSignal}; at worst ~50% retention of unpenalized signal. */
-    private static final double STUFFING_PENALTY_FLOOR = 0.5;
 
     private final TokenizerManager tokenizerManager;
 
@@ -343,14 +339,7 @@ public final class GeoVisibilityCalculatorService {
         }
         double docLen = StrictMath.max(RobustAuditMathUtil.EPSILON, (double) total);
         double bm25 = bm25Score(idf, fTok, docLen, lAvgJob);
-        double density = metrics.stuffingDensity();
-        if (Double.isNaN(density) || Double.isInfinite(density) || density < 0.0) {
-            density = 0.0;
-        }
-        double excess = StrictMath.max(0.0, density - STUFFING_DENSITY_THRESHOLD);
-        double stuffingPenalty =
-                1.0 - StrictMath.fma(STUFFING_PENALTY_K, StrictMath.pow(excess, 2.0), 0.0);
-        stuffingPenalty = clamp(stuffingPenalty, STUFFING_PENALTY_FLOOR, 1.0);
+        double stuffingPenalty = 1.0;
         double brandSignalCore = sourceWeight * sentiment * bm25 * stuffingPenalty;
         double otherPresence = StrictMath.max(total - f, 0) > 0 ? 1.0 : 0.0;
         double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
@@ -375,7 +364,7 @@ public final class GeoVisibilityCalculatorService {
                     total,
                     presence,
                     bm25,
-                    density,
+                    0.0,
                     stuffingPenalty,
                     brandSignalCore,
                     brandSignal,
@@ -400,7 +389,7 @@ public final class GeoVisibilityCalculatorService {
                 total,
                 presence,
                 bm25,
-                density,
+                0.0,
                 stuffingPenalty,
                 brandSignalCore,
                 brandSignal,
@@ -420,12 +409,8 @@ public final class GeoVisibilityCalculatorService {
         if (Double.isNaN(sentimentScore) || Double.isInfinite(sentimentScore)) {
             return 1.0;
         }
-        if (sentimentScore < 0.5) {
-            if (sentimentScore >= -1.0 && sentimentScore <= 1.0) {
-                return StrictMath.fma(0.5, sentimentScore, 1.0);
-            }
-        }
-        return clamp(sentimentScore, 0.5, 1.5);
+        double s = clamp(sentimentScore, -1.0, 1.0);
+        return clamp(StrictMath.fma(0.5, s, 1.0), 0.5, 1.5);
     }
 
     private static double clamp01(double v) {

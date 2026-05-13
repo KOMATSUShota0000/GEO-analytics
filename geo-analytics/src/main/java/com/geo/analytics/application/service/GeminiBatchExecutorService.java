@@ -8,11 +8,11 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
 import com.geo.analytics.infrastructure.ai.JobPromptContextFormatter;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
+import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.io.IOException;
@@ -75,7 +75,7 @@ public class GeminiBatchExecutorService {
             jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
                 jobEntity.getBrandName(), batchQueryLines, subscriptionPlan, jobPromptContext);
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);
-            String selectedModel = chooseModelForProfitGuard(unprocessedQueryEntities, subscriptionPlan);
+            String selectedModel = geminiBatchModelForSubscriptionPlan(subscriptionPlan);
             GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
             batchPersistence.updateJobStatusToSubmittedWithGeminiJobName(
                 jobEntity.getId(), createdBatchJob.name());
@@ -101,40 +101,9 @@ public class GeminiBatchExecutorService {
         return CompletableFuture.completedFuture(null);
     }
 
-    private String chooseModelForProfitGuard(List<QueryEntity> queryEntities, SubscriptionPlan subscriptionPlan) {
-        long totalTokens = estimateTotalTokens(queryEntities);
-        double unitPrice = planUnitPrice(subscriptionPlan);
-        double guardBudget = unitPrice * 0.14;
-        double predictedPrimary = estimateApiCost(totalTokens, LlmModelNames.GEMINI_25_PRO);
-        if (predictedPrimary > guardBudget) {
-            return LlmModelNames.GEMINI_25_FLASH;
-        }
-        return LlmModelNames.GEMINI_25_PRO;
-    }
-
-    private static long estimateTotalTokens(List<QueryEntity> queryEntities) {
-        long tokens = 0L;
-        for (var q : queryEntities) {
-            var text = q.getQueryText();
-            if (text == null || text.isBlank()) {
-                continue;
-            }
-            long approx = StrictMath.max(1L, text.strip().length() / 4L);
-            tokens += approx;
-        }
-        return StrictMath.max(tokens, 1L);
-    }
-
-    private static double estimateApiCost(long totalTokens, String modelName) {
-        double per1k = LlmModelNames.GEMINI_25_FLASH.equals(modelName) ? 0.0012 : 0.006;
-        return ((double) totalTokens / 1000.0) * per1k;
-    }
-
-    private static double planUnitPrice(SubscriptionPlan subscriptionPlan) {
-        return switch (subscriptionPlan) {
-            case STANDARD -> 29.0;
-            case PRO -> 149.0;
-            case EXPERT -> 499.0;
-        };
+    /** 上位プランのみ Pro、その他は Flash に一意マッピング（コスト推定によるダウングレードなし）。 */
+    private static String geminiBatchModelForSubscriptionPlan(SubscriptionPlan subscriptionPlan) {
+        SubscriptionPlan p = subscriptionPlan != null ? subscriptionPlan : SubscriptionPlan.STANDARD;
+        return p.usesProTierFeatures() ? LlmModelNames.GEMINI_25_PRO : LlmModelNames.GEMINI_25_FLASH;
     }
 }

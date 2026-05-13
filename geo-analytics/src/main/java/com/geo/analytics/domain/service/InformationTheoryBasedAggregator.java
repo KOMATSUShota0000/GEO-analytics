@@ -269,13 +269,8 @@ public class InformationTheoryBasedAggregator {
         if (Double.isNaN(sentimentIntensity) || Double.isInfinite(sentimentIntensity)) {
             return 1.0;
         }
-        if (sentimentIntensity >= 0.5 && sentimentIntensity <= 1.5) {
-            return sentimentIntensity;
-        }
-        if (sentimentIntensity >= -1.0 && sentimentIntensity <= 1.0) {
-            return 1.0 + 0.5 * sentimentIntensity;
-        }
-        return clampD(sentimentIntensity, 0.5, 1.5);
+        double s = clampD(sentimentIntensity, -1.0, 1.0);
+        return StrictMath.fma(0.5, s, 1.0);
     }
 
     private static double clampD(double v, double lo, double hi) {
@@ -318,9 +313,7 @@ public class InformationTheoryBasedAggregator {
                     .values().stream()
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             long sumMentions = rows.stream().mapToLong(BrandContrib::mentions).sum();
-            MatchStatus st = rows.stream().anyMatch(r -> r.status() == MatchStatus.MANUAL_REVIEW)
-                    ? MatchStatus.MANUAL_REVIEW
-                    : MatchStatus.AUTO_MATCH;
+            MatchStatus st = MatchStatus.AUTO_MATCH;
             String canonical = rows.stream()
                     .map(BrandContrib::surfaceLabel)
                     .filter(Objects::nonNull)

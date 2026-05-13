@@ -3,9 +3,8 @@ package com.geo.analytics.infrastructure.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.infrastructure.crawler.CachedWebCrawlerDecorator;
-import com.geo.analytics.infrastructure.crawler.PlaywrightWebCrawlerAdapter;
+import com.geo.analytics.infrastructure.crawler.JsoupWebCrawlerAdapter;
 import com.geo.analytics.infrastructure.crawler.TieredCrawlCache;
-import com.geo.analytics.infrastructure.crawler.playwright.PlaywrightBrowserLifecycle;
 import com.geo.analytics.infrastructure.crawler.safety.PerDomainRequestLimiter;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import io.lettuce.core.RedisClient;
@@ -16,7 +15,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import java.util.concurrent.Semaphore;
 
 @Configuration
 public class CrawlerConfiguration {
@@ -54,18 +52,6 @@ public class CrawlerConfiguration {
     }
 
     @Bean
-    Semaphore playwrightCrawlSemaphore() {
-        return new Semaphore(4, true);
-    }
-
-    @Bean
-    PlaywrightWebCrawlerAdapter playwrightWebCrawlerAdapter(
-            PlaywrightBrowserLifecycle playwrightBrowserLifecycle,
-            Semaphore playwrightCrawlSemaphore) {
-        return new PlaywrightWebCrawlerAdapter(playwrightBrowserLifecycle.getBrowser(), playwrightCrawlSemaphore);
-    }
-
-    @Bean
     TieredCrawlCache tieredCrawlCache(ObjectProvider<StatefulRedisConnection<String, String>> redisConnectionProvider) {
         return new TieredCrawlCache(redisConnectionProvider.getIfAvailable());
     }
@@ -73,13 +59,12 @@ public class CrawlerConfiguration {
     @Bean
     @Primary
     WebCrawlerPort webCrawlerPort(
-            PlaywrightWebCrawlerAdapter playwrightWebCrawlerAdapter,
             ObjectMapper objectMapper,
             AppProperties appProperties,
             TieredCrawlCache tieredCrawlCache) {
         long ttlSeconds = Math.max(1L, appProperties.getCrawler().getCacheTtl().toSeconds());
         return new CachedWebCrawlerDecorator(
-            playwrightWebCrawlerAdapter,
+            new JsoupWebCrawlerAdapter(),
             objectMapper,
             tieredCrawlCache,
             ttlSeconds);

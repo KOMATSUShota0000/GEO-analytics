@@ -5,13 +5,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * プラン由来の文字数上限に収まるよう、競合エビデンス XML 相当のボリュームを削る。
+ * プランごとの競合エビデンス上限に収まるよう、競合ブロック XML 相当のボリュームを削る。
  */
-public final class TokenProfitGuard {
+public final class CompetitorEvidenceBudget {
 
     private static final String SNIPPET_TAIL_ELLIPSIS = "...";
 
-    private TokenProfitGuard() {}
+    private CompetitorEvidenceBudget() {}
 
     /**
      * {@code sortedEvidences} は優先度が高い順（先頭ほど重要）。{@code maxChars <= 0} のときは空リスト。
@@ -63,9 +63,6 @@ public final class TokenProfitGuard {
         return List.of();
     }
 
-    /**
-     * {@code prefixCpCount} は先頭から含める Unicode コードポイント数。サロゲート境界で切る。
-     */
     private static String snippetPrefixWithEllipsisByCodePoints(String full, int prefixCpCount) {
         if (full.isEmpty()) {
             return "";

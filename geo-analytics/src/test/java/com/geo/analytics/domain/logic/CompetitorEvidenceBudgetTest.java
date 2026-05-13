@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-class TokenProfitGuardTest {
+class CompetitorEvidenceBudgetTest {
 
     private static SeoEvidence ev(String url, String title, String snippet) {
         return new SeoEvidence(url, title, snippet, 1.0, Optional.empty(), "CAT");
@@ -16,14 +16,14 @@ class TokenProfitGuardTest {
 
     @Test
     void maxCharsNonPositive_returnsEmpty() {
-        assertThat(TokenProfitGuard.clipEvidences(List.of(ev("u", "t", "s")), 0)).isEmpty();
-        assertThat(TokenProfitGuard.clipEvidences(List.of(ev("u", "t", "s")), -1)).isEmpty();
+        assertThat(CompetitorEvidenceBudget.clipEvidences(List.of(ev("u", "t", "s")), 0)).isEmpty();
+        assertThat(CompetitorEvidenceBudget.clipEvidences(List.of(ev("u", "t", "s")), -1)).isEmpty();
     }
 
     @Test
     void nullOrEmptyInput_returnsEmpty() {
-        assertThat(TokenProfitGuard.clipEvidences(null, 100)).isEmpty();
-        assertThat(TokenProfitGuard.clipEvidences(List.of(), 100)).isEmpty();
+        assertThat(CompetitorEvidenceBudget.clipEvidences(null, 100)).isEmpty();
+        assertThat(CompetitorEvidenceBudget.clipEvidences(List.of(), 100)).isEmpty();
     }
 
     @Test
@@ -35,7 +35,7 @@ class TokenProfitGuardTest {
         list.add(null);
         list.add(b);
         int len = SeoEvidenceXmlBuilder.buildCompetitorBlock(List.of(a, b)).length();
-        List<SeoEvidence> out = TokenProfitGuard.clipEvidences(list, len + 100);
+        List<SeoEvidence> out = CompetitorEvidenceBudget.clipEvidences(list, len + 100);
         assertThat(out).containsExactly(a, b);
     }
 
@@ -46,7 +46,7 @@ class TokenProfitGuardTest {
         int oneOnlyLen = SeoEvidenceXmlBuilder.buildCompetitorBlock(List.of(high)).length();
         int bothLen = SeoEvidenceXmlBuilder.buildCompetitorBlock(List.of(high, low)).length();
         assertThat(bothLen).isGreaterThan(oneOnlyLen);
-        List<SeoEvidence> out = TokenProfitGuard.clipEvidences(List.of(high, low), oneOnlyLen);
+        List<SeoEvidence> out = CompetitorEvidenceBudget.clipEvidences(List.of(high, low), oneOnlyLen);
         assertThat(out).hasSize(1);
         assertThat(out.get(0).url()).isEqualTo("http://h");
     }
@@ -56,7 +56,7 @@ class TokenProfitGuardTest {
         var e = ev("http://x", "T", "0123456789012345678901234567890123456789");
         int fullLen = SeoEvidenceXmlBuilder.buildCompetitorBlock(List.of(e)).length();
         int target = fullLen - 5;
-        List<SeoEvidence> out = TokenProfitGuard.clipEvidences(List.of(e), target);
+        List<SeoEvidence> out = CompetitorEvidenceBudget.clipEvidences(List.of(e), target);
         assertThat(out).hasSize(1);
         assertThat(out.get(0).snippet()).endsWith("...");
         assertThat(SeoEvidenceXmlBuilder.buildCompetitorBlock(out).length()).isLessThanOrEqualTo(target);
@@ -69,7 +69,7 @@ class TokenProfitGuardTest {
         var e = ev("http://emoji", "E", longSnippet);
         int fullXmlLen = SeoEvidenceXmlBuilder.buildCompetitorBlock(List.of(e)).length();
         int budget = fullXmlLen / 2;
-        List<SeoEvidence> out = TokenProfitGuard.clipEvidences(List.of(e), budget);
+        List<SeoEvidence> out = CompetitorEvidenceBudget.clipEvidences(List.of(e), budget);
         assertThat(out).hasSize(1);
         String sn = out.get(0).snippet();
         assertThat(SeoEvidenceXmlBuilder.buildCompetitorBlock(out).length()).isLessThanOrEqualTo(budget);

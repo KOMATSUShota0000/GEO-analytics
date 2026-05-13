@@ -71,35 +71,19 @@ app:
     redis-port: 6379
   ai:
     realtime-threshold: 10
-    token-profit-guard:
-      reserved-margin-rate: 0.7
-      usd-per-million-tokens: 3.50
-      chars-per-token-approx: 1.0
-      plan-budget-usd:
-        STANDARD: 0.02
-        PRO: 0.05
-        EXPERT: 0.10
     prompt-injection-guard:
       timeout-seconds: 30
       fail-open-on-error: false
     gemini:
       api-key: "AIzaSyCxNfLnl0dLa2r49kysUeq6yVV2ec_fNU8"
       model-name: "${GEMINI_MODEL_NAME:gemini-2.5-flash}"
-    deepseek:
-      api-key: "${DEEPSEEK_API_KEY:}"
-      base-url: "https://api.deepseek.com"
   # AI Overview (GEO) 計測プロバイダ設定（キー名は維持）
   serpapi:
     api-key: "deca9c28024fb31dae9edc6b29c906570a683248d89135e318c926edeae1f656"
   places:
     api-key: "${GOOGLE_PLACES_API_KEY:}"
   pdf:
-    base-url: "${APP_PDF_BASE_URL:http://127.0.0.1:5173}"
     temp-dir: "${APP_PDF_TEMP_DIR:./data/pdf-temp}"
-    internal-token: "${APP_PDF_INTERNAL_TOKEN:dev-internal-token}"
-    default-brand-color: "${APP_PDF_DEFAULT_BRAND_COLOR:#1976d2}"
-    default-logo-url: "${APP_PDF_DEFAULT_LOGO_URL:}"
-    max-concurrent: "${APP_PDF_MAX_CONCURRENT:2}"
   rate-limit:
     public-api:
       capacity: 10

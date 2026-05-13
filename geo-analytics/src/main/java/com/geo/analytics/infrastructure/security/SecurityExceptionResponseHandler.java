@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,19 +30,25 @@ public class SecurityExceptionResponseHandler {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityExceptionResponseHandler.class);
 
+    /** Web MVC コンテキスト（{@code spring.main.web-application-type=none} 等）では存在しないことがある */
     private final HandlerExceptionResolver handlerExceptionResolver;
     private final ObjectMapper objectMapper;
 
     public SecurityExceptionResponseHandler(
-            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver,
+            @Qualifier("handlerExceptionResolver")
+                    ObjectProvider<HandlerExceptionResolver> handlerExceptionResolverProvider,
             ObjectMapper objectMapper) {
-        this.handlerExceptionResolver = handlerExceptionResolver;
+        this.handlerExceptionResolver = handlerExceptionResolverProvider.getIfAvailable();
         this.objectMapper = objectMapper;
     }
 
     public void handle(HttpServletRequest request, HttpServletResponse response, Exception exception)
             throws IOException {
         if (response.isCommitted()) {
+            return;
+        }
+        if (handlerExceptionResolver == null) {
+            writeFallback(response, exception);
             return;
         }
         try {

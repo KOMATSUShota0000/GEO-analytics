@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = "spring.task.scheduling.enabled=false")
 @ActiveProfiles("test")
-class JobEntityExtractingCompetitorsPersistenceTest {
+class JobEntityExtractingCompetitorsPersistenceTest extends PostgresSuperuserTestBase {
 
     @MockitoBean
     private SerpApiAdapter serpApiAdapter;

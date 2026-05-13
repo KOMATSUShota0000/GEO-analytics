@@ -1,32 +1,16 @@
 package com.geo.analytics.domain.model;
 
-import com.geo.analytics.domain.enums.ModelType;
-import com.geo.analytics.domain.enums.SubscriptionPlan;
-
+/**
+ * クォータ／クレジットは「キーワード1件につき保留・確定ともに同一の固定値」とし、出力長やモデル構成による変動を持たせない。
+ */
 public final class QuotaCreditCalculator {
+    /** キーワード1件あたりに事前にロックするクレジット（成功時も確定消費はこの値と同一）。 */
     public static final int DEPOSIT_PER_KEYWORD = 10;
-    private QuotaCreditCalculator() {
-    }
-    public static long actualCredits(long textLength, SubscriptionPlan plan) {
-        int mult = combinedModelMultiplier(plan);
-        long tier = textLength <= 0L ? 0L : (long) Math.ceil(textLength / 1000.0);
-        return Math.max(1L, 1L + tier * mult);
-    }
-    public static long actualCreditsGeminiBatchLine(long textLength) {
-        long tier = textLength <= 0L ? 0L : (long) Math.ceil(textLength / 1000.0);
-        return Math.max(1L, 1L + tier);
-    }
-    public static long refundAfterDeposit(long deposit, long actualCost) {
-        long d = deposit - actualCost;
+
+    private QuotaCreditCalculator() {}
+
+    public static long refundAfterDeposit(long deposit, long billedCredits) {
+        long d = deposit - billedCredits;
         return d > 0L ? d : 0L;
-    }
-    public static int combinedModelMultiplier(SubscriptionPlan plan) {
-        int s = 0;
-        for (ModelType mt : ModelType.values()) {
-            if (plan.hasModelAccess(mt)) {
-                s += mt.quotaMultiplier();
-            }
-        }
-        return Math.max(1, s);
     }
 }

@@ -8,7 +8,6 @@ import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.infrastructure.api.dto.SerpOrganicResult;
 import org.springframework.stereotype.Component;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -20,16 +19,19 @@ public class SerpJobCompetitorExtractor {
     private final TargetAttributesInferenceService targetAttributesInferenceService;
     private final SerpOrganicSearchService serpOrganicSearchService;
     private final CompetitorFilterService competitorFilterService;
+    private final SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory;
 
     public SerpJobCompetitorExtractor(
             JobPersistenceService jobPersistenceService,
             TargetAttributesInferenceService targetAttributesInferenceService,
             SerpOrganicSearchService serpOrganicSearchService,
-            CompetitorFilterService competitorFilterService) {
+            CompetitorFilterService competitorFilterService,
+            SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory) {
         this.jobPersistenceService = jobPersistenceService;
         this.targetAttributesInferenceService = targetAttributesInferenceService;
         this.serpOrganicSearchService = serpOrganicSearchService;
         this.competitorFilterService = competitorFilterService;
+        this.syntheticSelectedCompetitorFactory = syntheticSelectedCompetitorFactory;
     }
 
     public List<SelectedCompetitor> extract(CompetitorExtractionContext ctx, CompetitorExtractionMode serpProfile) {
@@ -38,7 +40,7 @@ public class SerpJobCompetitorExtractor {
         String targetUrl = ctx.targetUrl();
         Objects.requireNonNull(jobId, "jobId");
         if (projectId == null) {
-            return fallbackThreeSynthetic();
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
         }
         JobEntity job = jobPersistenceService.findJobById(jobId);
         String brandName = job.getBrandName() != null ? job.getBrandName() : "";
@@ -100,20 +102,5 @@ public class SerpJobCompetitorExtractor {
             sb.append(" 法人向け サービス 企業");
         }
         return sb.toString().trim();
-    }
-
-    private static List<SelectedCompetitor> fallbackThreeSynthetic() {
-        IndustryType ind = IndustryType.OTHER;
-        String area = "全国";
-        String label = ind.getLabel();
-        List<SelectedCompetitor> list = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
-            String suffix = String.valueOf((char) ('A' + i));
-            String name = area + "における" + label + "の標準モデル競合" + suffix;
-            String reasoning =
-                    area + "および" + label + "に整合するGEO Readiness評価用の参照モデルとして配置した。";
-            list.add(new SelectedCompetitor(name, null, null, null, reasoning, true));
-        }
-        return List.copyOf(list);
     }
 }

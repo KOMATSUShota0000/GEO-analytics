@@ -137,16 +137,6 @@ public class BatchPersistenceService {
         });
     }
 
-    public void markPdfCompleted(UUID jobId, String absolutePath) {
-        jdbc.update("UPDATE jobs SET pdf_status = 'COMPLETED', pdf_file_path = ?, updated_at = now() WHERE id = ?",
-                absolutePath, jobId);
-    }
-
-    public void markPdfFailed(UUID jobId) {
-        jdbc.update("UPDATE jobs SET pdf_status = 'FAILED', pdf_file_path = NULL, updated_at = now() WHERE id = ?",
-                jobId);
-    }
-
     public void updateAuditStrategyInsights(UUID auditHistoryId, String diagnosticMessage,
                                             List<String> recommendedActions, String calculationVersion) {
         jdbc.update(con -> {

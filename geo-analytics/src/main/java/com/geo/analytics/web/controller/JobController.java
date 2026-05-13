@@ -1,7 +1,6 @@
 package com.geo.analytics.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.geo.analytics.application.service.AsyncPdfReportService;
 import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
 import com.geo.analytics.application.service.JobKnowledgeIngestionService;
 import com.geo.analytics.application.service.JobPersistenceService;
@@ -52,6 +51,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -65,7 +65,6 @@ public class JobController {
     private final JobPersistenceService jobPersistenceService;
     private final JobQuerySubmissionService jobQuerySubmissionService;
     private final JobSyncTestService jobSyncTestService;
-    private final AsyncPdfReportService asyncPdfReportService;
     private final PdfStorageConfig pdfStorageConfig;
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ObjectMapper objectMapper;
@@ -78,7 +77,6 @@ public class JobController {
             JobPersistenceService jobPersistenceService,
             JobQuerySubmissionService jobQuerySubmissionService,
             JobSyncTestService jobSyncTestService,
-            AsyncPdfReportService asyncPdfReportService,
             PdfStorageConfig pdfStorageConfig,
             JobStreamRegistryService jobStreamRegistryService,
             ObjectMapper objectMapper,
@@ -89,7 +87,6 @@ public class JobController {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
-        this.asyncPdfReportService = asyncPdfReportService;
         this.pdfStorageConfig = pdfStorageConfig;
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.objectMapper = objectMapper;
@@ -121,12 +118,39 @@ public class JobController {
         if (!outcome.created()) {
             return ResponseEntity.ok(JobStatusResponse.from(createdJobEntity));
         }
+        jobQuerySubmissionService.submitQueries(
+                createdJobEntity.getId(),
+                List.of(defaultInitialQuery(createJobRequest.brandName(), createJobRequest.targetUrl())),
+                SubscriptionPlan.STANDARD);
         JobEntity responseEntity = jobPersistenceService.findJobById(createdJobEntity.getId());
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()
             .path("/{jobId}")
             .buildAndExpand(responseEntity.getId())
             .toUri();
         return ResponseEntity.created(createdResourceLocation).body(JobStatusResponse.from(responseEntity));
+    }
+
+    private static String defaultInitialQuery(String brandName, String targetUrl) {
+        String b = brandName != null ? brandName.strip() : "";
+        String host = "";
+        try {
+            String tu = targetUrl != null ? targetUrl.strip() : "";
+            if (!tu.isEmpty()) {
+                URI uri = URI.create(tu);
+                String h = uri.getHost();
+                if (h != null && !h.isBlank()) {
+                    host = h.toLowerCase(Locale.ROOT).startsWith("www.") ? h.substring(4) : h;
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        if (!b.isEmpty() && !host.isEmpty()) {
+            return b + " " + host;
+        }
+        if (!b.isEmpty()) {
+            return b;
+        }
+        return !host.isEmpty() ? host : "GEO";
     }
 
     @GetMapping("/{jobId}")
@@ -276,11 +300,7 @@ public class JobController {
 
     @PostMapping("/{jobId}/pdf/request")
     public ResponseEntity<PdfGenerationStartResult> requestPdfGeneration(@PathVariable UUID jobId) {
-        var result = jobPersistenceService.tryMarkPdfGeneratingAndPublish(jobId);
-        if (result.accepted()) {
-            asyncPdfReportService.generatePdfReport(jobId);
-        }
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(jobPersistenceService.tryMarkPdfGeneratingAndPublish(jobId));
     }
 
     @GetMapping("/{jobId}/pdf/download")

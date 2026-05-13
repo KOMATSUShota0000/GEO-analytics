@@ -1,47 +1,34 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.ResolutionResult;
-import com.geo.analytics.domain.entity.UnresolvedEntityQueueEntity;
 import com.geo.analytics.domain.matching.ZeroAllocationTokenizer;
 import com.geo.analytics.domain.model.ResolvableEntity;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.EntityResolutionBlockingService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
-import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
-import com.geo.analytics.infrastructure.repository.UnresolvedEntityQueueRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Service
 public final class EntityResolutionService {
 
-    public static final String CALCULATION_VERSION = "ER_PIPELINE_V1";
+    /** キュー廃止・DeepSeek撤去に伴いバンプ。 */
+    public static final String CALCULATION_VERSION = "ER_PIPELINE_V2_GEMINI_SLIM";
+
     private static final double LEXICAL_DICE_HIGH = 0.85;
-    private static final double LEXICAL_DICE_LOW = 0.70;
-    private static final double LLM_CONFIDENCE_MIN = 0.90;
 
     private static final ConcurrentLinkedQueue<int[]> BIGRAM_BUFFER_POOL = new ConcurrentLinkedQueue<>();
 
     private final JapaneseNlpService japaneseNlpService;
     private final EntityResolutionBlockingService entityResolutionBlockingService;
-    private final DeepSeekAdapter deepSeekAdapter;
-    private final UnresolvedEntityQueueRepository unresolvedEntityQueueRepository;
 
     public EntityResolutionService(
-            JapaneseNlpService japaneseNlpService,
-            EntityResolutionBlockingService entityResolutionBlockingService,
-            DeepSeekAdapter deepSeekAdapter,
-            UnresolvedEntityQueueRepository unresolvedEntityQueueRepository) {
+            JapaneseNlpService japaneseNlpService, EntityResolutionBlockingService entityResolutionBlockingService) {
         this.japaneseNlpService = japaneseNlpService;
         this.entityResolutionBlockingService = entityResolutionBlockingService;
-        this.deepSeekAdapter = deepSeekAdapter;
-        this.unresolvedEntityQueueRepository = unresolvedEntityQueueRepository;
     }
 
     public Map<String, List<ResolvableEntity>> bucketEntities(List<ResolvableEntity> entities) {
@@ -65,7 +52,7 @@ public final class EntityResolutionService {
         String ha = entityResolutionBlockingService.blockingHashSha256(rawA);
         String hb = entityResolutionBlockingService.blockingHashSha256(rawB);
         if (!ha.equals(hb)) {
-            return persistPending(rawA, rawB, ha, hb);
+            return separate(rawA, rawB, ha, hb);
         }
         double dice = lexicalDiceOnNormalized(nfa, nfb);
         if (dice >= LEXICAL_DICE_HIGH) {
@@ -75,43 +62,11 @@ public final class EntityResolutionService {
                     dice,
                     CALCULATION_VERSION);
         }
-        if (dice >= LEXICAL_DICE_LOW && dice < LEXICAL_DICE_HIGH) {
-            var judgment = deepSeekAdapter.judgeEntityIdentityBlocking(prepA, prepB);
-            if (judgment.sameEntity() && judgment.confidence() >= LLM_CONFIDENCE_MIN) {
-                return new ResolutionResult.Merged(
-                        pickCanonical(rawA, rawB, prepA, prepB),
-                        3,
-                        dice,
-                        CALCULATION_VERSION);
-            }
-        }
-        return persistPending(rawA, rawB, ha, hb);
+        return separate(rawA, rawB, ha, hb);
     }
 
-    private ResolutionResult persistPending(String left, String right, String ha, String hb) {
-        try {
-            var row = new UnresolvedEntityQueueEntity();
-            UUID workspaceId = TenantPlanScope.currentTenantIdString()
-                    .filter(t -> !t.isBlank())
-                    .map(UUID::fromString)
-                    .orElse(DefaultTenantIds.WORKSPACE_ID);
-            row.setWorkspaceId(workspaceId);
-            row.setLeftLabel(left);
-            row.setRightLabel(right);
-            row.setLeftBlockingHash(ha);
-            row.setRightBlockingHash(hb);
-            row.setManualReviewRequired(true);
-            row.setCalculationVersion(CALCULATION_VERSION);
-            unresolvedEntityQueueRepository.save(row);
-        } catch (Exception exception) {
-        }
-        return new ResolutionResult.PendingManualReview(
-                left,
-                right,
-                ha,
-                hb,
-                true,
-                CALCULATION_VERSION);
+    private ResolutionResult separate(String left, String right, String ha, String hb) {
+        return new ResolutionResult.NotMerged(left, right, ha, hb, CALCULATION_VERSION);
     }
 
     private static double lexicalDiceOnNormalized(String nfa, String nfb) {

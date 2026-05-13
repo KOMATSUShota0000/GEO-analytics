@@ -47,6 +47,7 @@ public class JobQuerySubmissionService {
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final JobStreamRegistryService jobStreamRegistryService;
     private final ExecutorService streamDeliveryVirtualExecutor;
+    private final ExecutorService realtimeParallelVirtualExecutor;
     private final ProjectRepository projectRepository;
     private final WorkspaceRepository workspaceRepository;
     private final HybridCompetitorPipelineService hybridCompetitorPipelineService;
@@ -64,6 +65,8 @@ public class JobQuerySubmissionService {
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
+            @Qualifier(StreamingExecutorConfig.REALTIME_PARALLEL_VIRTUAL_EXECUTOR)
+                    ExecutorService realtimeParallelVirtualExecutor,
             ProjectRepository projectRepository,
             WorkspaceRepository workspaceRepository,
             HybridCompetitorPipelineService hybridCompetitorPipelineService,
@@ -79,6 +82,7 @@ public class JobQuerySubmissionService {
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.jobStreamRegistryService = jobStreamRegistryService;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
+        this.realtimeParallelVirtualExecutor = realtimeParallelVirtualExecutor;
         this.projectRepository = projectRepository;
         this.workspaceRepository = workspaceRepository;
         this.hybridCompetitorPipelineService = hybridCompetitorPipelineService;
@@ -219,7 +223,7 @@ public class JobQuerySubmissionService {
                 if (batchDeposit > 0L && batchTenantId != null) {
                     quotaManager.addTokens(batchTenantId, batchDeposit);
                 }
-                jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, throwable2.getMessage());
+                jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable2));
                 jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
             }
         }
@@ -265,14 +269,14 @@ public class JobQuerySubmissionService {
                     out.add(u != null && !u.isBlank() ? u : "");
                 }
                 if (out.size() == 3) {
-                    return List.copyOf(out);
+                    return new ArrayList<>(out);
                 }
             }
         }
         while (out.size() < 3) {
             out.add("");
         }
-        return List.copyOf(out);
+        return new ArrayList<>(out);
     }
 
     private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {
@@ -305,12 +309,11 @@ public class JobQuerySubmissionService {
                                     } catch (Throwable x) {
                                         quotaManager.addTokens(
                                                 tenantId,
-                                                QuotaCreditCalculator.refundAfterDeposit(
-                                                        QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                                                QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
                                         throw x;
                                     }
                                 }),
-                        streamDeliveryVirtualExecutor))
+                        realtimeParallelVirtualExecutor))
                 .toArray(CompletableFuture[]::new);
         try {
             CompletableFuture.allOf(futures).join();
@@ -329,7 +332,11 @@ public class JobQuerySubmissionService {
                 if (c instanceof Error e) {
                     throw e;
                 }
-                throw new IllegalStateException(c);
+                throw new IllegalStateException(
+                        c != null
+                                ? (c.getMessage() != null ? c.getMessage() : c.toString())
+                                : "CompletionException without cause",
+                        c != null ? c : ce);
             }
             if (t instanceof RuntimeException re) {
                 throw re;
@@ -337,7 +344,8 @@ public class JobQuerySubmissionService {
             if (t instanceof Error e) {
                 throw e;
             }
-            throw new IllegalStateException(t);
+            throw new IllegalStateException(
+                    t.getMessage() != null ? t.getMessage() : t.toString(), t);
         } finally {
             jobStreamRegistryService.complete(jobId);
         }
@@ -373,67 +381,70 @@ public class JobQuerySubmissionService {
                 queryEntity.getId(),
                 brandName,
                 competitorHosts);
-        long actual = QuotaCreditCalculator.actualCredits(syncVerificationResult.analysisTextLength(), appliedPlan);
+        String rawJson = syncVerificationResult.rawResponseJson();
+        String serializedConsultant;
         try {
-            String rawJson = syncVerificationResult.rawResponseJson();
-            String serializedConsultant;
-            try {
-                var consultantOutputData = somScoreParser.parseConsultantOutput(rawJson);
-                serializedConsultant = jsonbOperations.serialize(consultantOutputData);
-            } catch (RuntimeException ex) {
-                log.warn(
-                        "Failed to parse consultant output for audit persistence query={} rawResponse={}",
-                        queryEntity.getQueryText(),
-                        rawJson,
-                        ex);
-                serializedConsultant = rawJson;
-            }
-            Double somScore = syncVerificationResult.somScore();
-            Double modifiedZ = syncVerificationResult.modifiedZScore();
-            if (somScore == null || modifiedZ == null) {
-                log.warn(
-                        "Incomplete audit metrics after verification query={} somScoreNull={} modifiedZNull={} rawResponse={}",
-                        queryEntity.getQueryText(),
-                        somScore == null,
-                        modifiedZ == null,
-                        rawJson);
-            }
-            var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
-            Integer mr = syncVerificationResult.mentionRank();
-            Integer ov = syncVerificationResult.overallScore();
-            Double gbvsNorm = syncVerificationResult.gbvsNormalizedScore();
-            log.info(
-                    "[DB SAVE DEBUG] jobId={} queryId={} queryText={} somScore={} gbvsNormalizedScore={} modifiedZ={}",
-                    jobId,
-                    queryEntity.getId(),
+            var consultantOutputData = somScoreParser.parseConsultantOutput(rawJson);
+            serializedConsultant = jsonbOperations.serialize(consultantOutputData);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Failed to parse consultant output for audit persistence query={} rawResponse={}",
                     queryEntity.getQueryText(),
-                    somScore,
-                    gbvsNorm,
-                    modifiedZ);
-            jobPersistenceService.upsertAuditHistoryForJobQuery(
-                    jobId,
-                    queryEntity.getId(),
-                    queryEntity.getQueryText(),
-                    serializedConsultant,
-                    somScore,
-                    brand,
-                    mr,
-                    ov,
-                    syncVerificationResult.resolvedEntityLabel(),
-                    syncVerificationResult.tokenCount(),
-                    syncVerificationResult.aiCitationPosition(),
-                    syncVerificationResult.sentimentIntensity(),
-                    syncVerificationResult.visibilityStage(),
-                    syncVerificationResult.calculationVersion(),
-                    modifiedZ,
-                    gbvsNorm,
-                    syncVerificationResult.competitorScoreRows(),
-                    syncVerificationResult.modelInsightsJson());
-        } finally {
-            long refund = QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
-            if (refund > 0L) {
-                quotaManager.addTokens(tenantId, refund);
-            }
+                    rawJson,
+                    ex);
+            serializedConsultant = rawJson;
         }
+        Double somScore = syncVerificationResult.somScore();
+        Double modifiedZ = syncVerificationResult.modifiedZScore();
+        if (somScore == null || modifiedZ == null) {
+            log.warn(
+                    "Incomplete audit metrics after verification query={} somScoreNull={} modifiedZNull={} rawResponse={}",
+                    queryEntity.getQueryText(),
+                    somScore == null,
+                    modifiedZ == null,
+                    rawJson);
+        }
+        var brand = Boolean.TRUE.equals(syncVerificationResult.brandMentioned());
+        Integer mr = syncVerificationResult.mentionRank();
+        Integer ov = syncVerificationResult.overallScore();
+        Double gbvsNorm = syncVerificationResult.gbvsNormalizedScore();
+        log.info(
+                "[DB SAVE DEBUG] jobId={} queryId={} queryText={} somScore={} gbvsNormalizedScore={} modifiedZ={}",
+                jobId,
+                queryEntity.getId(),
+                queryEntity.getQueryText(),
+                somScore,
+                gbvsNorm,
+                modifiedZ);
+        jobPersistenceService.upsertAuditHistoryForJobQuery(
+                jobId,
+                queryEntity.getId(),
+                queryEntity.getQueryText(),
+                serializedConsultant,
+                somScore,
+                brand,
+                mr,
+                ov,
+                syncVerificationResult.resolvedEntityLabel(),
+                syncVerificationResult.tokenCount(),
+                syncVerificationResult.aiCitationPosition(),
+                syncVerificationResult.sentimentIntensity(),
+                syncVerificationResult.visibilityStage(),
+                syncVerificationResult.calculationVersion(),
+                modifiedZ,
+                gbvsNorm,
+                syncVerificationResult.competitorScoreRows(),
+                syncVerificationResult.modelInsightsJson());
+    }
+
+    private static String failurePreview(Throwable t) {
+        if (t == null) {
+            return "unknown";
+        }
+        String m = t.getMessage();
+        if (m != null && !m.isBlank()) {
+            return m;
+        }
+        return t.getClass().getName();
     }
 }

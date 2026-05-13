@@ -1,16 +1,13 @@
 package com.geo.analytics.infrastructure.config;
 
 import com.geo.analytics.application.port.AiVerificationPort;
-import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
 import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
-import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
@@ -22,12 +19,8 @@ import com.geo.analytics.infrastructure.ai.RemediationTaskOutputSchema;
 import com.geo.analytics.infrastructure.ai.RubricAuditOutputSchema;
 import com.geo.analytics.infrastructure.ai.TargetAttributesOutputSchema;
 import com.geo.analytics.infrastructure.ai.TaskToneContentSchema;
-import com.geo.analytics.infrastructure.ai.DeepSeekAdapter;
-import com.geo.analytics.infrastructure.ai.ForwardingModelAdapter;
 import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
-import com.geo.analytics.infrastructure.ai.StrictSchemaValidator;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
@@ -36,7 +29,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.Semaphore;
 
 @Configuration
@@ -44,7 +36,6 @@ public class AiConfig {
     public static final String AI_VERIFICATION_CONCURRENCY_LIMITER = "aiVerificationConcurrencyLimiter";
     public static final String GEMINI_STREAMING_STANDARD = "geminiStreamingStandard";
     public static final String GEMINI_STREAMING_PRO = "geminiStreamingPro";
-    public static final String GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL = "geminiKeywordSuggestionChatModel";
     public static final String GEMINI_GBVS_CHAT = "geminiGbvsChat";
     public static final String GEMINI_GEO_ONBOARDING_CHAT_MODEL = "geminiGeoOnboardingChatModel";
     public static final String GEMINI_TARGET_ATTRIBUTES_MODEL = "geminiTargetAttributesModel";
@@ -74,22 +65,6 @@ public class AiConfig {
             .modelName(LlmModelNames.GEMINI_31_PRO)
             .temperature(0.0)
             .timeout(Duration.ofSeconds(300))
-            .build();
-    }
-
-    @Bean
-    @Qualifier(GEMINI_KEYWORD_SUGGESTION_CHAT_MODEL)
-    public ChatLanguageModel keywordSuggestionChatLanguageModel() {
-        String configuredGeminiModelName = appProperties.getAi().getGemini().getModelName();
-        var resolvedModel = configuredGeminiModelName == null || configuredGeminiModelName.isBlank()
-            ? LlmModelNames.GEMINI_31_PRO
-            : configuredGeminiModelName;
-        return GoogleAiGeminiChatModel.builder()
-            .apiKey(appProperties.getAi().getGemini().getApiKey())
-            .modelName(resolvedModel)
-            .temperature(0.2)
-            .timeout(Duration.ofSeconds(180))
-            .maxOutputTokens(8192)
             .build();
     }
 
@@ -295,11 +270,8 @@ public class AiConfig {
             @Qualifier(GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
-            DeepSeekAdapter deepSeekAdapter,
-            StrictSchemaValidator strictSchemaValidator,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            JobPersistenceService jobPersistenceService,
-            SerpApiAdapter serpApiAdapter) {
+            JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
@@ -308,22 +280,14 @@ public class AiConfig {
                 geminiStreamingPro,
                 entityNormalizer,
                 japaneseNlpService,
-                deepSeekAdapter,
-                strictSchemaValidator,
                 geoVisibilityCalculatorService,
-                jobPersistenceService,
-                serpApiAdapter);
+                jobPersistenceService);
     }
 
     @Bean
     public AiVerificationPort aiVerificationPort(
             GeminiVerificationAdapter geminiVerificationAdapter,
-            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
             @Qualifier(AI_VERIFICATION_CONCURRENCY_LIMITER) Semaphore aiVerificationConcurrencyLimiter) {
-        List<ModelTypedAiVerificationPort> adapters = List.of(
-                geminiVerificationAdapter,
-                new ForwardingModelAdapter(ModelType.CHATGPT, geminiVerificationAdapter),
-                new ForwardingModelAdapter(ModelType.CLAUDE, geminiVerificationAdapter));
-        return new AiVerificationRouter(adapters, informationTheoryBasedAggregator, aiVerificationConcurrencyLimiter);
+        return new AiVerificationRouter(geminiVerificationAdapter, aiVerificationConcurrencyLimiter);
     }
 }

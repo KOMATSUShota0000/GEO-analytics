@@ -16,7 +16,7 @@ import com.geo.analytics.domain.logic.InformationGainCalculator;
 import com.geo.analytics.application.security.PromptInjectionValidator;
 import com.geo.analytics.domain.logic.SeoDataEvidenceProvider;
 import com.geo.analytics.domain.logic.SeoEvidenceXmlBuilder;
-import com.geo.analytics.domain.logic.TokenProfitGuard;
+import com.geo.analytics.domain.logic.CompetitorEvidenceBudget;
 import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.SeoEvidence;
 import com.geo.analytics.domain.model.SeoOrganicRow;
@@ -62,7 +62,6 @@ public class DebateOnboardingOrchestrator {
     private final ChatLanguageModel directorChatModel;
     private final ObjectMapper objectMapper;
     private final SeoDataEvidenceProvider seoDataEvidenceProvider;
-    private final TokenProfitBudgetResolver tokenProfitBudgetResolver;
     private final PromptInjectionValidator promptInjectionValidator;
     private final DebateMathAuditService debateMathAuditService;
     private final OnboardingDebateStreamRegistry onboardingDebateStreamRegistry;
@@ -74,7 +73,6 @@ public class DebateOnboardingOrchestrator {
             @Qualifier(AiConfig.GEMINI_DEBATE_DIRECTOR) ChatLanguageModel directorChatModel,
             ObjectMapper objectMapper,
             SeoDataEvidenceProvider seoDataEvidenceProvider,
-            TokenProfitBudgetResolver tokenProfitBudgetResolver,
             PromptInjectionValidator promptInjectionValidator,
             DebateMathAuditService debateMathAuditService,
             OnboardingDebateStreamRegistry onboardingDebateStreamRegistry) {
@@ -84,8 +82,6 @@ public class DebateOnboardingOrchestrator {
         this.directorChatModel = directorChatModel;
         this.objectMapper = objectMapper;
         this.seoDataEvidenceProvider = Objects.requireNonNull(seoDataEvidenceProvider, "seoDataEvidenceProvider");
-        this.tokenProfitBudgetResolver =
-                Objects.requireNonNull(tokenProfitBudgetResolver, "tokenProfitBudgetResolver");
         this.promptInjectionValidator =
                 Objects.requireNonNull(promptInjectionValidator, "promptInjectionValidator");
         this.debateMathAuditService = Objects.requireNonNull(debateMathAuditService, "debateMathAuditService");
@@ -160,8 +156,8 @@ public class DebateOnboardingOrchestrator {
                                 DEFAULT_EVIDENCE_RELEVANCE_LABEL);
                 SubscriptionPlan subscriptionPlan =
                         TenantPlanScope.currentSubscriptionPlan().orElse(SubscriptionPlan.STANDARD);
-                int maxCompetitorXmlChars = tokenProfitBudgetResolver.maxCompetitorXmlChars(subscriptionPlan);
-                seoEvidences = TokenProfitGuard.clipEvidences(seoEvidences, maxCompetitorXmlChars);
+                int maxCompetitorXmlChars = subscriptionPlan.maxCompetitorEvidenceXmlChars();
+                seoEvidences = CompetitorEvidenceBudget.clipEvidences(seoEvidences, maxCompetitorXmlChars);
             }
             String competitorXml =
                     (seoEvidences == null || seoEvidences.isEmpty())

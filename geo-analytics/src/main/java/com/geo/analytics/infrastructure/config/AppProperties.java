@@ -3,8 +3,6 @@ package com.geo.analytics.infrastructure.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
@@ -16,7 +14,6 @@ public class AppProperties {
     private Pdf pdf = new Pdf();
     private Notifications notifications = new Notifications();
     private Security security;
-    private Oracle oracle;
     private Branding branding = new Branding();
 
     public Crawler getCrawler() {
@@ -75,14 +72,6 @@ public class AppProperties {
         this.security = security;
     }
 
-    public Oracle getOracle() {
-        return oracle;
-    }
-
-    public void setOracle(Oracle oracle) {
-        this.oracle = oracle;
-    }
-
     public Branding getBranding() {
         if (branding == null) {
             branding = new Branding();
@@ -135,10 +124,8 @@ public class AppProperties {
 
     public static class Ai {
         private int realtimeThreshold = 10;
-        private TokenProfitGuard tokenProfitGuard = new TokenProfitGuard();
         private PromptInjectionGuard promptInjectionGuard = new PromptInjectionGuard();
         private Gemini gemini = new Gemini();
-        private Deepseek deepseek = new Deepseek();
 
         public int getRealtimeThreshold() {
             return realtimeThreshold;
@@ -146,14 +133,6 @@ public class AppProperties {
 
         public void setRealtimeThreshold(int realtimeThreshold) {
             this.realtimeThreshold = realtimeThreshold;
-        }
-
-        public TokenProfitGuard getTokenProfitGuard() {
-            return tokenProfitGuard;
-        }
-
-        public void setTokenProfitGuard(TokenProfitGuard tokenProfitGuard) {
-            this.tokenProfitGuard = tokenProfitGuard != null ? tokenProfitGuard : new TokenProfitGuard();
         }
 
         public PromptInjectionGuard getPromptInjectionGuard() {
@@ -171,60 +150,6 @@ public class AppProperties {
 
         public void setGemini(Gemini gemini) {
             this.gemini = gemini;
-        }
-
-        public Deepseek getDeepseek() {
-            return deepseek;
-        }
-
-        public void setDeepseek(Deepseek deepseek) {
-            this.deepseek = deepseek;
-        }
-    }
-
-    /**
-     * オンボーディング競合 XML（RAG）に使える入力文字数の上限を、プラン予算から逆算するための設定。
-     */
-    public static class TokenProfitGuard {
-        /** 確保する利益率（0〜1）。コストに回す割合は {@code 1 - reservedMarginRate}。 */
-        private double reservedMarginRate = 0.7d;
-        /** 入力トークン単価（USD / 100万トークン）。 */
-        private double usdPerMillionTokens = 3.5d;
-        /** 1文字あたり概算トークン数（保守側）。許容文字数 = 許容トークン / この値。 */
-        private double charsPerTokenApprox = 1.0d;
-        /** プランごとの competitor エビデンス予算（USD / 呼び出し）。 */
-        private Map<String, Double> planBudgetUsd = new LinkedHashMap<>();
-
-        public double getReservedMarginRate() {
-            return reservedMarginRate;
-        }
-
-        public void setReservedMarginRate(double reservedMarginRate) {
-            this.reservedMarginRate = reservedMarginRate;
-        }
-
-        public double getUsdPerMillionTokens() {
-            return usdPerMillionTokens;
-        }
-
-        public void setUsdPerMillionTokens(double usdPerMillionTokens) {
-            this.usdPerMillionTokens = usdPerMillionTokens;
-        }
-
-        public double getCharsPerTokenApprox() {
-            return charsPerTokenApprox;
-        }
-
-        public void setCharsPerTokenApprox(double charsPerTokenApprox) {
-            this.charsPerTokenApprox = charsPerTokenApprox;
-        }
-
-        public Map<String, Double> getPlanBudgetUsd() {
-            return planBudgetUsd;
-        }
-
-        public void setPlanBudgetUsd(Map<String, Double> planBudgetUsd) {
-            this.planBudgetUsd = planBudgetUsd != null ? planBudgetUsd : new LinkedHashMap<>();
         }
     }
 
@@ -272,27 +197,6 @@ public class AppProperties {
         }
     }
 
-    public static class Deepseek {
-        private String apiKey;
-        private String baseUrl = "https://api.deepseek.com";
-
-        public String getApiKey() {
-            return apiKey;
-        }
-
-        public void setApiKey(String apiKey) {
-            this.apiKey = apiKey;
-        }
-
-        public String getBaseUrl() {
-            return baseUrl;
-        }
-
-        public void setBaseUrl(String baseUrl) {
-            this.baseUrl = baseUrl;
-        }
-    }
-
     /** AI Overview / GEO可視性計測向けプロバイダ設定（{@code app.serpapi.*} にバインド）。 */
     public static class Serpapi {
         private String apiKey;
@@ -319,20 +223,7 @@ public class AppProperties {
     }
 
     public static class Pdf {
-        private String baseUrl;
         private String tempDir;
-        private String internalToken;
-        private String defaultBrandColor;
-        private String defaultLogoUrl;
-        private Integer maxConcurrent;
-
-        public String getBaseUrl() {
-            return baseUrl;
-        }
-
-        public void setBaseUrl(String baseUrl) {
-            this.baseUrl = baseUrl;
-        }
 
         public String getTempDir() {
             return tempDir;
@@ -340,38 +231,6 @@ public class AppProperties {
 
         public void setTempDir(String tempDir) {
             this.tempDir = tempDir;
-        }
-
-        public String getInternalToken() {
-            return internalToken;
-        }
-
-        public void setInternalToken(String internalToken) {
-            this.internalToken = internalToken;
-        }
-
-        public String getDefaultBrandColor() {
-            return defaultBrandColor;
-        }
-
-        public void setDefaultBrandColor(String defaultBrandColor) {
-            this.defaultBrandColor = defaultBrandColor;
-        }
-
-        public String getDefaultLogoUrl() {
-            return defaultLogoUrl;
-        }
-
-        public void setDefaultLogoUrl(String defaultLogoUrl) {
-            this.defaultLogoUrl = defaultLogoUrl;
-        }
-
-        public Integer getMaxConcurrent() {
-            return maxConcurrent;
-        }
-
-        public void setMaxConcurrent(Integer maxConcurrent) {
-            this.maxConcurrent = maxConcurrent;
         }
     }
 
@@ -465,7 +324,6 @@ public class AppProperties {
     public static class Rls {
         private boolean enabled = true;
         private String postgresSessionParameter = "app.current_tenant";
-        private String oracleClientIdentifier = "GEO_ANALYTICS_TENANT";
         private boolean enforceAppi2026 = true;
 
         public boolean isEnabled() {
@@ -482,14 +340,6 @@ public class AppProperties {
 
         public void setPostgresSessionParameter(String postgresSessionParameter) {
             this.postgresSessionParameter = postgresSessionParameter;
-        }
-
-        public String getOracleClientIdentifier() {
-            return oracleClientIdentifier;
-        }
-
-        public void setOracleClientIdentifier(String oracleClientIdentifier) {
-            this.oracleClientIdentifier = oracleClientIdentifier;
         }
 
         public boolean isEnforceAppi2026() {
@@ -510,51 +360,6 @@ public class AppProperties {
 
         public void setStorageRoot(String storageRoot) {
             this.storageRoot = storageRoot != null ? storageRoot : "/tmp/geo-analytics/branding";
-        }
-    }
-
-    public static class Oracle {
-        private Datasource datasource;
-
-        public Datasource getDatasource() {
-            if (datasource == null) {
-                datasource = new Datasource();
-            }
-            return datasource;
-        }
-
-        public void setDatasource(Datasource datasource) {
-            this.datasource = datasource;
-        }
-    }
-
-    public static class Datasource {
-        private String url;
-        private String username;
-        private String password;
-
-        public String getUrl() {
-            return url;
-        }
-
-        public void setUrl(String url) {
-            this.url = url;
-        }
-
-        public String getUsername() {
-            return username;
-        }
-
-        public void setUsername(String username) {
-            this.username = username;
-        }
-
-        public String getPassword() {
-            return password;
-        }
-
-        public void setPassword(String password) {
-            this.password = password;
         }
     }
 }

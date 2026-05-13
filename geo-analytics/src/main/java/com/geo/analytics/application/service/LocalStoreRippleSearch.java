@@ -1,9 +1,12 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.ExtractedPlace;
+import com.geo.analytics.application.dto.TargetAttributes;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.exception.InsufficientCreditException;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -15,6 +18,8 @@ import java.util.UUID;
 @Component
 public class LocalStoreRippleSearch {
 
+    private static final Logger log = LoggerFactory.getLogger(LocalStoreRippleSearch.class);
+
     private static final int MAX_ROUND_QUERIES = 3;
     private static final int EARLY_EXIT_NONBLANK_URL_COUNT = 10;
     private static final int MAX_ACCUMULATOR_SIZE = 30;
@@ -25,21 +30,39 @@ public class LocalStoreRippleSearch {
         this.placesSearchService = placesSearchService;
     }
 
-    public List<ExtractedPlace> collectMergedPlaces(UUID projectId, String tradeAreaLabel, IndustryType industry) {
-        String area = tradeAreaLabel != null ? tradeAreaLabel.trim() : "";
-        List<String> queries = buildDistinctQueries(area, industry);
+    public List<ExtractedPlace> collectMergedPlaces(
+            UUID projectId, TargetAttributes targetAttributes, IndustryType industry) {
+        List<String> queries = buildDistinctQueries(targetAttributes, industry);
         List<ExtractedPlace> accumulator = new ArrayList<>();
         Set<String> seenKeys = new LinkedHashSet<>();
-        for (String query : queries) {
+        for (int queryRoundIndex = 0; queryRoundIndex < queries.size(); queryRoundIndex++) {
+            String query = queries.get(queryRoundIndex);
             try {
                 List<ExtractedPlace> batch = placesSearchService.search(projectId, query);
                 mergeBatch(accumulator, seenKeys, batch);
             } catch (InsufficientCreditException insufficientCreditException) {
+                log.warn(
+                        "ripple search stopped insufficient credit projectId={} queryRoundIndex={} query={}",
+                        projectId,
+                        queryRoundIndex,
+                        query);
                 break;
             } catch (Throwable throwable) {
+                log.warn(
+                        "ripple search round failed projectId={} queryRoundIndex={} query={} errorType={} message={}",
+                        projectId,
+                        queryRoundIndex,
+                        query,
+                        throwable.getClass().getName(),
+                        throwable.getMessage() != null ? throwable.getMessage() : "");
                 continue;
             }
             if (countNonBlankWebsiteUrl(accumulator) >= EARLY_EXIT_NONBLANK_URL_COUNT) {
+                log.info(
+                        "ripple search early exit sufficient nonBlankUrls projectId={} nonBlankUrlCount={} threshold={}",
+                        projectId,
+                        countNonBlankWebsiteUrl(accumulator),
+                        EARLY_EXIT_NONBLANK_URL_COUNT);
                 break;
             }
             if (accumulator.size() >= MAX_ACCUMULATOR_SIZE) {
@@ -49,14 +72,33 @@ public class LocalStoreRippleSearch {
         return List.copyOf(accumulator);
     }
 
-    private static List<String> buildDistinctQueries(String area, IndustryType industry) {
-        String label = industry.getLabel();
-        String search = industry.getSearchLabel();
-        String industrySecond = search != null && !search.isBlank() ? search.trim() : label;
+    private static List<String> buildDistinctQueries(TargetAttributes targetAttributes, IndustryType industry) {
+        IndustryType safe = industry != null ? industry : IndustryType.OTHER;
+        String label = safe.getLabel();
+        String town = "";
+        String ward = "";
+        String city = "";
+        if (targetAttributes != null) {
+            if (targetAttributes.town() != null && !targetAttributes.town().isBlank()) {
+                town = targetAttributes.town().trim();
+            }
+            if (targetAttributes.ward() != null && !targetAttributes.ward().isBlank()) {
+                ward = targetAttributes.ward().trim();
+            }
+            if (targetAttributes.city() != null && !targetAttributes.city().isBlank()) {
+                city = targetAttributes.city().trim();
+            }
+        }
         List<String> raw = new ArrayList<>();
-        raw.add(area + " " + label);
-        raw.add(industrySecond + " " + area);
-        raw.add(label + " 日本");
+        if (!town.isEmpty()) {
+            raw.add(town + " " + label);
+        }
+        if (!ward.isEmpty()) {
+            raw.add(ward + " " + label);
+        }
+        if (!city.isEmpty()) {
+            raw.add(city + " " + label);
+        }
         LinkedHashSet<String> normalizedSeen = new LinkedHashSet<>();
         List<String> out = new ArrayList<>();
         for (String q : raw) {

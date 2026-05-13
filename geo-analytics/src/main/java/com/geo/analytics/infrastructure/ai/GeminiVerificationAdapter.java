@@ -17,7 +17,6 @@ import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -52,11 +51,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final GoogleAiGeminiStreamingChatModel geminiStreamingPro;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
-    private final DeepSeekAdapter deepSeekAdapter;
-    private final StrictSchemaValidator strictSchemaValidator;
     private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
     private final JobPersistenceService jobPersistenceService;
-    private final SerpApiAdapter serpApiAdapter;
 
     public GeminiVerificationAdapter(
             @Qualifier(AiConfig.GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
@@ -66,11 +62,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             @Qualifier(AiConfig.GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
-            DeepSeekAdapter deepSeekAdapter,
-            StrictSchemaValidator strictSchemaValidator,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
-            JobPersistenceService jobPersistenceService,
-            SerpApiAdapter serpApiAdapter) {
+            JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.jobStreamRegistryService = jobStreamRegistryService;
@@ -78,11 +71,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         this.geminiStreamingPro = geminiStreamingPro;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
-        this.deepSeekAdapter = deepSeekAdapter;
-        this.strictSchemaValidator = strictSchemaValidator;
         this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
         this.jobPersistenceService = jobPersistenceService;
-        this.serpApiAdapter = serpApiAdapter;
     }
 
     @Override
@@ -104,10 +94,10 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         return subscriptionPlan.usesProTierFeatures() ? geminiStreamingPro : geminiStreamingStandard;
     }
 
-    private record PreparedHandoff(String userMessage, boolean structured) {}
+    private record PreparedHandoff(String userMessage) {}
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
-        PreparedHandoff prepared;
+        String userBody;
         var crawled = verificationRequest.crawledContent();
         var clippedCrawl = crawled != null ? LlmWebsiteTextClip.clipWebsiteText(crawled) : null;
         if (clippedCrawl == null || clippedCrawl.isBlank()) {
@@ -115,33 +105,17 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     "Crawl data is empty/blank. Falling back to internal knowledge mode. brand=\"{}\" query=\"{}\"",
                     verificationRequest.brandName(),
                     verificationRequest.query());
-            prepared = new PreparedHandoff(
-                ConsultantPrompts.userTextBrandQueryOnly(verificationRequest.brandName(), verificationRequest.query()),
-                false);
+            userBody = ConsultantPrompts.userTextBrandQueryOnly(
+                    verificationRequest.brandName(), verificationRequest.query());
         } else {
-            try {
-            var rawJson = deepSeekAdapter.extractStructuredJsonBlocking(
-                clippedCrawl,
-                verificationRequest.url(),
-                verificationRequest.brandName());
-                var canonical = strictSchemaValidator.validateToCanonicalJson(rawJson);
-                var trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
-                prepared = new PreparedHandoff(
-                ConsultantPrompts.userTextStructuredHandoff(
+            double trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
+            userBody = ConsultantPrompts.userTextBrandQueryWithWebsiteExtract(
                     verificationRequest.brandName(),
                     verificationRequest.query(),
-                    canonical,
-                    trust),
-                true);
-            } catch (StructuredExtractValidationException e) {
-                log.error("structured_extract_validation_failed detail={}", e.getMessage());
-                throw e;
-            } catch (Exception e) {
-                log.error("deepseek_structured_pipeline_failed", e);
-                throw new IllegalStateException(e);
-            }
+                    clippedCrawl,
+                    trust);
         }
-        return new PreparedHandoff(applyJobContextPrefix(verificationRequest, prepared.userMessage()), prepared.structured());
+        return new PreparedHandoff(applyJobContextPrefix(verificationRequest, userBody));
     }
 
     private String applyJobContextPrefix(VerificationRequest verificationRequest, String userMessage) {
@@ -169,12 +143,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             PreparedHandoff handoff,
             VerificationRequest verificationRequest) {
         String brandLabel = evaluatedBrandLabel(verificationRequest);
-        String system;
-        if (handoff.structured()) {
-            system = ConsultantPrompts.systemTextGbvsStructured(plan, brandLabel);
-        } else {
-            system = ConsultantPrompts.systemText(plan, brandLabel);
-        }
+        String system = ConsultantPrompts.systemText(plan, brandLabel);
         return List.of(SystemMessage.from(system), UserMessage.from(handoff.userMessage()));
     }
 
@@ -313,15 +282,12 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             : List.of();
         boolean isProPlan = subscriptionPlan.usesProTierFeatures();
         String nlpSource = full.response() != null ? full.response().strip() : "";
-        si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
+        si = StrictMath.max(-1.0, StrictMath.min(1.0, si));
         var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
         List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(main, rawName);
         int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
         double stuffingDensity = 0.0;
-        for (String nd : needles) {
-            stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
-        }
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = metrics.toRawMetrics(
@@ -335,9 +301,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
         }
         double gbvsNormalizedScore = gbvs.scorePercent();
-        var som = gbvsNormalizedScore;
-        som = japaneseNlpService.applyIntensifierBoost(nlpSource, som);
-        som = StrictMath.max(0.0, StrictMath.min(100.0, som));
+        var som = StrictMath.max(0.0, StrictMath.min(100.0, gbvsNormalizedScore));
         boolean brand = Boolean.TRUE.equals(full.brandMentioned());
         int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, som)));
         var compList = new ArrayList<CompetitorResult>();

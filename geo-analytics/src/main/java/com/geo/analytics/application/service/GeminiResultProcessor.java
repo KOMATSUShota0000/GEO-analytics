@@ -92,20 +92,17 @@ public class GeminiResultProcessor {
                 ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(aiResponseText);
                 SomScoreData metrics = consultantOutputData.toSomScoreData();
                 double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
+                si = StrictMath.max(-1.0, StrictMath.min(1.0, si));
                 String ext = consultantOutputData.extractedBrandMention();
                 String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
                 String nlpSource = consultantOutputData.response() != null
                     ? consultantOutputData.response().strip()
                     : "";
-                si = japaneseNlpService.normalizeSentimentCoefficient(nlpSource, si);
                 var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
                 List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
                 int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
                 double stuffingDensity = 0.0;
-                for (String nd : needles) {
-                    stuffingDensity = StrictMath.max(stuffingDensity, japaneseNlpService.wordDensity(nlpSource, nd));
-                }
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
                 SomRawMetrics rawMetrics = metrics.toRawMetrics(plan, si, responseTokenLength, nounCount, stuffingDensity, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
@@ -134,11 +131,7 @@ public class GeminiResultProcessor {
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
             var gbvs = gbvsList.get(idx);
-            var sourceText = line.consultantOutputData().response() != null && !line.consultantOutputData().response().isBlank()
-                ? line.consultantOutputData().response()
-                : "";
-            var boostedSomScore = japaneseNlpService.applyIntensifierBoost(sourceText, gbvs.scorePercent());
-            var somScore = StrictMath.max(0.0, StrictMath.min(100.0, boostedSomScore));
+            var somScore = StrictMath.max(0.0, StrictMath.min(100.0, gbvs.scorePercent()));
             var m = line.rawMetrics();
             boolean brand = m.isSemanticallyMentioned();
             int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, somScore)));
@@ -163,23 +156,12 @@ public class GeminiResultProcessor {
                         new ArrayList<>(insight.recommendedActions()),
                         null,
                         List.of());
-                    if (quotaSettled.add(line.queryId())) {
-                        long textLen = (long) queryEntity.getQueryText().length()
-                            + (mainBrand != null ? mainBrand.length() : 0);
-                        long actual = QuotaCreditCalculator.actualCreditsGeminiBatchLine(textLen);
-                        long refund = QuotaCreditCalculator.refundAfterDeposit(
-                            QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, actual);
-                        if (refund > 0L) {
-                            planBasedQuotaManager.addTokens(tid, refund);
-                        }
-                    }
+                    quotaSettled.add(line.queryId());
                 });
         }
         for (var qe : batchPersistence.findQueriesByJobId(jobEntity.getId())) {
             if (!quotaSettled.contains(qe.getId())) {
-                planBasedQuotaManager.addTokens(
-                    tid,
-                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                planBasedQuotaManager.addTokens(tid, QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
             }
         }
         var auditsAfter = batchPersistence.findResultsByJobId(jobEntity.getId());
@@ -214,9 +196,7 @@ public class GeminiResultProcessor {
         try {
             UUID qid = UUID.fromString(key);
             if (quotaSettled.add(qid)) {
-                planBasedQuotaManager.addTokens(
-                    tid,
-                    QuotaCreditCalculator.refundAfterDeposit(QuotaCreditCalculator.DEPOSIT_PER_KEYWORD, 1L));
+                planBasedQuotaManager.addTokens(tid, QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
             }
         } catch (IllegalArgumentException ignored) {
         }

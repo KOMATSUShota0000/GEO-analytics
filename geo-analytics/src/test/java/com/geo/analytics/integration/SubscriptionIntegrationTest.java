@@ -2,14 +2,22 @@ package com.geo.analytics.integration;
 
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.dto.CompetitorResult;
+import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
 import com.geo.analytics.application.service.AiVerificationRouter;
+import com.geo.analytics.application.service.AiRubricAuditService;
+import com.geo.analytics.application.service.JobBenchmarkCaptureService;
 import com.geo.analytics.application.service.PlanBasedQuotaManager;
+import com.geo.analytics.application.service.HybridCompetitorPipelineService;
+import com.geo.analytics.application.service.ProjectAuditLifecyclePublisher;
 import com.geo.analytics.application.service.SubscriptionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
+import com.geo.analytics.application.dto.SelectedCompetitor;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -24,21 +32,25 @@ import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.repository.SgeResultRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import com.geo.analytics.web.dto.JobStatusResponse;
 import io.github.bucket4j.caffeine.CaffeineProxyManager;
+import io.github.bucket4j.distributed.proxy.ProxyManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.web.reactive.function.BodyInserters;
 
@@ -59,11 +71,17 @@ import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
-@SpringBootTest(classes = GeoAnalyticsApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        classes = GeoAnalyticsApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.task.scheduling.enabled=false")
 @ActiveProfiles("test")
+@TestMethodOrder(MethodOrderer.MethodName.class)
 class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     private static final UUID WID = DefaultTenantIds.WORKSPACE_ID;
     private static final String TENANT_HEADER = "X-Tenant-ID";
@@ -109,15 +127,39 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     @Qualifier(Bucket4jConfiguration.PLAN_QUOTA_CAFFEINE_PROXY_MANAGER)
     private CaffeineProxyManager<String> planQuotaCaffeineProxyManager;
 
+    @Autowired
+    @Qualifier("rateLimitProxyManager")
+    private ProxyManager<String> rateLimitProxyManager;
+
     @MockitoBean
     private SyncVerificationService syncVerificationService;
 
     @MockitoBean
     private SerpApiAdapter serpApiAdapter;
 
+    @MockitoBean
+    private HybridCompetitorPipelineService hybridCompetitorPipelineService;
+
+    @MockitoBean
+    private JobBenchmarkCaptureService jobBenchmarkCaptureService;
+
+    @MockitoBean
+    private AiRubricAuditService aiRubricAuditService;
+
+    @MockitoBean
+    private ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
+
     @BeforeEach
     void stubSync() {
+        invalidateRateLimitCaches();
+        planQuotaCaffeineProxyManager.getCache().invalidateAll();
         webTestClient = webTestClient.mutate().responseTimeout(Duration.ofSeconds(120)).build();
+        lenient().doNothing().when(jobBenchmarkCaptureService).capture(any(UUID.class));
+        lenient().doNothing().when(aiRubricAuditService).runMultiDomainAuditForCompletedJob(any(UUID.class));
+        lenient().doNothing().when(projectAuditLifecyclePublisher).publishAuditCompleted(any(JobEntity.class));
+        lenient()
+                .when(serpApiAdapter.checkSgeMention(anyString(), anyString()))
+                .thenReturn(new SgeMentionResult(false, 0, "{}"));
         when(syncVerificationService.verify(
                 anyString(),
                 anyString(),
@@ -143,37 +185,140 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "{}",
                 50.0,
                 0));
+        when(hybridCompetitorPipelineService.executePipeline(
+                        any(UUID.class),
+                        any(UUID.class),
+                        anyString(),
+                        nullable(CompetitorExtractionMode.class)))
+                .thenReturn(
+                        List.of(
+                                new SelectedCompetitor(
+                                        "SyntheticA",
+                                        "https://synthetic-a.example",
+                                        null,
+                                        null,
+                                        "test",
+                                        true),
+                                new SelectedCompetitor(
+                                        "SyntheticB",
+                                        "https://synthetic-b.example",
+                                        null,
+                                        null,
+                                        "test",
+                                        true),
+                                new SelectedCompetitor(
+                                        "SyntheticC",
+                                        "https://synthetic-c.example",
+                                        null,
+                                        null,
+                                        "test",
+                                        true)));
     }
 
     @AfterEach
     void tearDownState() {
-        reset(syncVerificationService, serpApiAdapter);
-        purgeEnversTables();
-        jdbcTemplate.update("DELETE FROM job_competitor_scores");
-        auditHistoryRepository.deleteAllInBatch();
-        queryRepository.deleteAllInBatch();
-        sgeResultRepository.deleteAllInBatch();
-        jobRepository.deleteAllInBatch();
-        projectKeywordRepository.deleteAllInBatch();
-        projectRepository.deleteAllInBatch();
-        jdbcTemplate.update("UPDATE workspaces SET subscription_plan='STANDARD' WHERE id=?", WID);
+        reset(
+                syncVerificationService,
+                serpApiAdapter,
+                hybridCompetitorPipelineService,
+                jobBenchmarkCaptureService,
+                aiRubricAuditService,
+                projectAuditLifecyclePublisher);
+        retryOnPgDeadlock(
+                () -> {
+                    purgeEnversTables();
+                    jdbcTemplate.update("DELETE FROM job_competitor_scores");
+                    auditHistoryRepository.deleteAllInBatch();
+                    queryRepository.deleteAllInBatch();
+                    sgeResultRepository.deleteAllInBatch();
+                    jobRepository.deleteAllInBatch();
+                    projectKeywordRepository.deleteAllInBatch();
+                    projectRepository.deleteAllInBatch();
+                    jdbcTemplate.update("UPDATE workspaces SET subscription_plan='STANDARD' WHERE id=?", WID);
+                });
+        invalidateRateLimitCaches();
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
+    }
+
+    private static void retryOnPgDeadlock(Runnable runnable) {
+        for (int attempt = 1; attempt <= 20; attempt++) {
+            try {
+                runnable.run();
+                return;
+            } catch (DataAccessException exception) {
+                if (attempt >= 20 || !isPostgresDeadlock(exception)) {
+                    throw exception;
+                }
+                try {
+                    Thread.sleep(50L * attempt);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interruptedException);
+                }
+            }
+        }
+    }
+
+    private static boolean isPostgresDeadlock(Throwable throwable) {
+        for (Throwable c = throwable; c != null; c = c.getCause()) {
+            String m = c.getMessage();
+            if (m != null && m.contains("deadlock detected")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void invalidateRateLimitCaches() {
+        if (rateLimitProxyManager instanceof CaffeineProxyManager<String> cpm) {
+            cpm.getCache().invalidateAll();
+        }
     }
 
     @Test
     void scenarioA_quotaBlocksEleventhOnStandard() {
         var jobId = createJob("SubscriptionA");
-        var ten = IntStream.rangeClosed(1, 10).mapToObj(i -> "k" + i).toList();
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(50))
+                .untilAsserted(
+                        () -> {
+                            String status = jdbcTemplate.queryForObject(
+                                    "SELECT job_status FROM jobs WHERE id = ?", String.class, jobId);
+                            String err = jdbcTemplate.queryForObject(
+                                    "SELECT error_message FROM jobs WHERE id = ?", String.class, jobId);
+                            long qc =
+                                    jdbcTemplate.queryForObject(
+                                            "SELECT COUNT(*) FROM job_queries WHERE job_id = ?",
+                                            Long.class,
+                                            jobId);
+                            assertThat(qc)
+                                    .withFailMessage(
+                                            "expected >=1 queries; status=%s err=%s", status, err)
+                                    .isGreaterThanOrEqualTo(1);
+                        });
+        var nineMore = IntStream.rangeClosed(1, 9).mapToObj(i -> "k" + i).toList();
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
                 .header(TENANT_HEADER, WID.toString())
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("queries", ten, "plan", "STANDARD"))
+                .bodyValue(Map.of("queries", nineMore, "plan", "STANDARD"))
                 .exchange()
                 .expectStatus().isNoContent();
         await().atMost(Duration.ofSeconds(30))
                 .pollInterval(Duration.ofMillis(50))
-                .untilAsserted(() -> assertThat(queryRepository.countByJobId(jobId)).isGreaterThanOrEqualTo(10));
+                .untilAsserted(
+                        () -> {
+                            String status = jdbcTemplate.queryForObject(
+                                    "SELECT job_status FROM jobs WHERE id = ?", String.class, jobId);
+                            long qc =
+                                    jdbcTemplate.queryForObject(
+                                            "SELECT COUNT(*) FROM job_queries WHERE job_id = ?",
+                                            Long.class,
+                                            jobId);
+                            assertThat(qc)
+                                    .withFailMessage("expected >=10 queries; status=%s", status)
+                                    .isGreaterThanOrEqualTo(10);
+                        });
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
                 .header(TENANT_HEADER, WID.toString())
@@ -192,9 +337,11 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        var probe = planBasedQuotaManager.resolve(WID).tryConsumeAndReturnRemaining(
-                (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
-        assertThat(probe.isConsumed()).isTrue();
+        long bucketCapacity = (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        assertThat(planBasedQuotaManager.resolve(WID)
+                        .tryConsumeAndReturnRemaining(bucketCapacity - QuotaCreditCalculator.DEPOSIT_PER_KEYWORD)
+                        .isConsumed())
+                .isTrue();
         var jobId = createJob("SubscriptionB");
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
@@ -275,7 +422,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         assertThat(matched.somScore()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(0.05));
         assertThat(aggregated.competitorResults().stream().map(CompetitorResult::competitorLabel))
                 .noneMatch("TotallyUnrelatedNoise"::equals);
-        assertThat(aggregated.somScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.06));
+        assertThat(aggregated.somScore()).isCloseTo(71.43, org.assertj.core.data.Offset.offset(0.06));
     }
 
     @Test
@@ -316,13 +463,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                         50.0);
             }
         }
-        var router = new AiVerificationRouter(
-                List.of(
-                        new Adapter(ModelType.GEMINI, active, maxActive),
-                        new Adapter(ModelType.CHATGPT, active, maxActive),
-                        new Adapter(ModelType.CLAUDE, active, maxActive)),
-                informationTheoryBasedAggregator,
-                new Semaphore(2));
+        var router = new AiVerificationRouter(new Adapter(ModelType.GEMINI, active, maxActive), new Semaphore(2));
         var req = new VerificationRequest(
                 "Brand",
                 "Q",
@@ -367,7 +508,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         }
         MultipartBodyBuilder multipart = new MultipartBodyBuilder();
         multipart.part("request", json).contentType(MediaType.APPLICATION_JSON);
-        var body =
+        var response =
                 webTestClient
                         .post()
                         .uri("/api/v1/jobs")
@@ -376,12 +517,12 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                         .exchange()
                         .expectStatus()
                         .isCreated()
-                        .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
+                        .expectBody(JobStatusResponse.class)
                         .returnResult()
                         .getResponseBody();
-        assertThat(body).isNotNull();
-        var raw = body.get("job_id");
-        return raw instanceof UUID u ? u : UUID.fromString(String.valueOf(raw));
+        assertThat(response).isNotNull();
+        assertThat(response.jobId()).isNotNull();
+        return response.jobId();
     }
 
     private void purgeEnversTables() {

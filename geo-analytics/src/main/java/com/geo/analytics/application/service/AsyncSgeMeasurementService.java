@@ -71,7 +71,8 @@ public class AsyncSgeMeasurementService {
                 throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
             }
             if (queryList.isEmpty()) {
-                throw new IllegalStateException("No queries for AI Overview measurement");
+                log.warn("Skipping AI Overview measurement: empty query list jobId={}", jobId);
+                return;
             }
             String brandName = job.getBrandName();
             List<StructuredTaskScope.Subtask<SgeMentionResult>> subtasks = new ArrayList<>(queryList.size());

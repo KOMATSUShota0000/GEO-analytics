@@ -5,7 +5,6 @@ import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
-import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -39,10 +38,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.ScopedValue;
@@ -590,6 +586,10 @@ public class JobPersistenceService {
                         ? null
                         : queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         UUID tenantId = readWorkspaceIdForJob(jobId);
+        SubscriptionPlan resolvedPlan =
+                Objects.requireNonNull(subscriptionPlan, "subscriptionPlan");
+        String planLimitsSnapshotJson =
+                jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(resolvedPlan));
         TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
@@ -607,8 +607,8 @@ public class JobPersistenceService {
                 forceSetTenantId(queryEntity, jobEntity.getWorkspaceId());
                 queryRepository.saveAndFlush(queryEntity);
             });
-            jobEntity.setAppliedPlan(subscriptionPlan);
-            jobEntity.setPlanLimitsSnapshot(jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(subscriptionPlan)));
+            jobEntity.setAppliedPlan(resolvedPlan);
+            jobEntity.setPlanLimitsSnapshot(planLimitsSnapshotJson);
             jobEntity.setJobStatus(nextStatus);
             jobRepository.save(jobEntity);
             jobStatusBroadcastPublisher.publish(jobEntity);
@@ -702,14 +702,14 @@ public class JobPersistenceService {
             for (String url : urls) {
                 out.add(url != null ? url : "");
                 if (out.size() == 3) {
-                    return List.copyOf(out);
+                    return new ArrayList<>(out);
                 }
             }
         }
         while (out.size() < 3) {
             out.add("");
         }
-        return List.copyOf(out);
+        return new ArrayList<>(out);
     }
     @Transactional
     public void updateJobStatusToRunningWithGeminiJobName(UUID jobId, String geminiJobName) {
@@ -737,83 +737,19 @@ public class JobPersistenceService {
     public PdfGenerationStartResult tryMarkPdfGeneratingAndPublish(UUID jobId) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         return TenantPlanScope.executeWithTenant(tenantId, () -> {
-            JobEntity jobEntity = jobRepository.findById(jobId)
-                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
+            jobRepository.findById(jobId)
+                    .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             if (auditHistoryRepository.findByJobId(jobId).isEmpty()) {
                 return new PdfGenerationStartResult(
+                        false,
+                        "解析結果がまだありません。ジョブ完了後に再度お試しください。");
+            }
+            return new PdfGenerationStartResult(
                     false,
-                    "解析結果がまだありません。ジョブ完了後に再度お試しください。");
-            }
-            jobEntity.setPdfStatus(PdfJobStatusValues.GENERATING);
-            jobEntity.setPdfFilePath(null);
-            JobEntity saved = jobRepository.save(jobEntity);
-            jobStatusBroadcastPublisher.publish(saved);
-            return new PdfGenerationStartResult(true, null);
+                    "サーバー側のPDF自動生成は廃止されました。ブラウザの印刷機能などをご利用ください。");
         });
     }
-    @Transactional
-    public JobEntity markPdfCompletedAndPublish(UUID jobId, String absolutePath) {
-        UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantPlanScope.executeWithTenant(tenantId, () -> {
-            JobEntity jobEntity = jobRepository.findById(jobId)
-                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-            jobEntity.setPdfStatus(PdfJobStatusValues.COMPLETED);
-            jobEntity.setPdfFilePath(absolutePath);
-            JobEntity saved = jobRepository.save(jobEntity);
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            jobStatusBroadcastPublisher.publish(saved);
-                        }
-                    }
-                );
-            } else {
-                jobStatusBroadcastPublisher.publish(saved);
-            }
-            return saved;
-        });
-    }
-    @Transactional
-    public JobEntity markPdfFailedAndPublish(UUID jobId) {
-        UUID tenantId = readWorkspaceIdForJob(jobId);
-        return TenantPlanScope.executeWithTenant(tenantId, () -> {
-            JobEntity jobEntity = jobRepository.findById(jobId)
-                .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
-            jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
-            jobEntity.setPdfFilePath(null);
-            JobEntity saved = jobRepository.save(jobEntity);
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            jobStatusBroadcastPublisher.publish(saved);
-                        }
-                    }
-                );
-            } else {
-                jobStatusBroadcastPublisher.publish(saved);
-            }
-            return saved;
-        });
-    }
-    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = false)
-    public void markPdfFailedBestEffort(UUID jobId) {
-        try {
-            UUID tenantId = readWorkspaceIdForJob(jobId);
-            TenantPlanScope.executeWithTenant(tenantId, () -> {
-                jobRepository.findById(jobId).ifPresent(jobEntity -> {
-                    jobEntity.setPdfStatus(PdfJobStatusValues.FAILED);
-                    jobEntity.setPdfFilePath(null);
-                    JobEntity saved = jobRepository.save(jobEntity);
-                    jobStatusBroadcastPublisher.publish(saved);
-                });
-            });
-        } catch (Exception exception) {
-        }
-    }
+
     @Transactional
     public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
         UUID tenantId = readWorkspaceIdForJob(jobId);

@@ -6,7 +6,6 @@ import com.geo.analytics.application.dto.SelectedCompetitor;
 import com.geo.analytics.application.dto.TargetAttributes;
 import com.geo.analytics.domain.enums.IndustryType;
 import org.springframework.stereotype.Component;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -17,14 +16,17 @@ public class LocalStoreStrategy implements CompetitorExtractionStrategy {
     private final TargetAttributesInferenceService targetAttributesInferenceService;
     private final LocalStoreRippleSearch localStoreRippleSearch;
     private final CompetitorFilterService competitorFilterService;
+    private final SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory;
 
     public LocalStoreStrategy(
             TargetAttributesInferenceService targetAttributesInferenceService,
             LocalStoreRippleSearch localStoreRippleSearch,
-            CompetitorFilterService competitorFilterService) {
+            CompetitorFilterService competitorFilterService,
+            SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory) {
         this.targetAttributesInferenceService = targetAttributesInferenceService;
         this.localStoreRippleSearch = localStoreRippleSearch;
         this.competitorFilterService = competitorFilterService;
+        this.syntheticSelectedCompetitorFactory = syntheticSelectedCompetitorFactory;
     }
 
     @Override
@@ -34,26 +36,31 @@ public class LocalStoreStrategy implements CompetitorExtractionStrategy {
         String targetUrl = ctx.targetUrl();
         Objects.requireNonNull(jobId, "jobId");
         if (projectId == null) {
-            return fallbackThreeSynthetic();
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
         }
         IndustryType industry = IndustryType.OTHER;
         String tradeAreaLabel = "全国";
+        TargetAttributes attrs = null;
         try {
-            TargetAttributes attrs =
-                    targetAttributesInferenceService.infer(projectId, targetUrl != null ? targetUrl : "");
+            attrs = targetAttributesInferenceService.infer(projectId, targetUrl != null ? targetUrl : "");
             if (attrs != null) {
                 if (attrs.industry() != null) {
                     industry = attrs.industry();
                 }
                 if (attrs.tradeAreaLabel() != null && !attrs.tradeAreaLabel().isBlank()) {
                     tradeAreaLabel = attrs.tradeAreaLabel().trim();
+                } else {
+                    String composed = composedGeoLabel(attrs);
+                    if (!composed.isEmpty()) {
+                        tradeAreaLabel = composed;
+                    }
                 }
             }
         } catch (Throwable throwable) {
         }
-        List<ExtractedPlace> places = localStoreRippleSearch.collectMergedPlaces(projectId, tradeAreaLabel, industry);
+        List<ExtractedPlace> places = localStoreRippleSearch.collectMergedPlaces(projectId, attrs, industry);
         if (places.isEmpty()) {
-            return fallbackThreeSynthetic();
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
         }
         try {
             return competitorFilterService.filter(projectId, industry, tradeAreaLabel, places);
@@ -62,18 +69,29 @@ public class LocalStoreStrategy implements CompetitorExtractionStrategy {
         }
     }
 
-    private static List<SelectedCompetitor> fallbackThreeSynthetic() {
-        IndustryType ind = IndustryType.OTHER;
-        String area = "全国";
-        String label = ind.getLabel();
-        List<SelectedCompetitor> list = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
-            String suffix = String.valueOf((char) ('A' + i));
-            String name = area + "における" + label + "の標準モデル競合" + suffix;
-            String reasoning =
-                    area + "および" + label + "に整合するGEO Readiness評価用の参照モデルとして配置した。";
-            list.add(new SelectedCompetitor(name, null, null, null, reasoning, true));
+    private static String composedGeoLabel(TargetAttributes attrs) {
+        if (attrs == null) {
+            return "";
         }
-        return List.copyOf(list);
+        String city = attrs.city() != null ? attrs.city().trim() : "";
+        String ward = attrs.ward() != null ? attrs.ward().trim() : "";
+        String town = attrs.town() != null ? attrs.town().trim() : "";
+        StringBuilder sb = new StringBuilder();
+        if (!city.isEmpty()) {
+            sb.append(city);
+        }
+        if (!ward.isEmpty()) {
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
+            sb.append(ward);
+        }
+        if (!town.isEmpty()) {
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
+            sb.append(town);
+        }
+        return sb.toString();
     }
 }

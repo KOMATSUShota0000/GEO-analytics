@@ -29,14 +29,17 @@ public class CompetitorFilterService {
     private final CreditVaultService creditVaultService;
     private final ChatLanguageModel geminiCompetitorFilterModel;
     private final ObjectMapper objectMapper;
+    private final SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory;
 
     public CompetitorFilterService(
             CreditVaultService creditVaultService,
             @Qualifier(AiConfig.GEMINI_COMPETITOR_FILTER_MODEL) ChatLanguageModel geminiCompetitorFilterModel,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory) {
         this.creditVaultService = creditVaultService;
         this.geminiCompetitorFilterModel = geminiCompetitorFilterModel;
         this.objectMapper = objectMapper;
+        this.syntheticSelectedCompetitorFactory = syntheticSelectedCompetitorFactory;
     }
 
     public List<SelectedCompetitor> filter(
@@ -49,9 +52,9 @@ public class CompetitorFilterService {
         List<ExtractedPlace> safePlaces = places != null ? places : List.of();
         if (safePlaces.isEmpty()) {
             return List.of(
-                    syntheticSelected(safeIndustry, area, 0),
-                    syntheticSelected(safeIndustry, area, 1),
-                    syntheticSelected(safeIndustry, area, 2));
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
         }
         UUID reservationId = creditVaultService.reserve(projectId, COMPETITOR_FILTER_CREDIT);
         try {
@@ -68,9 +71,9 @@ public class CompetitorFilterService {
         } catch (Throwable throwable) {
             creditVaultService.refund(reservationId);
             return List.of(
-                    syntheticSelected(safeIndustry, area, 0),
-                    syntheticSelected(safeIndustry, area, 1),
-                    syntheticSelected(safeIndustry, area, 2));
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
         }
     }
 
@@ -87,9 +90,9 @@ public class CompetitorFilterService {
         List<SerpOrganicResult> safeOrganics = organics != null ? organics : List.of();
         if (safeOrganics.isEmpty()) {
             return List.of(
-                    syntheticSelected(safeIndustry, area, 0),
-                    syntheticSelected(safeIndustry, area, 1),
-                    syntheticSelected(safeIndustry, area, 2));
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
         }
         String systemMsg =
                 promptProfile == CompetitorExtractionMode.ONLINE_SERVICE
@@ -115,9 +118,9 @@ public class CompetitorFilterService {
         } catch (Throwable throwable) {
             creditVaultService.refund(reservationId);
             return List.of(
-                    syntheticSelected(safeIndustry, area, 0),
-                    syntheticSelected(safeIndustry, area, 1),
-                    syntheticSelected(safeIndustry, area, 2));
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
+                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
         }
     }
 
@@ -177,28 +180,11 @@ public class CompetitorFilterService {
         return result;
     }
 
-    private static void padSyntheticToThree(
-            List<SelectedCompetitor> merged,
-            IndustryType industry,
-            String tradeAreaLabel) {
+    private void padSyntheticToThree(List<SelectedCompetitor> merged, IndustryType industry, String tradeAreaLabel) {
         int ordinal = 0;
         while (merged.size() < 3) {
-            merged.add(syntheticSelected(industry, tradeAreaLabel, ordinal));
+            merged.add(syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(industry, tradeAreaLabel, ordinal));
             ordinal++;
         }
-    }
-
-    private static SelectedCompetitor syntheticSelected(
-            IndustryType industry,
-            String tradeAreaLabel,
-            int ordinal) {
-        String label = industry.getLabel();
-        String areaPart = tradeAreaLabel.isEmpty() ? "対象商圏" : tradeAreaLabel;
-        String suffix = String.valueOf((char) ('A' + ordinal));
-        String name = areaPart + "における" + label + "の標準モデル競合" + suffix;
-        String reasoning =
-                areaPart + "および" + label + "に整合するGEO Readiness評価用の参照モデルとして配置した。"
-                        + "AI可視性ランクの改善余地とAI推奨ポテンシャルを比較するための仮想競合である。";
-        return new SelectedCompetitor(name, null, null, null, reasoning, true);
     }
 }
