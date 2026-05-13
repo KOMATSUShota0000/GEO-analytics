@@ -1,6 +1,6 @@
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
 import { mergeBannerJobHint } from "../lib/bannerJobHint";
@@ -13,11 +13,9 @@ import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoar
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import CircularProgress from "@mui/material/CircularProgress";
 import { useJobNotification } from "../hooks/useJobNotification";
-import { useJobStreaming } from "../hooks/useJobStreaming";
 import {
   competitorLabelsFromProject,
   formatAuditDate,
-  liveMetricsFromParsed,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
   resolveChartShareData,
@@ -136,14 +134,6 @@ function ProjectInfoBlock({
   );
 }
 
-function LiveMetricText({ value }: { value: string }): JSX.Element {
-  return (
-    <span className="inline-block min-w-[2.25rem] tabular-nums transition-all duration-500 ease-out will-change-transform">
-      {value}
-    </span>
-  );
-}
-
 function CompletedScoreCell({ value }: { value: string | number }): JSX.Element {
   return (
     <span className="inline-block tabular-nums transition-all duration-500 ease-out">{value}</span>
@@ -164,47 +154,12 @@ export function JobAnalysisPage(): JSX.Element {
   const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
-  const effectiveJobIdRef = useRef(effectiveJobId);
-  effectiveJobIdRef.current = effectiveJobId;
 
   const {
     jobStatus,
     lastError: jobNotifyError,
     isLoading: jobNotifyLoading,
-    refetchJobFromRest,
   } = useJobNotification(effectiveJobId);
-
-  const refetchAnalysis = useCallback(async (jobIdStr: string): Promise<JobAnalysisDetail | null> => {
-    const id = jobIdStr.trim();
-    if (id.length === 0) {
-      return null;
-    }
-    const res = await apiFetch(`/api/v1/jobs/${id}/analysis`);
-    if (!res.ok) {
-      return null;
-    }
-    const body: unknown = await responseJsonAsCamel(res);
-    const p = parseJobAnalysisDetail(body);
-    setData(p);
-    return p;
-  }, []);
-
-  const handleStreamSettled = useCallback(async () => {
-    const id = effectiveJobIdRef.current.trim();
-    if (id.length === 0) {
-      return;
-    }
-    await refetchJobFromRest();
-    await refetchAnalysis(id);
-  }, [refetchJobFromRest, refetchAnalysis]);
-
-  const {
-    isStreaming,
-    streamError,
-    parsedByQueryId,
-    connectJobStream,
-    disconnectJobStream,
-  } = useJobStreaming(handleStreamSettled);
 
   const displayJobId = jobStatus?.jobId ?? data?.jobId ?? null;
   const displayJobStatus = jobStatus?.jobStatus ?? data?.jobStatus ?? null;
@@ -249,7 +204,7 @@ export function JobAnalysisPage(): JSX.Element {
   }, [displayJobRollupDiagnostic, displayJobRollupActions, displayJobRollupMedZ]);
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
-  const analysisLocked = isStreaming || isProcessingDisplay;
+  const analysisLocked = isProcessingDisplay;
   const resultRows: ResultDetail[] =
     data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
   const isPdfGeneratingUi =
@@ -261,18 +216,18 @@ export function JobAnalysisPage(): JSX.Element {
     [data?.project],
   );
   const chartTrendData = useMemo(
-    () => resolveChartTrendData(resultRows, parsedByQueryId, isStreaming),
-    [resultRows, parsedByQueryId, isStreaming],
+    () => resolveChartTrendData(resultRows, {}, false),
+    [resultRows],
   );
   const chartShareData = useMemo(
     () =>
-      resolveChartShareData(brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming),
-    [brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming],
+      resolveChartShareData(brandForCharts, competitorPair, resultRows, {}, false),
+    [brandForCharts, competitorPair, resultRows],
   );
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
   const displaySomForTier = useMemo(() => {
-    const avg = resolveAverageSomScore(resultRows, parsedByQueryId, isStreaming);
+    const avg = resolveAverageSomScore(resultRows, {}, false);
     if (avg !== null) {
       return avg;
     }
@@ -280,7 +235,7 @@ export function JobAnalysisPage(): JSX.Element {
       return 0;
     }
     return null;
-  }, [resultRows, parsedByQueryId, isStreaming, isCompletedDisplay]);
+  }, [resultRows, isCompletedDisplay]);
   const showTierSkeleton = useMemo(() => {
     if (effectiveJobId.length === 0) {
       return false;
@@ -291,8 +246,8 @@ export function JobAnalysisPage(): JSX.Element {
     if (displaySomForTier !== null) {
       return false;
     }
-    return isProcessingDisplay || isStreaming;
-  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay, isStreaming]);
+    return isProcessingDisplay;
+  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay]);
   const showTierBlock = useMemo(() => {
     return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
   }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
@@ -378,17 +333,6 @@ export function JobAnalysisPage(): JSX.Element {
       setPdfRequestInFlight(false);
     }
   }, [jobStatus?.pdfStatus]);
-
-  useEffect(() => {
-    const trimmed = effectiveJobId.trim();
-    if (trimmed.length === 0) {
-      return undefined;
-    }
-    void connectJobStream(trimmed);
-    return () => {
-      disconnectJobStream();
-    };
-  }, [effectiveJobId, connectJobStream, disconnectJobStream]);
 
   useEffect(() => {
     if (!effectiveJobId) {
@@ -560,56 +504,13 @@ export function JobAnalysisPage(): JSX.Element {
           <p className="mt-2 text-sm text-slate-600">
             ステータス: {resolvedStatus} / ブランド: {displayBrand}
           </p>
-          {isStreaming && (
-            <p className="mt-2 text-sm text-sky-700">AI応答をストリーミング受信中です…</p>
-          )}
-          {streamError && (
-            <p className="mt-2 text-sm text-amber-800">ストリーム: {streamError}</p>
-          )}
-          {Object.keys(parsedByQueryId).length > 0 && (
-            <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                ライブプレビュー（partial-json）
-              </div>
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="px-3 py-2 font-semibold text-slate-700">クエリID</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">SoM</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">overall</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">言及</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">GEO可視性ランク</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(parsedByQueryId).map(([queryIdKey, parsedValue]) => {
-                    const m = liveMetricsFromParsed(parsedValue);
-                    return (
-                      <tr key={queryIdKey} className="border-b border-slate-100 last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs text-slate-800">{queryIdKey}</td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.somScore === null ? "…" : String(m.somScore)} />
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.overallScore === null ? "…" : String(m.overallScore)} />
-                        </td>
-                        <td className="px-3 py-2 text-slate-800">
-                          <LiveMetricText
-                            value={
-                              m.brandMentioned === null ? "…" : m.brandMentioned ? "あり" : "なし"
-                            }
-                          />
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.mentionRank === null ? "—" : String(m.mentionRank)} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <p className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            <span
+              className="inline-block h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
+              aria-hidden
+            />
+            解析結果は完了後に表示されます（ジョブ状態は自動更新されます）。
+          </p>
           {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
         </div>
       )}

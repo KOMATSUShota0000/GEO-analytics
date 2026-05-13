@@ -7,7 +7,6 @@ import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.TaskRegenerationService;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
-import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.JobSyncTestService;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -66,7 +65,6 @@ public class JobController {
     private final JobQuerySubmissionService jobQuerySubmissionService;
     private final JobSyncTestService jobSyncTestService;
     private final PdfStorageConfig pdfStorageConfig;
-    private final JobStreamRegistryService jobStreamRegistryService;
     private final ObjectMapper objectMapper;
     private final StrategyInsightService strategyInsightService;
     private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
@@ -78,7 +76,6 @@ public class JobController {
             JobQuerySubmissionService jobQuerySubmissionService,
             JobSyncTestService jobSyncTestService,
             PdfStorageConfig pdfStorageConfig,
-            JobStreamRegistryService jobStreamRegistryService,
             ObjectMapper objectMapper,
             StrategyInsightService strategyInsightService,
             JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
@@ -88,7 +85,6 @@ public class JobController {
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
         this.pdfStorageConfig = pdfStorageConfig;
-        this.jobStreamRegistryService = jobStreamRegistryService;
         this.objectMapper = objectMapper;
         this.strategyInsightService = strategyInsightService;
         this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
@@ -160,6 +156,10 @@ public class JobController {
         return ResponseEntity.ok(JobStatusResponse.from(jobEntity, rollup));
     }
 
+    /**
+     * Legacy SSE endpoint: immediately closes with a terminal event. Live token streaming from Gemini has been removed;
+     * clients should poll job status / WebSocket and fetch analysis via REST.
+     */
     @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamJob(@PathVariable UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
@@ -171,17 +171,7 @@ public class JobController {
             String errorText = jobEntity.getErrorMessage() != null ? jobEntity.getErrorMessage() : "FAILED";
             return createEphemeralErrorSseEmitter(errorText);
         }
-        if (jobStatus == JobStatus.CREATED
-                || jobStatus == JobStatus.REALTIME_PROCESSING
-                || jobStatus == JobStatus.EXTRACTING_COMPETITORS) {
-            return jobStreamRegistryService.register(jobId);
-        }
-        if (jobStatus == JobStatus.FILE_UPLOADED
-            || jobStatus == JobStatus.SUBMITTED
-            || jobStatus == JobStatus.RUNNING) {
-            return createEphemeralSseEmitter(new VerifyStreamEvent("done", "", null));
-        }
-        return jobStreamRegistryService.register(jobId);
+        return createEphemeralSseEmitter(new VerifyStreamEvent("done", "", null));
     }
 
     private SseEmitter createEphemeralSseEmitter(VerifyStreamEvent verifyStreamEvent) {

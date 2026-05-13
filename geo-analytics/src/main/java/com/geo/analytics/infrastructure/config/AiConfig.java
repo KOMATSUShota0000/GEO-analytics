@@ -3,7 +3,6 @@ package com.geo.analytics.infrastructure.config;
 import com.geo.analytics.application.port.AiVerificationPort;
 import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.JobPersistenceService;
-import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
@@ -23,7 +22,6 @@ import com.geo.analytics.infrastructure.ai.GeminiVerificationAdapter;
 import com.geo.analytics.infrastructure.ai.LlmModelNames;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
-import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,8 +32,6 @@ import java.util.concurrent.Semaphore;
 @Configuration
 public class AiConfig {
     public static final String AI_VERIFICATION_CONCURRENCY_LIMITER = "aiVerificationConcurrencyLimiter";
-    public static final String GEMINI_STREAMING_STANDARD = "geminiStreamingStandard";
-    public static final String GEMINI_STREAMING_PRO = "geminiStreamingPro";
     public static final String GEMINI_GBVS_CHAT = "geminiGbvsChat";
     public static final String GEMINI_GEO_ONBOARDING_CHAT_MODEL = "geminiGeoOnboardingChatModel";
     public static final String GEMINI_TARGET_ATTRIBUTES_MODEL = "geminiTargetAttributesModel";
@@ -232,30 +228,6 @@ public class AiConfig {
                 .build();
     }
 
-    @Bean
-    @Qualifier(GEMINI_STREAMING_STANDARD)
-    public GoogleAiGeminiStreamingChatModel geminiStreamingStandard() {
-        return GoogleAiGeminiStreamingChatModel.builder()
-            .apiKey(appProperties.getAi().getGemini().getApiKey())
-            .modelName(LlmModelNames.GEMINI_31_PRO)
-            .temperature(0.0)
-            .timeout(Duration.ofSeconds(300))
-            .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.STANDARD))
-            .build();
-    }
-
-    @Bean
-    @Qualifier(GEMINI_STREAMING_PRO)
-    public GoogleAiGeminiStreamingChatModel geminiStreamingPro() {
-        return GoogleAiGeminiStreamingChatModel.builder()
-            .apiKey(appProperties.getAi().getGemini().getApiKey())
-            .modelName(LlmModelNames.GEMINI_31_PRO)
-            .temperature(0.0)
-            .timeout(Duration.ofSeconds(300))
-            .responseFormat(ConsultantOutputSchema.responseFormat(SubscriptionPlan.PRO))
-            .build();
-    }
-
     @Bean(AI_VERIFICATION_CONCURRENCY_LIMITER)
     public Semaphore aiVerificationConcurrencyLimiter() {
         return new Semaphore(15);
@@ -265,9 +237,6 @@ public class AiConfig {
     public GeminiVerificationAdapter geminiVerificationAdapter(
             @Qualifier(GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
-            JobStreamRegistryService jobStreamRegistryService,
-            @Qualifier(GEMINI_STREAMING_STANDARD) GoogleAiGeminiStreamingChatModel geminiStreamingStandard,
-            @Qualifier(GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
@@ -275,9 +244,6 @@ public class AiConfig {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
-                jobStreamRegistryService,
-                geminiStreamingStandard,
-                geminiStreamingPro,
                 entityNormalizer,
                 japaneseNlpService,
                 geoVisibilityCalculatorService,

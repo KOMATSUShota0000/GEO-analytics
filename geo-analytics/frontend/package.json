@@ -18,7 +18,6 @@
     "dompurify": "^3.2.4",
     "lucide-react": "^0.460.0",
     "marked": "^14.1.4",
-    "partial-json": "^0.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",

@@ -56,7 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/webauthn/**", "/login/webauthn", "/login", "/error", "/ws/**").permitAll()
+                        .requestMatchers("/login", "/error", "/ws/**").permitAll()
                         .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated())

@@ -45,7 +45,6 @@ public class JobQuerySubmissionService {
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
     private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
-    private final JobStreamRegistryService jobStreamRegistryService;
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final ExecutorService realtimeParallelVirtualExecutor;
     private final ProjectRepository projectRepository;
@@ -63,7 +62,6 @@ public class JobQuerySubmissionService {
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
             JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
-            JobStreamRegistryService jobStreamRegistryService,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
             @Qualifier(StreamingExecutorConfig.REALTIME_PARALLEL_VIRTUAL_EXECUTOR)
                     ExecutorService realtimeParallelVirtualExecutor,
@@ -80,7 +78,6 @@ public class JobQuerySubmissionService {
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
         this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
-        this.jobStreamRegistryService = jobStreamRegistryService;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.realtimeParallelVirtualExecutor = realtimeParallelVirtualExecutor;
         this.projectRepository = projectRepository;
@@ -346,8 +343,6 @@ public class JobQuerySubmissionService {
             }
             throw new IllegalStateException(
                     t.getMessage() != null ? t.getMessage() : t.toString(), t);
-        } finally {
-            jobStreamRegistryService.complete(jobId);
         }
     }
 

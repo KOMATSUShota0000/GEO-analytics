@@ -9,7 +9,6 @@ import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.application.service.JobPersistenceService;
-import com.geo.analytics.application.service.JobStreamRegistryService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
@@ -18,15 +17,11 @@ import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.config.AiConfig;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.googleai.GoogleAiGeminiStreamingChatModel;
-import dev.langchain4j.model.output.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,19 +31,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private static final Logger log = LoggerFactory.getLogger(GeminiVerificationAdapter.class);
     private final ChatLanguageModel geminiGbvsChatModel;
     private final SomScoreParser somScoreParser;
-    private final JobStreamRegistryService jobStreamRegistryService;
-    private final GoogleAiGeminiStreamingChatModel geminiStreamingStandard;
-    private final GoogleAiGeminiStreamingChatModel geminiStreamingPro;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
     private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
@@ -57,18 +44,12 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     public GeminiVerificationAdapter(
             @Qualifier(AiConfig.GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
-            JobStreamRegistryService jobStreamRegistryService,
-            @Qualifier(AiConfig.GEMINI_STREAMING_STANDARD) GoogleAiGeminiStreamingChatModel geminiStreamingStandard,
-            @Qualifier(AiConfig.GEMINI_STREAMING_PRO) GoogleAiGeminiStreamingChatModel geminiStreamingPro,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
             GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
-        this.jobStreamRegistryService = jobStreamRegistryService;
-        this.geminiStreamingStandard = geminiStreamingStandard;
-        this.geminiStreamingPro = geminiStreamingPro;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
         this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
@@ -83,15 +64,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     @Override
     public VerificationResponse verify(VerificationRequest verificationRequest) {
         SubscriptionPlan plan = verificationRequest.subscriptionPlan();
-        UUID jobId = verificationRequest.jobId();
-        if (jobId == null) {
-            return verifyWithoutJobStream(verificationRequest, plan);
-        }
-        return verifyWithJobStream(verificationRequest, plan, jobId);
-    }
-
-    private GoogleAiGeminiStreamingChatModel streamingModelForPlan(SubscriptionPlan subscriptionPlan) {
-        return subscriptionPlan.usesProTierFeatures() ? geminiStreamingPro : geminiStreamingStandard;
+        return verifyWithoutJobStream(verificationRequest, plan);
     }
 
     private record PreparedHandoff(String userMessage) {}
@@ -200,68 +173,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         }
     }
 
-    private VerificationResponse verifyWithJobStream(
-            VerificationRequest verificationRequest,
-            SubscriptionPlan plan,
-            UUID jobId) {
-        UUID queryId = verificationRequest.queryId();
-        CompletableFuture<VerificationResponse> verificationResponseCompletableFuture = new CompletableFuture<>();
-        AtomicReference<String> aggregatedTextReference = new AtomicReference<>("");
-        PreparedHandoff handoff = prepareHandoff(verificationRequest);
-        try {
-            GoogleAiGeminiStreamingChatModel streamingChatModel = streamingModelForPlan(plan);
-            List<ChatMessage> chatMessages = chatMessagesForPlan(plan, handoff, verificationRequest);
-            logGeminiPrompt(verificationRequest, plan, chatMessages);
-            streamingChatModel.generate(chatMessages, new StreamingResponseHandler<AiMessage>() {
-                @Override
-                public void onNext(String token) {
-                    if (token == null || token.isEmpty()) {
-                        return;
-                    }
-                    aggregatedTextReference.getAndUpdate(previous -> previous + token);
-                    jobStreamRegistryService.sendDelta(jobId, queryId, token);
-                }
-
-                @Override
-                public void onComplete(Response<AiMessage> response) {
-                    String fullText = response.content().text() != null ? response.content().text() : aggregatedTextReference.get();
-                    if (fullText == null) {
-                        fullText = "";
-                    }
-                    logGeminiResponse(verificationRequest, fullText);
-                    jobStreamRegistryService.emitDone(jobId, queryId, fullText);
-                    try {
-                        verificationResponseCompletableFuture.complete(
-                            buildVerificationResponse(fullText, plan, verificationRequest));
-                    } catch (Exception parseException) {
-                        verificationResponseCompletableFuture.completeExceptionally(parseException);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    jobStreamRegistryService.failWithError(jobId, throwable);
-                    verificationResponseCompletableFuture.completeExceptionally(throwable);
-                }
-            });
-            return verificationResponseCompletableFuture.get(600, TimeUnit.SECONDS);
-        } catch (TimeoutException timeoutException) {
-            log.error("Gemini streaming timed out jobId={}", jobId, timeoutException);
-            throw new IllegalStateException(timeoutException);
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-            log.error("Gemini streaming interrupted jobId={}", jobId, interruptedException);
-            throw new IllegalStateException(interruptedException);
-        } catch (ExecutionException executionException) {
-            Throwable cause = executionException.getCause() != null ? executionException.getCause() : executionException;
-            log.error("Gemini streaming verification failed rawDetail={}", formatGeminiErrorDetail(cause), cause);
-            if (cause instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            throw new IllegalStateException(cause);
-        }
-    }
-
     private VerificationResponse buildVerificationResponse(
             String rawAiResponseJson,
             SubscriptionPlan subscriptionPlan,
@@ -291,7 +202,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = metrics.toRawMetrics(
-            subscriptionPlan, si, responseTokenLength, nounCount, stuffingDensity, sourceWeight);
+                subscriptionPlan, si, responseTokenLength, nounCount, stuffingDensity, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
         if (verificationRequest.jobId() != null) {
