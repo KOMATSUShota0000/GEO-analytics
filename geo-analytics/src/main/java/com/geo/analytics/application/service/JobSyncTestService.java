@@ -1,5 +1,4 @@
 package com.geo.analytics.application.service;
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -26,20 +25,17 @@ public class JobSyncTestService {
     private final SyncVerificationService syncVerificationService;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectRepository projectRepository;
     public JobSyncTestService(
             JobPersistenceService jobPersistenceService,
             SyncVerificationService syncVerificationService,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectRepository projectRepository) {
         this.jobPersistenceService = jobPersistenceService;
         this.syncVerificationService = syncVerificationService;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectRepository = projectRepository;
     }
     @Transactional
@@ -108,9 +104,7 @@ public class JobSyncTestService {
             syncVerificationResult.competitorScoreRows(),
             syncVerificationResult.modelInsightsJson());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
-        JobEntity updatedJobEntity = jobPersistenceService.findJobById(jobId);
-        jobStatusBroadcastPublisher.publish(updatedJobEntity);
-        return updatedJobEntity;
+        return jobPersistenceService.findJobById(jobId);
     }
     private List<String> loadCompetitorHosts(JobEntity jobEntity) {
         UUID projectId = jobEntity.getProjectId();

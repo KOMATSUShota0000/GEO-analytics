@@ -40,8 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.GET, "/api/v1/jobs/*/stream"),
                     PATHS.matcher("/api/public/**"),
                     PATHS.matcher("/login"),
-                    PATHS.matcher("/error"),
-                    PATHS.matcher("/ws/**"));
+                    PATHS.matcher("/error"));
 
     private final TokenService tokenService;
     private final SessionManagementService sessionManagementService;

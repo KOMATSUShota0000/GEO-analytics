@@ -56,7 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/login", "/error", "/ws/**").permitAll()
+                        .requestMatchers("/login", "/error").permitAll()
                         .requestMatchers("/reports/**", "/assets/**", "/vite.svg", "/index.html").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated())
@@ -64,7 +64,6 @@ public class SecurityConfig {
                         .csrfTokenRepository(tokenRepository)
                         .csrfTokenRequestHandler(requestHandler)
                         .ignoringRequestMatchers(
-                                PathPatternRequestMatcher.withDefaults().matcher("/ws/**"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
                                 PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
@@ -82,7 +81,6 @@ public class SecurityConfig {
         config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
-        source.registerCorsConfiguration("/ws/**", config);
         return source;
     }
     @Bean

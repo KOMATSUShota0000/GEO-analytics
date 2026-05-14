@@ -67,6 +67,7 @@ public class SyncVerificationService {
                 queryId,
                 canonicalMainBrand,
                 registeredCompetitorBrands,
+                null,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
         return toResult(verificationRequest, verificationResponse);
@@ -111,7 +112,8 @@ public class SyncVerificationService {
                 queryId,
                 canonicalMainBrand,
                 registeredCompetitorBrands,
-                null));
+                null,
+                crawledPageData.seoTechnicalEvidenceSummary()));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
         return toResult(verificationRequest, verificationResponse);
     }

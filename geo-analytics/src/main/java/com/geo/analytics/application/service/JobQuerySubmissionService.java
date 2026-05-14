@@ -1,7 +1,6 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.SelectedCompetitor;
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
@@ -44,7 +43,6 @@ public class JobQuerySubmissionService {
     private final SyncVerificationService syncVerificationService;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final ExecutorService realtimeParallelVirtualExecutor;
     private final ProjectRepository projectRepository;
@@ -61,7 +59,6 @@ public class JobQuerySubmissionService {
             SyncVerificationService syncVerificationService,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
             @Qualifier(StreamingExecutorConfig.REALTIME_PARALLEL_VIRTUAL_EXECUTOR)
                     ExecutorService realtimeParallelVirtualExecutor,
@@ -77,7 +74,6 @@ public class JobQuerySubmissionService {
         this.syncVerificationService = syncVerificationService;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.realtimeParallelVirtualExecutor = realtimeParallelVirtualExecutor;
         this.projectRepository = projectRepository;
@@ -116,7 +112,6 @@ public class JobQuerySubmissionService {
             }
             UUID organizationId = resolveOrganizationId(workspaceId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.EXTRACTING_COMPETITORS, null);
-            jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
             scheduleHybridContinuation(
                     jobId, queryTexts, planEnum, workspaceId, organizationId, true, realtimeDeposit, workspaceId);
             return;
@@ -137,7 +132,6 @@ public class JobQuerySubmissionService {
         UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         UUID organizationId = resolveOrganizationId(workspaceId);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.EXTRACTING_COMPETITORS, null);
-        jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
         scheduleHybridContinuation(
                 jobId,
                 queryTexts,
@@ -221,7 +215,6 @@ public class JobQuerySubmissionService {
                     quotaManager.addTokens(batchTenantId, batchDeposit);
                 }
                 jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable2));
-                jobStatusBroadcastPublisher.publish(jobPersistenceService.findJobById(jobId));
             }
         }
     }
@@ -318,7 +311,6 @@ public class JobQuerySubmissionService {
             aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
-            jobStatusBroadcastPublisher.publish(completedJobEntity);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
         } catch (Throwable t) {
             if (t instanceof CompletionException ce) {

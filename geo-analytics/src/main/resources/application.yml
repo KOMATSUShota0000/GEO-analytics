@@ -55,8 +55,6 @@ server:
 app:
   branding:
     storage-root: "/tmp/geo-analytics/branding"
-  distributed-lock:
-    impl: postgres
   security:
     max-sessions-per-user: 1
     jwt:

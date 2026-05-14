@@ -1,6 +1,5 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -26,7 +25,6 @@ import java.util.concurrent.CompletableFuture;
 public class GeminiBatchExecutorService {
     private final GeminiBatchClient geminiBatchClient;
     private final BatchPersistenceService batchPersistence;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
@@ -35,14 +33,12 @@ public class GeminiBatchExecutorService {
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
             BatchPersistenceService batchPersistence,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager planBasedQuotaManager,
             JobBenchmarkCaptureService jobBenchmarkCaptureService,
             AiRubricAuditService aiRubricAuditService) {
         this.geminiBatchClient = geminiBatchClient;
         this.batchPersistence = batchPersistence;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
         this.jobBenchmarkCaptureService = jobBenchmarkCaptureService;
@@ -61,7 +57,6 @@ public class GeminiBatchExecutorService {
                 aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobEntity.getId());
                 batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                 JobEntity emptyJobEntity = batchPersistence.findJobById(jobEntity.getId());
-                jobStatusBroadcastPublisher.publish(emptyJobEntity);
                 projectAuditLifecyclePublisher.publishAuditCompleted(emptyJobEntity);
                 return CompletableFuture.completedFuture(null);
             }
@@ -79,7 +74,6 @@ public class GeminiBatchExecutorService {
             GeminiBatchJob createdBatchJob = geminiBatchClient.createBatchJob(uploadedFileMetadata, null, selectedModel);
             batchPersistence.updateJobStatusToSubmittedWithGeminiJobName(
                 jobEntity.getId(), createdBatchJob.name());
-            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } catch (Exception exception) {
             if (quotaRefundOnFailure > 0) {
                 var tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
@@ -89,7 +83,6 @@ public class GeminiBatchExecutorService {
                 jobEntity.getId(),
                 JobStatus.FAILED,
                 ExceptionStackTraceText.of(exception));
-            jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobEntity.getId()));
         } finally {
             if (jsonlPath != null) {
                 try {

@@ -6,7 +6,6 @@ import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.EntityNormalizer;
-import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
@@ -239,14 +238,12 @@ public class AiConfig {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
-            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
                 entityNormalizer,
                 japaneseNlpService,
-                geoVisibilityCalculatorService,
                 jobPersistenceService);
     }
 

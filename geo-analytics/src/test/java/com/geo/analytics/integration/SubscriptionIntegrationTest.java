@@ -226,7 +226,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 projectAuditLifecyclePublisher);
         retryOnPgDeadlock(
                 () -> {
-                    purgeEnversTables();
                     jdbcTemplate.update("DELETE FROM job_competitor_scores");
                     auditHistoryRepository.deleteAllInBatch();
                     queryRepository.deleteAllInBatch();
@@ -410,6 +409,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 null,
                 null,
                 List.of("御茶", "お茶"),
+                null,
                 null);
         var aggregated = informationTheoryBasedAggregator.aggregate(List.of(modelResponse), request);
         assertThat(aggregated.calculationVersion()).isEqualTo("V11_GEO_PURE");
@@ -422,7 +422,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         assertThat(matched.somScore()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(0.05));
         assertThat(aggregated.competitorResults().stream().map(CompetitorResult::competitorLabel))
                 .noneMatch("TotallyUnrelatedNoise"::equals);
-        assertThat(aggregated.somScore()).isCloseTo(71.43, org.assertj.core.data.Offset.offset(0.06));
+        assertThat(aggregated.somScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.06));
     }
 
     @Test
@@ -475,6 +475,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 null,
                 null,
                 List.of("A"),
+                null,
                 null);
         try (StructuredTaskScope<Void, Void> scope = StructuredTaskScope.open(
                 StructuredTaskScope.Joiner.<Void>awaitAll(),
@@ -523,16 +524,5 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         assertThat(response).isNotNull();
         assertThat(response.jobId()).isNotNull();
         return response.jobId();
-    }
-
-    private void purgeEnversTables() {
-        var audTables = jdbcTemplate.query(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE ? ESCAPE '\\'",
-                (rs, rowNum) -> rs.getString(1),
-                "%\\_aud");
-        for (var t : audTables) {
-            jdbcTemplate.execute("DELETE FROM \"" + t + "\"");
-        }
-        jdbcTemplate.execute("DELETE FROM revinfo");
     }
 }

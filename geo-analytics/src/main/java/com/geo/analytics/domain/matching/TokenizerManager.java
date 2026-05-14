@@ -4,20 +4,15 @@ import com.worksap.nlp.sudachi.Dictionary;
 import com.worksap.nlp.sudachi.Morpheme;
 import com.worksap.nlp.sudachi.MorphemeList;
 import com.worksap.nlp.sudachi.Tokenizer;
-import java.lang.StrictMath;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
-import java.util.stream.IntStream;
 
 public final class TokenizerManager {
-
-    private static final Set<String> NORMALIZED_CONTENT_POS =
-            Set.of("名詞", "動詞", "形容詞", "形状詞", "代名詞", "未知語");
 
     private final Dictionary dictionary;
     private final Semaphore sudachiSemaphore;
@@ -30,11 +25,11 @@ public final class TokenizerManager {
 
     public TokenizerManager(Dictionary dictionary, int maxConcurrentSudachi) {
         this.dictionary = Objects.requireNonNull(dictionary);
-        this.sudachiSemaphore = new Semaphore(StrictMath.max(2, maxConcurrentSudachi));
+        this.sudachiSemaphore = new Semaphore(Math.max(2, maxConcurrentSudachi));
     }
 
     private static int clampProc(int p) {
-        return StrictMath.max(2, StrictMath.min(16, p));
+        return Math.max(2, Math.min(16, p));
     }
 
     public Dictionary sharedDictionary() {
@@ -71,21 +66,32 @@ public final class TokenizerManager {
         return withPerTaskTokenizer(tokenizer -> tokenizer.tokenize(Tokenizer.SplitMode.C, t));
     }
 
+    /**
+     * Sudachi による形態素分割と正規化形の列（品詞フィルタなし）。事前正規化用途。
+     */
     public List<String> tokenizeToNormalizedList(String text) {
         if (text == null || text.isBlank()) {
             return List.of();
         }
         return withPerTaskTokenizer(tokenizer -> {
             MorphemeList list = tokenizer.tokenize(Tokenizer.SplitMode.C, text);
-            return IntStream.range(0, list.size())
-                    .mapToObj(list::get)
-                    .filter(m -> {
-                        List<String> pos = m.partOfSpeech();
-                        return pos != null && !pos.isEmpty() && NORMALIZED_CONTENT_POS.contains(pos.get(0));
-                    })
-                    .map(Morpheme::normalizedForm)
-                    .filter(n -> n != null && !n.isBlank())
-                    .toList();
+            ArrayList<String> out = new ArrayList<>(list.size());
+            for (int i = 0; i < list.size(); i++) {
+                String n = normalizedSurface(list.get(i));
+                if (!n.isBlank()) {
+                    out.add(n);
+                }
+            }
+            return List.copyOf(out);
         });
+    }
+
+    private static String normalizedSurface(Morpheme morpheme) {
+        String n = morpheme.normalizedForm();
+        if (n == null || n.isBlank() || "*".equals(n)) {
+            String s = morpheme.surface();
+            return s != null ? s.strip() : "";
+        }
+        return n.strip();
     }
 }

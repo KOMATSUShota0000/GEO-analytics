@@ -3,7 +3,6 @@ package com.geo.analytics.domain.logic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import java.lang.StrictMath;
 import org.junit.jupiter.api.Test;
 
 class InformationGainCalculatorTest {
@@ -56,7 +55,7 @@ class InformationGainCalculatorTest {
     @Test
     void normalizedFactDensityMatchesDirectFormula() {
         double sd = 5.0d;
-        double expected = 1.0d - StrictMath.exp(-0.1d * sd);
+        double expected = 1.0d - Math.exp(-0.1d * sd);
         assertThat(InformationGainCalculator.normalizedFactDensity(sd)).isCloseTo(expected, within(TIGHT));
     }
 }

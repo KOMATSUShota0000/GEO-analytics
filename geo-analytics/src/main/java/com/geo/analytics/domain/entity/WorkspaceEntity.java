@@ -1,7 +1,6 @@
 package com.geo.analytics.domain.entity;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
-import org.hibernate.envers.Audited;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -15,7 +14,6 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "workspaces")
-@Audited
 public class WorkspaceEntity {
     @Id
     @Column(name = "id", nullable = false, updatable = false)

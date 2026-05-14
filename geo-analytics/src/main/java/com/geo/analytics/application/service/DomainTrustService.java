@@ -75,7 +75,8 @@ public class DomainTrustService {
             request.queryId(),
             request.canonicalMainBrand(),
             request.registeredCompetitorBrands(),
-            trust);
+            trust,
+            request.technicalSeoEvidenceSummary());
     }
 
     private VerificationRequest stripCrawl(VerificationRequest request) {
@@ -90,6 +91,7 @@ public class DomainTrustService {
             request.queryId(),
             request.canonicalMainBrand(),
             request.registeredCompetitorBrands(),
+            null,
             null);
     }
 

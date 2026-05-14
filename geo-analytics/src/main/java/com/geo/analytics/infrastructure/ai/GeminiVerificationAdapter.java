@@ -38,7 +38,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final SomScoreParser somScoreParser;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
-    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
     private final JobPersistenceService jobPersistenceService;
 
     public GeminiVerificationAdapter(
@@ -46,13 +45,11 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
-            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
-        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
         this.jobPersistenceService = jobPersistenceService;
     }
 
@@ -86,7 +83,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     verificationRequest.brandName(),
                     verificationRequest.query(),
                     clippedCrawl,
-                    trust);
+                    trust,
+                    verificationRequest.technicalSeoEvidenceSummary());
         }
         return new PreparedHandoff(applyJobContextPrefix(verificationRequest, userBody));
     }
@@ -193,16 +191,13 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             : List.of();
         boolean isProPlan = subscriptionPlan.usesProTierFeatures();
         String nlpSource = full.response() != null ? full.response().strip() : "";
-        si = StrictMath.max(-1.0, StrictMath.min(1.0, si));
-        var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
-        List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(main, rawName);
-        int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
+        int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
         double stuffingDensity = 0.0;
         String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = metrics.toRawMetrics(
-                subscriptionPlan, si, responseTokenLength, nounCount, stuffingDensity, sourceWeight);
+                subscriptionPlan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
         if (verificationRequest.jobId() != null) {
@@ -220,8 +215,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             var idx = 0;
             for (var entry : full.competitorComparison()) {
                 var label = entry.competitorName() != null ? entry.competitorName() : "";
-                List<String> compNeedles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(label, label);
-                int compNounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, compNeedles);
+                int compNounCount = 0;
                 var shareSom = entry.share() != null ? entry.share() * 100.0 : 0.0;
                 var vs = gbvs.visibilityStage();
                 compList.add(new CompetitorResult(

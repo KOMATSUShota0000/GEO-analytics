@@ -158,7 +158,7 @@ public class JobController {
 
     /**
      * Legacy SSE endpoint: immediately closes with a terminal event. Live token streaming from Gemini has been removed;
-     * clients should poll job status / WebSocket and fetch analysis via REST.
+     * clients should poll job status over HTTP GET or fetch analysis via REST.
      */
     @GetMapping(value = "/{jobId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamJob(@PathVariable UUID jobId) {

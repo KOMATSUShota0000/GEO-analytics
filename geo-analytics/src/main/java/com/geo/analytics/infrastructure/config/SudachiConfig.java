@@ -2,7 +2,6 @@ package com.geo.analytics.infrastructure.config;
 
 import com.geo.analytics.domain.matching.NormalizationLayer;
 import com.geo.analytics.domain.matching.TokenizerManager;
-import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.worksap.nlp.sudachi.Config;
 import com.worksap.nlp.sudachi.Dictionary;
@@ -45,8 +44,4 @@ public class SudachiConfig {
         return new NormalizationLayer(tokenizerManager);
     }
 
-    @Bean
-    public GeoVisibilityCalculatorService geoVisibilityCalculatorService(TokenizerManager tokenizerManager) {
-        return new GeoVisibilityCalculatorService(tokenizerManager);
-    }
 }

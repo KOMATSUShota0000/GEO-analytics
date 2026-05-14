@@ -86,6 +86,14 @@ public class SmartDomainCrawlService {
             builder.append("\n---\nURL: ");
             builder.append(u);
             builder.append("\n---\n");
+            if (sp.crawled() != null) {
+                String ev = sp.crawled().seoTechnicalEvidenceSummary();
+                if (ev != null && !ev.isBlank()) {
+                    builder.append("【技術的エビデンス（SEO / クローラビリティ）】\n");
+                    builder.append(ev.strip());
+                    builder.append("\n---\n");
+                }
+            }
             String body = "";
             if (sp.crawled() != null && sp.crawled().mainContent() != null) {
                 body = sp.crawled().mainContent();

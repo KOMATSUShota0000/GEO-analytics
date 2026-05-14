@@ -110,6 +110,27 @@ public final class ConsultantOutputSchema {
             .build();
     }
 
+    private static JsonObjectSchema debateLogTurnSchema() {
+        return JsonObjectSchema.builder()
+                .addEnumProperty("persona", List.of("SEO_EXPERT", "BRANDING", "DATA_SCIENTIST", "CONSULTANT"))
+                .addStringProperty("focus_lens")
+                .addStringProperty("statement")
+                .required("persona", "focus_lens", "statement")
+                .additionalProperties(false)
+                .build();
+    }
+
+    private static JsonObjectSchema roadmapConsensusItemSchema() {
+        return JsonObjectSchema.builder()
+                .addIntegerProperty("phase_order")
+                .addStringProperty("title")
+                .addStringProperty("rationale")
+                .addStringProperty("expected_impact_roi_hint")
+                .required("phase_order", "title", "rationale", "expected_impact_roi_hint")
+                .additionalProperties(false)
+                .build();
+    }
+
     private static JsonObjectSchema rootObjectSchema(SubscriptionPlan subscriptionPlan) {
         JsonObjectSchema.Builder builder = JsonObjectSchema.builder()
             .addStringProperty("response")
@@ -120,7 +141,10 @@ public final class ConsultantOutputSchema {
             .addBooleanProperty("brand_mentioned", BRAND_MENTIONED_SCHEMA_DESCRIPTION)
             .addProperty(
                 "prioritizedTasks",
-                JsonArraySchema.builder().items(prioritizedTaskItemSchema()).build());
+                JsonArraySchema.builder().items(prioritizedTaskItemSchema()).build())
+            .addProperty("debate_log", JsonArraySchema.builder().items(debateLogTurnSchema()).build())
+            .addProperty(
+                "roadmap_items", JsonArraySchema.builder().items(roadmapConsensusItemSchema()).build());
         if (subscriptionPlan.usesProTierFeatures()) {
             builder.addProperty(
                 "competitorComparison",
@@ -183,6 +207,31 @@ public final class ConsultantOutputSchema {
         brandMentionedProp.put("description", BRAND_MENTIONED_SCHEMA_DESCRIPTION);
         properties.put("brand_mentioned", brandMentionedProp);
         properties.put("prioritizedTasks", tasksArray);
+        Map<String, Object> debateTurnProps = new LinkedHashMap<>();
+        debateTurnProps.put(
+                "persona",
+                Map.of("type", "STRING", "enum", List.of("SEO_EXPERT", "BRANDING", "DATA_SCIENTIST", "CONSULTANT")));
+        debateTurnProps.put("focus_lens", Map.of("type", "STRING"));
+        debateTurnProps.put("statement", Map.of("type", "STRING"));
+        Map<String, Object> debateTurnItem =
+                strictObjectProps(debateTurnProps, List.of("persona", "focus_lens", "statement"));
+        Map<String, Object> debateLogArr = new LinkedHashMap<>();
+        debateLogArr.put("type", "ARRAY");
+        debateLogArr.put("items", debateTurnItem);
+        properties.put("debate_log", debateLogArr);
+        Map<String, Object> roadmapProps = new LinkedHashMap<>();
+        roadmapProps.put("phase_order", Map.of("type", "INTEGER"));
+        roadmapProps.put("title", Map.of("type", "STRING"));
+        roadmapProps.put("rationale", Map.of("type", "STRING"));
+        roadmapProps.put("expected_impact_roi_hint", Map.of("type", "STRING"));
+        Map<String, Object> roadmapItem =
+                strictObjectProps(
+                        roadmapProps,
+                        List.of("phase_order", "title", "rationale", "expected_impact_roi_hint"));
+        Map<String, Object> roadmapArr = new LinkedHashMap<>();
+        roadmapArr.put("type", "ARRAY");
+        roadmapArr.put("items", roadmapItem);
+        properties.put("roadmap_items", roadmapArr);
         List<String> required = new ArrayList<>(List.of(
             "response",
             "extracted_brand_mention",

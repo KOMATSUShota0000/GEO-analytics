@@ -1,7 +1,6 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.SgeMentionResult;
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.application.port.SgeMeasurementPort;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
@@ -28,7 +27,6 @@ public class AsyncSgeMeasurementService {
     private static final Logger log = LoggerFactory.getLogger(AsyncSgeMeasurementService.class);
     private final SgeMeasurementPort sgeMeasurementPort;
     private final BatchPersistenceService batchPersistence;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final SerpApiGlobalRequestGate serpApiGlobalRequestGate;
     private final String serpApiKey;
@@ -37,13 +35,11 @@ public class AsyncSgeMeasurementService {
     public AsyncSgeMeasurementService(
             SgeMeasurementPort sgeMeasurementPort,
             BatchPersistenceService batchPersistence,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             PlanBasedQuotaManager planBasedQuotaManager,
             SerpApiGlobalRequestGate serpApiGlobalRequestGate,
             AppProperties appProperties) {
         this.sgeMeasurementPort = sgeMeasurementPort;
         this.batchPersistence = batchPersistence;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
         this.serpApiGlobalRequestGate = serpApiGlobalRequestGate;
         String key = appProperties.getSerpapi().getApiKey();
@@ -109,11 +105,11 @@ public class AsyncSgeMeasurementService {
             if (exception instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            failJobAndBroadcast(jobId, exception, dailyQuotaRefundOnFailure);
+            failJobAfterMeasurementError(jobId, exception, dailyQuotaRefundOnFailure);
         }
     }
 
-    private void failJobAndBroadcast(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
+    private void failJobAfterMeasurementError(UUID jobId, Throwable throwable, int dailyQuotaRefundOnFailure) {
         if (dailyQuotaRefundOnFailure > 0) {
             var je = batchPersistence.findJobById(jobId);
             var tid = Objects.requireNonNullElse(je.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
@@ -123,6 +119,5 @@ public class AsyncSgeMeasurementService {
         String trace = ExceptionStackTraceText.of(throwable);
         batchPersistence.updateJobStatus(jobId, JobStatus.FAILED, trace);
         log.error("AI Overview measurement failed jobId={}", jobId, throwable);
-        jobStatusBroadcastPublisher.publish(batchPersistence.findJobById(jobId));
     }
 }

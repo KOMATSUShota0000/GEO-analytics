@@ -347,11 +347,11 @@ public class AiRubricAuditService {
         boolean jsonLd = crawl != null && crawl.hasJsonLdSignal();
         boolean headings = crawl != null && crawl.headingHierarchyOk();
         LlmsTxtProbe llmsTxtProbe = probeLlmsTxt(url);
-        sink.add(buildMachineReadabilitySignal(jsonLd, headings, llmsTxtProbe));
+        sink.add(buildMachineReadabilitySignal(jsonLd, headings, llmsTxtProbe, crawl));
     }
 
     private RubricAuditResult buildMachineReadabilitySignal(
-            boolean jsonLd, boolean headings, LlmsTxtProbe llmsTxtProbe) {
+            boolean jsonLd, boolean headings, LlmsTxtProbe llmsTxtProbe, CrawledPageData crawl) {
         int matchCount = (jsonLd ? 1 : 0) + (headings ? 1 : 0) + (llmsTxtProbe.available ? 1 : 0);
         RubricVerdictStatus verdict;
         if (matchCount == 3) {
@@ -365,6 +365,9 @@ public class AiRubricAuditService {
         evidence.append("json_ld=").append(jsonLd);
         evidence.append("; heading_hierarchy=").append(headings);
         evidence.append("; llms_txt=").append(llmsTxtProbe.available);
+        if (crawl != null && crawl.seoTechnicalEvidenceSummary() != null && !crawl.seoTechnicalEvidenceSummary().isBlank()) {
+            evidence.append("; seo_evidence=").append(crawl.seoTechnicalEvidenceSummary().strip());
+        }
         if (!llmsTxtProbe.available) {
             evidence.append(" (").append(llmsTxtProbe.failureEvidence).append(")");
         }

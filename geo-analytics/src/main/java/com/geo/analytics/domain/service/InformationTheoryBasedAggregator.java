@@ -65,8 +65,7 @@ public class InformationTheoryBasedAggregator {
         double sumAllBrands = 0.0;
         for (var v : successes) {
             double presence = Boolean.TRUE.equals(v.brandMentioned()) ? 1.0 : 0.0;
-            double sentiment = normalizeSentiment(v.sentimentIntensity());
-            double brandSignal = presence * sourceWeight * sentiment;
+            double brandSignal = presence * sourceWeight;
             sumBrandSignal += brandSignal;
             sumAllBrands += brandSignal;
             for (var c : v.competitorResults()) {
@@ -263,14 +262,6 @@ public class InformationTheoryBasedAggregator {
             }
         }
         return normalized;
-    }
-
-    private static double normalizeSentiment(double sentimentIntensity) {
-        if (Double.isNaN(sentimentIntensity) || Double.isInfinite(sentimentIntensity)) {
-            return 1.0;
-        }
-        double s = clampD(sentimentIntensity, -1.0, 1.0);
-        return StrictMath.fma(0.5, s, 1.0);
     }
 
     private static double clampD(double v, double lo, double hi) {

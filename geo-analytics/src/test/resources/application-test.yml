@@ -24,15 +24,10 @@ spring:
     open-in-view: false
     properties:
       "[hibernate.format_sql]": false
-      "[org.hibernate.envers.audit_table_suffix]": _AUD
-      "[org.hibernate.envers.revision_field_name]": rev
-      "[org.hibernate.envers.revision_type_field_name]": revtype
   main:
     allow-bean-definition-overriding: true
 
 app:
-  distributed-lock:
-    impl: local
   security:
     rls:
       enabled: false

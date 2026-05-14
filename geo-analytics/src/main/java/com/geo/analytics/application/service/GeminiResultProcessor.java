@@ -38,7 +38,6 @@ public class GeminiResultProcessor {
     private final JsonbOperations jsonbOperations;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
-    private final GeoVisibilityCalculatorService geoVisibilityCalculatorService;
     private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
@@ -52,7 +51,6 @@ public class GeminiResultProcessor {
             JapaneseNlpService japaneseNlpService,
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
-            GeoVisibilityCalculatorService geoVisibilityCalculatorService,
             InformationTheoryBasedAggregator informationTheoryBasedAggregator,
             PlanBasedQuotaManager planBasedQuotaManager) {
         this.batchPersistence = batchPersistence;
@@ -63,7 +61,6 @@ public class GeminiResultProcessor {
         this.japaneseNlpService = japaneseNlpService;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
-        this.geoVisibilityCalculatorService = geoVisibilityCalculatorService;
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
         this.planBasedQuotaManager = planBasedQuotaManager;
     }
@@ -92,19 +89,17 @@ public class GeminiResultProcessor {
                 ConsultantOutputData consultantOutputData = somScoreParser.parseConsultantOutput(aiResponseText);
                 SomScoreData metrics = consultantOutputData.toSomScoreData();
                 double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
-                si = StrictMath.max(-1.0, StrictMath.min(1.0, si));
                 String ext = consultantOutputData.extractedBrandMention();
                 String rawName = ext != null && !ext.isBlank() ? ext : mainBrand;
                 String nlpSource = consultantOutputData.response() != null
                     ? consultantOutputData.response().strip()
                     : "";
-                var responseTokens = geoVisibilityCalculatorService.tokenizeResponseForMentions(nlpSource);
-                List<String> needles = GeoVisibilityCalculatorService.splitBrandAliasPhrases(mainBrand, rawName);
-                int nounCount = geoVisibilityCalculatorService.countNormalizedMentions(responseTokens, needles);
+                int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
                 double stuffingDensity = 0.0;
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
-                SomRawMetrics rawMetrics = metrics.toRawMetrics(plan, si, responseTokenLength, nounCount, stuffingDensity, 0.3);
+                SomRawMetrics rawMetrics =
+                        metrics.toRawMetrics(plan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException

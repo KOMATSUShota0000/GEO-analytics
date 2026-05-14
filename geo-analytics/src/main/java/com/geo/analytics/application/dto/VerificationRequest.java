@@ -15,14 +15,15 @@ public record VerificationRequest(
     UUID queryId,
     String canonicalMainBrand,
     List<String> registeredCompetitorBrands,
-    Double domainTrustScore
+    Double domainTrustScore,
+    String technicalSeoEvidenceSummary
 ) {
     public VerificationRequest(String brandName, String query) {
-        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null, null);
+        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null, null, null);
     }
 
     public VerificationRequest(String brandName, String query, String url, String crawledContent, String contentHash) {
-        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null, null);
+        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null, null, null);
     }
 
     public VerificationRequest {

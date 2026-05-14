@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
-import com.geo.analytics.application.port.JobStatusBroadcastPublisher;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -99,7 +98,6 @@ public class JobPersistenceService {
     private final AuditHistoryRepository auditHistoryRepository;
     private final AuditRubricResultRepository auditRubricResultRepository;
     private final ProjectRepository projectRepository;
-    private final JobStatusBroadcastPublisher jobStatusBroadcastPublisher;
     private final ProjectManagementService projectManagementService;
     private final JdbcTemplate batchJdbcTemplate;
     private final StrategyInsightService strategyInsightService;
@@ -112,7 +110,6 @@ public class JobPersistenceService {
             AuditHistoryRepository auditHistoryRepository,
             AuditRubricResultRepository auditRubricResultRepository,
             ProjectRepository projectRepository,
-            JobStatusBroadcastPublisher jobStatusBroadcastPublisher,
             ProjectManagementService projectManagementService,
             @Qualifier("batchJdbcTemplate") JdbcTemplate batchJdbcTemplate,
             StrategyInsightService strategyInsightService,
@@ -124,7 +121,6 @@ public class JobPersistenceService {
         this.auditHistoryRepository = auditHistoryRepository;
         this.auditRubricResultRepository = auditRubricResultRepository;
         this.projectRepository = projectRepository;
-        this.jobStatusBroadcastPublisher = jobStatusBroadcastPublisher;
         this.projectManagementService = projectManagementService;
         this.batchJdbcTemplate = batchJdbcTemplate;
         this.strategyInsightService = strategyInsightService;
@@ -439,7 +435,6 @@ public class JobPersistenceService {
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
                 applyCompetitorScores(auditHistoryEntity, competitorScoreRows);
-                forceSetTenantId(auditHistoryEntity, workspaceId);
                 auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
@@ -565,7 +560,6 @@ public class JobPersistenceService {
         jobEntity.setCreateIdempotencyKey(idempotencyKey);
         jobEntity.setBrandColor(brandColor != null && !brandColor.isBlank() ? brandColor : "#4F46E5");
         jobEntity.setLogoUrl(logoUrl);
-        forceSetTenantId(jobEntity, workspaceId);
         return jobRepository.saveAndFlush(jobEntity);
     }
     @Transactional
@@ -604,14 +598,12 @@ public class JobPersistenceService {
                 queryEntity.setJobId(jobId);
                 queryEntity.setWorkspaceId(jobEntity.getWorkspaceId());
                 queryEntity.setQueryText(queryText);
-                forceSetTenantId(queryEntity, jobEntity.getWorkspaceId());
                 queryRepository.saveAndFlush(queryEntity);
             });
             jobEntity.setAppliedPlan(resolvedPlan);
             jobEntity.setPlanLimitsSnapshot(planLimitsSnapshotJson);
             jobEntity.setJobStatus(nextStatus);
             jobRepository.save(jobEntity);
-            jobStatusBroadcastPublisher.publish(jobEntity);
         });
     }
     @Transactional
@@ -813,28 +805,4 @@ public class JobPersistenceService {
                 JobStatus.COMPLETED, SubscriptionPlan.proTierPlans()));
     }
 
-    private void forceSetTenantId(Object entity, UUID tenantId) {
-        if (entity == null || tenantId == null) return;
-        Class<?> clazz = entity.getClass();
-        while (clazz != null) {
-            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
-                for (java.lang.annotation.Annotation ann : field.getAnnotations()) {
-                    if (ann.annotationType().getSimpleName().equals("TenantId")) {
-                        field.setAccessible(true);
-                        try {
-                            if (field.getType().equals(String.class)) {
-                                field.set(entity, tenantId.toString());
-                            } else {
-                                field.set(entity, tenantId);
-                            }
-                            return;
-                        } catch (IllegalAccessException e) {
-                            throw new RuntimeException("Failed to force set TenantId", e);
-                        }
-                    }
-                }
-            }
-            clazz = clazz.getSuperclass();
-        }
-    }
 }

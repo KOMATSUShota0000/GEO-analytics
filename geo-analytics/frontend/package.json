@@ -14,21 +14,18 @@
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mui/icons-material": "^5.15.10",
     "@mui/material": "^5.15.10",
-    "@stomp/stompjs": "^7.0.0",
     "dompurify": "^3.2.4",
     "lucide-react": "^0.460.0",
     "marked": "^14.1.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
-    "recharts": "^2.13.3",
-    "sockjs-client": "^1.6.1"
+    "recharts": "^2.13.3"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
-    "@types/sockjs-client": "^1.5.4",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",

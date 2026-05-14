@@ -12,7 +12,7 @@ import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import CircularProgress from "@mui/material/CircularProgress";
-import { useJobNotification } from "../hooks/useJobNotification";
+import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import {
   competitorLabelsFromProject,
   formatAuditDate,
@@ -159,7 +159,7 @@ export function JobAnalysisPage(): JSX.Element {
     jobStatus,
     lastError: jobNotifyError,
     isLoading: jobNotifyLoading,
-  } = useJobNotification(effectiveJobId);
+  } = useJobStatusPolling(effectiveJobId);
 
   const displayJobId = jobStatus?.jobId ?? data?.jobId ?? null;
   const displayJobStatus = jobStatus?.jobStatus ?? data?.jobStatus ?? null;

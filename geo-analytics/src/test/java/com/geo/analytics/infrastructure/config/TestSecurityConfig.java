@@ -53,8 +53,7 @@ public class TestSecurityConfig {
     SecurityFilterChain testSecurityFilterChain(HttpSecurity http) throws Exception {
         return http.securityMatcher("/**")
                 .csrf(csrf -> csrf.ignoringRequestMatchers(
-                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/**"),
-                        PathPatternRequestMatcher.withDefaults().matcher("/ws/**")))
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/**")))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }

@@ -15,6 +15,8 @@
     <name>geo-analytics</name>
     <properties>
         <java.version>25</java.version>
+        <!-- Surefire fork JVM: Java 25 preview (ScopedValue, etc.); merged via spring-boot-starter-parent surefire ${argLine} -->
+        <argLine>--enable-preview -Djdk.tracePinnedThreads=short</argLine>
         <langchain4j.version>0.36.2</langchain4j.version>
         <sudachi.version>0.7.5</sudachi.version>
         <commons-text.version>1.12.0</commons-text.version>
@@ -74,10 +76,6 @@
             <version>10.22.0</version>
         </dependency>
         <dependency>
-            <groupId>org.hibernate.orm</groupId>
-            <artifactId>hibernate-envers</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.bucket4j</groupId>
             <artifactId>bucket4j-core</artifactId>
             <version>8.10.1</version>
@@ -115,10 +113,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -298,7 +292,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>--enable-preview -Djdk.tracePinnedThreads=short</argLine>
                     <reuseForks>false</reuseForks>
                     <environmentVariables>
                         <JAVA_TOOL_OPTIONS>--enable-preview</JAVA_TOOL_OPTIONS>

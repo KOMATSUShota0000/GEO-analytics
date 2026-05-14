@@ -15,9 +15,6 @@ import com.geo.analytics.domain.exception.ThresholdExceededException;
 import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.domain.exception.UnauthenticatedApiException;
 import com.geo.analytics.domain.exception.VersionMismatchException;
-import com.geo.analytics.infrastructure.lock.PostgresDistributedLockManager.LockAcquisitionException;
-
-
 import com.geo.analytics.infrastructure.persistence.JsonbSerializationException;
 import com.geo.analytics.web.dto.ApiErrorResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -115,14 +112,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleVersionMismatch(VersionMismatchException exception) {
         logger.warn("Version mismatch: {}", exception.getMessage());
         return json(HttpStatus.UPGRADE_REQUIRED, ApiErrorResponse.of("version_mismatch", exception.getMessage()));
-    }
-
-    @ExceptionHandler(LockAcquisitionException.class)
-    public ResponseEntity<ApiErrorResponse> handleLockAcquisition(LockAcquisitionException exception) {
-        logger.warn("Advisory lock not acquired: {}", exception.getMessage());
-        return json(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                ApiErrorResponse.of("system_busy", "ただいま混み合っています。しばらくしてから再度お試しください。"));
     }
 
     @ExceptionHandler(SecurityException.class)
