@@ -1,6 +1,6 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.infrastructure.api.dto.SerpOrganicResult;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.ratelimit.SerpApiGlobalRequestGate;
@@ -9,22 +9,22 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class SerpOrganicSearchService {
+public class GeoCompetitorSearchService {
 
     private static final long SERP_ORGANIC_CREDIT = 30L;
     private static final int DEFAULT_NUM = 15;
 
-    private final SerpApiAdapter serpApiAdapter;
+    private final GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
     private final SerpApiGlobalRequestGate serpApiGlobalRequestGate;
     private final CreditVaultService creditVaultService;
     private final String serpApiKey;
 
-    public SerpOrganicSearchService(
-            SerpApiAdapter serpApiAdapter,
+    public GeoCompetitorSearchService(
+            GeoCompetitorSearchAdapter geoCompetitorSearchAdapter,
             SerpApiGlobalRequestGate serpApiGlobalRequestGate,
             CreditVaultService creditVaultService,
             AppProperties appProperties) {
-        this.serpApiAdapter = serpApiAdapter;
+        this.geoCompetitorSearchAdapter = geoCompetitorSearchAdapter;
         this.serpApiGlobalRequestGate = serpApiGlobalRequestGate;
         this.creditVaultService = creditVaultService;
         String key = appProperties.getSerpapi().getApiKey();
@@ -42,7 +42,7 @@ public class SerpOrganicSearchService {
         UUID reservationId = creditVaultService.reserve(projectId, SERP_ORGANIC_CREDIT);
         try {
             List<SerpOrganicResult> results = serpApiGlobalRequestGate.execute(
-                    () -> serpApiAdapter.fetchOrganicResults(trimmed, DEFAULT_NUM));
+                    () -> geoCompetitorSearchAdapter.fetchOrganicResults(trimmed, DEFAULT_NUM));
             creditVaultService.settle(reservationId, SERP_ORGANIC_CREDIT, "serp_organic_competitor");
             return results != null ? results : List.of();
         } catch (Exception exception) {

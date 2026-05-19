@@ -6,11 +6,12 @@ import com.geo.analytics.domain.entity.MathDebateAuditEventEntity;
 import com.geo.analytics.domain.logic.ConvergenceController;
 import com.geo.analytics.domain.model.AuditEvidenceRef;
 import com.geo.analytics.domain.model.MathDebateAuditExportEvent;
-import com.geo.analytics.domain.model.SeoEvidence;
+import com.geo.analytics.domain.model.GeoRagEvidence;
 import com.geo.analytics.infrastructure.repository.MathDebateAuditEventRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.web.dto.DebateOnboardingSseEvent;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,8 +56,8 @@ public class DebateMathAuditService {
             double trustScore,
             double friction,
             boolean competitorXmlIncluded,
-            List<SeoEvidence> usedEvidences,
-            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            List<GeoRagEvidence> usedEvidences,
+            Deque<DebateOnboardingSseEvent> narrationLogBuffer,
             String sessionOutcome,
             int executedTurnsAtEnd) {
         MathDebateAuditEventEntity row = new MathDebateAuditEventEntity();
@@ -102,28 +103,28 @@ public class DebateMathAuditService {
         }
     }
 
-    private List<Map<String, Object>> narrationEventsToJsonMaps(List<DebateOnboardingSseEvent> narrationLogBuffer) {
+    private List<Map<String, Object>> narrationEventsToJsonMaps(Deque<DebateOnboardingSseEvent> narrationLogBuffer) {
         if (narrationLogBuffer == null || narrationLogBuffer.isEmpty()) {
             return List.of();
         }
         List<Map<String, Object>> out = new ArrayList<>(narrationLogBuffer.size());
-        synchronized (narrationLogBuffer) {
-            for (DebateOnboardingSseEvent event : narrationLogBuffer) {
-                if (event == null) {
-                    continue;
-                }
-                out.add(objectMapper.convertValue(event, new TypeReference<LinkedHashMap<String, Object>>() {}));
+        // ConcurrentLinkedDeque のイテレータは弱整合性のため ConcurrentModificationException が
+        // 発生せず、synchronized なしで安全に走査できる（順序も挿入順を維持）。
+        for (DebateOnboardingSseEvent event : narrationLogBuffer) {
+            if (event == null) {
+                continue;
             }
+            out.add(objectMapper.convertValue(event, new TypeReference<LinkedHashMap<String, Object>>() {}));
         }
         return out;
     }
 
-    private static List<Map<String, Object>> toAuditEvidenceRefMaps(List<SeoEvidence> used) {
+    private static List<Map<String, Object>> toAuditEvidenceRefMaps(List<GeoRagEvidence> used) {
         if (used == null || used.isEmpty()) {
             return List.of();
         }
         List<Map<String, Object>> out = new ArrayList<>();
-        for (SeoEvidence e : used) {
+        for (GeoRagEvidence e : used) {
             if (e == null) {
                 continue;
             }

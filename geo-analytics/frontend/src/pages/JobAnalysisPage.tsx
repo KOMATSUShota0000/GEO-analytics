@@ -1,5 +1,6 @@
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
+import { fetchWorkspacePlan, type WorkspaceSubscriptionPlan } from "../api/workspace-api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
@@ -251,8 +252,23 @@ export function JobAnalysisPage(): JSX.Element {
   const showTierBlock = useMemo(() => {
     return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
   }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
-  /** Subscription plan is not included on job analysis API; default false (conservative upsell in TierDiagnosisCard). */
-  const isProPlanUi = false;
+  const [workspacePlan, setWorkspacePlan] = useState<WorkspaceSubscriptionPlan | null>(null);
+  // PRO・EXPERT はアップセルバナー不要。取得失敗時は false（保守的フォールバック = アップセル表示）
+  const isProPlanUi = workspacePlan === "PRO" || workspacePlan === "EXPERT";
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const plan = await fetchWorkspacePlan();
+      if (!cancelled) {
+        setWorkspacePlan(plan);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [pdfDelayedReady, setPdfDelayedReady] = useState(false);
   const showPdfReadyFlag = isPdfMode ? pdfDelayedReady : isReadyForPdf;
 

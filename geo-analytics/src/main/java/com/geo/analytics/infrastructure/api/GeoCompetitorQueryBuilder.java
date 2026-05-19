@@ -6,9 +6,9 @@ import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
  * Builds the {@code q} parameter for SerpApi / Google web search from brand + user keyword.
  * Uses a single space-separated query (Google の仕様に合わせる)。AND 演算子は日本語クエリで過剰制約になりやすいため使わない。
  */
-public final class SerpSearchQueryBuilder {
+public final class GeoCompetitorQueryBuilder {
 
-    private SerpSearchQueryBuilder() {
+    private GeoCompetitorQueryBuilder() {
     }
 
     /**

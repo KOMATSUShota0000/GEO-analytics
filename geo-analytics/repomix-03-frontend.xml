@@ -76,8 +76,7 @@ frontend/src/components/strategy/GrowthTrajectoryChart.tsx
 frontend/src/components/strategy/RelativeEvaluationSection.tsx
 frontend/src/components/strategy/TrustAccumulationChart.tsx
 frontend/src/components/TierDiagnosisCard.tsx
-frontend/src/hooks/useJobNotification.ts
-frontend/src/hooks/useJobStreaming.ts
+frontend/src/hooks/useJobStatusPolling.ts
 frontend/src/hooks/useLatestEmotionalAlert.ts
 frontend/src/hooks/useOnboardingStream.ts
 frontend/src/hooks/useProjectAssetSnapshots.ts
@@ -152,22 +151,18 @@ This section contains the contents of the repository's files.
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mui/icons-material": "^5.15.10",
     "@mui/material": "^5.15.10",
-    "@stomp/stompjs": "^7.0.0",
     "dompurify": "^3.2.4",
     "lucide-react": "^0.460.0",
     "marked": "^14.1.4",
-    "partial-json": "^0.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
-    "recharts": "^2.13.3",
-    "sockjs-client": "^1.6.1"
+    "recharts": "^2.13.3"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
-    "@types/sockjs-client": "^1.5.4",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",
@@ -3077,22 +3072,15 @@ export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnos
 }
 </file>
 
-<file path="frontend/src/hooks/useJobNotification.ts">
-import { Client, IMessage } from "@stomp/stompjs";
-import { useCallback, useEffect, useRef, useState } from "react";
-import SockJS from "sockjs-client";
+<file path="frontend/src/hooks/useJobStatusPolling.ts">
 import { apiFetch, parseJsonTextAsCamel } from "../api/apiFetch";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   normalizeJobStatusResponse,
   type JobStatusResponse,
 } from "../types/analysis";
 
-export type JobNotificationConnectionState =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+const POLL_INTERVAL_MS = 3000;
 
 function parseJobUpdatedAtMs(updatedAt: string): number {
   const ms = Date.parse(updatedAt);
@@ -3141,50 +3129,44 @@ function mergeJobStatusPreservingSummary(
   };
 }
 
-function parseJobStatusMessage(body: string): JobStatusResponse | null {
-  try {
-    const parsed: unknown = parseJsonTextAsCamel(body);
-    return normalizeJobStatusResponse(parsed);
-  } catch {
+function computeNextJobStatus(
+  previous: JobStatusResponse | null,
+  normalized: JobStatusResponse,
+): JobStatusResponse | null {
+  if (!shouldApplyJobStatusUpdate(previous, normalized)) {
     return null;
   }
+  return mergeJobStatusPreservingSummary(previous, normalized);
 }
 
-function buildSockJsUrl(): string {
-  if (typeof window === "undefined") {
-    return "/ws";
+/** ジョブ完了後も PDF 生成中ならポーリングを継続する */
+function shouldContinuePolling(status: JobStatusResponse | null): boolean {
+  if (status === null) {
+    return true;
   }
-  return `${window.location.origin}/ws`;
+  const js = status.jobStatus ?? "";
+  if (js === "FAILED") {
+    return false;
+  }
+  if (js === "COMPLETED" || js === "SUCCEEDED") {
+    return status.pdfStatus === "GENERATING";
+  }
+  return true;
 }
 
-export interface UseJobNotificationResult {
+export interface UseJobStatusPollingResult {
   jobStatus: JobStatusResponse | null;
-  connectionState: JobNotificationConnectionState;
   lastError: string | null;
   isLoading: boolean;
   refetchJobFromRest: () => Promise<void>;
 }
 
-export function useJobNotification(jobId: string): UseJobNotificationResult {
+export function useJobStatusPolling(jobId: string): UseJobStatusPollingResult {
   const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
-  const [connectionState, setConnectionState] =
-    useState<JobNotificationConnectionState>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const previousJobIdRef = useRef<string>("");
-
-  const handleMessage = useCallback((message: IMessage) => {
-    const next = parseJobStatusMessage(message.body);
-    if (next === null) {
-      return;
-    }
-    setJobStatus((prev) => {
-      if (!shouldApplyJobStatusUpdate(prev, next)) {
-        return prev;
-      }
-      return mergeJobStatusPreservingSummary(prev, next);
-    });
-  }, []);
+  const jobStatusRef = useRef<JobStatusResponse | null>(null);
 
   const refetchJobFromRest = useCallback(async () => {
     const trimmedJobId = jobId.trim();
@@ -3207,12 +3189,11 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
       if (normalized === null) {
         return;
       }
-      setJobStatus((prev) => {
-        if (!shouldApplyJobStatusUpdate(prev, normalized)) {
-          return prev;
-        }
-        return mergeJobStatusPreservingSummary(prev, normalized);
-      });
+      const next = computeNextJobStatus(jobStatusRef.current, normalized);
+      if (next !== null) {
+        jobStatusRef.current = next;
+        setJobStatus(next);
+      }
     } catch {
       return;
     }
@@ -3222,45 +3203,39 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
     const trimmedJobId = jobId.trim();
     if (trimmedJobId.length === 0) {
       previousJobIdRef.current = "";
+      jobStatusRef.current = null;
       setJobStatus(null);
-      setConnectionState("idle");
       setLastError(null);
       setIsLoading(false);
       return undefined;
     }
 
     if (previousJobIdRef.current !== trimmedJobId) {
+      jobStatusRef.current = null;
       setJobStatus(null);
       previousJobIdRef.current = trimmedJobId;
     }
 
     let cancelled = false;
-    let skipWebSocket = false;
     const abortController = new AbortController();
-    let stompClient: Client | null = null;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
 
-    setConnectionState("connecting");
     setLastError(null);
     setIsLoading(true);
 
-    void (async (): Promise<void> => {
+    async function fetchOnce(): Promise<boolean> {
       try {
         const res = await apiFetch(`/api/v1/jobs/${trimmedJobId}`, {
           signal: abortController.signal,
         });
-        if (cancelled) {
-          return;
-        }
-
         const responseText = await res.text();
 
         if (res.status === 404) {
           console.error("job status fetch not found", res.status, responseText);
+          jobStatusRef.current = null;
           setJobStatus(null);
           setLastError("ジョブが見つかりません");
-          setConnectionState("idle");
-          skipWebSocket = true;
-          return;
+          return false;
         }
 
         if (!res.ok) {
@@ -3268,301 +3243,85 @@ export function useJobNotification(jobId: string): UseJobNotificationResult {
           setLastError(
             responseText.length > 0 ? responseText : `HTTP ${res.status}`,
           );
-        } else {
-          let parsed: unknown;
-          try {
-            parsed = parseJsonTextAsCamel(responseText) as unknown;
-          } catch {
-            console.error(
-              "job status JSON parse error",
-              res.status,
-              responseText,
-            );
-            setLastError("ジョブ状態の形式が不正です");
-            parsed = null;
-          }
-          if (parsed !== null && !cancelled) {
-            const normalized = normalizeJobStatusResponse(parsed);
-            if (normalized === null) {
-              console.error(
-                "job status validation failed",
-                res.status,
-                responseText,
-              );
-              setLastError("ジョブ状態の形式が不正です");
-            } else {
-              setJobStatus((prev) => {
-                if (!shouldApplyJobStatusUpdate(prev, normalized)) {
-                  return prev;
-                }
-                return mergeJobStatusPreservingSummary(prev, normalized);
-              });
-            }
-          }
+          return true;
         }
+
+        let parsed: unknown;
+        try {
+          parsed = parseJsonTextAsCamel(responseText) as unknown;
+        } catch {
+          console.error(
+            "job status JSON parse error",
+            res.status,
+            responseText,
+          );
+          setLastError("ジョブ状態の形式が不正です");
+          return true;
+        }
+
+        const normalized = normalizeJobStatusResponse(parsed);
+        if (normalized === null) {
+          console.error(
+            "job status validation failed",
+            res.status,
+            responseText,
+          );
+          setLastError("ジョブ状態の形式が不正です");
+          return true;
+        }
+
+        const next = computeNextJobStatus(jobStatusRef.current, normalized);
+        if (next !== null) {
+          jobStatusRef.current = next;
+          setJobStatus(next);
+        }
+        setLastError(null);
+        return true;
       } catch (err: unknown) {
-        if (cancelled) {
-          return;
-        }
         if (err instanceof Error && err.name === "AbortError") {
-          return;
+          return true;
         }
         const message = err instanceof Error ? err.message : String(err);
         console.error("job status fetch error", message, err);
         setLastError(message);
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        return true;
       }
+    }
 
-      if (cancelled || skipWebSocket) {
-        return;
-      }
-
-      stompClient = new Client({
-        webSocketFactory: () => new SockJS(buildSockJsUrl()),
-        reconnectDelay: 5000,
-        onConnect: () => {
-          if (cancelled) {
-            return;
-          }
-          setConnectionState("connected");
-          stompClient?.subscribe(`/topic/jobs/${trimmedJobId}`, handleMessage);
-        },
-        onStompError: (frame) => {
-          setConnectionState("error");
-          const headerMessage = frame.headers["message"];
-          const message =
-            typeof headerMessage === "string" && headerMessage.length > 0
-              ? headerMessage
-              : typeof frame.body === "string" && frame.body.length > 0
-                ? frame.body
-                : "STOMP error";
-          console.error("STOMP error", message, frame.body);
-          setLastError(message);
-        },
-        onWebSocketClose: () => {
-          setConnectionState("disconnected");
-        },
-        onDisconnect: () => {
-          setConnectionState("disconnected");
-        },
-      });
-
+    void (async (): Promise<void> => {
+      const continuePolling = await fetchOnce();
       if (cancelled) {
-        stompClient?.deactivate();
-        stompClient = null;
         return;
       }
-
-      stompClient.activate();
+      setIsLoading(false);
+      if (!continuePolling) {
+        return;
+      }
+      intervalId = setInterval(() => {
+        if (cancelled) {
+          return;
+        }
+        if (!shouldContinuePolling(jobStatusRef.current)) {
+          if (intervalId !== undefined) {
+            clearInterval(intervalId);
+            intervalId = undefined;
+          }
+          return;
+        }
+        void fetchOnce();
+      }, POLL_INTERVAL_MS);
     })();
 
     return () => {
       cancelled = true;
       abortController.abort();
-      stompClient?.deactivate();
-      stompClient = null;
+      if (intervalId !== undefined) {
+        clearInterval(intervalId);
+      }
     };
-  }, [jobId, handleMessage]);
+  }, [jobId]);
 
-  return { jobStatus, connectionState, lastError, isLoading, refetchJobFromRest };
-}
-</file>
-
-<file path="frontend/src/hooks/useJobStreaming.ts">
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { keysToCamelDeep } from "../api/apiFetch";
-import { DEFAULT_WORKSPACE_TENANT_ID } from "../api/tenantConstants";
-import { getAccessToken } from "../auth/authSession";
-import { Allow, MalformedJSON, PartialJSON, parse } from "partial-json";
-import { useCallback, useRef, useState } from "react";
-import type { VerifyStreamChunkPayload } from "../types/analysis";
-
-function parseVerifyStreamChunkPayload(raw: string): VerifyStreamChunkPayload | null {
-  try {
-    const parsed: unknown = keysToCamelDeep(JSON.parse(raw));
-    if (typeof parsed !== "object" || parsed === null || !("kind" in parsed) || !("text" in parsed)) {
-      return null;
-    }
-    const rec = parsed as Record<string, unknown>;
-    if (typeof rec.kind !== "string" || typeof rec.text !== "string") {
-      return null;
-    }
-    const kind = rec.kind;
-    if (kind !== "delta" && kind !== "done" && kind !== "error") {
-      return null;
-    }
-    const queryId = typeof rec.queryId === "string" ? rec.queryId : undefined;
-    return { kind, text: rec.text, queryId };
-  } catch {
-    return null;
-  }
-}
-
-function tryParseModelJson(json: string): unknown | null {
-  if (json.length === 0) {
-    return null;
-  }
-  try {
-    return parse(json, Allow.ALL);
-  } catch (caught: unknown) {
-    if (caught instanceof PartialJSON || caught instanceof MalformedJSON) {
-      return null;
-    }
-    return null;
-  }
-}
-
-export interface UseJobStreamingResult {
-  isStreaming: boolean;
-  streamError: string | null;
-  parsedByQueryId: Record<string, unknown>;
-  connectJobStream: (jobId: string) => Promise<void>;
-  disconnectJobStream: () => void;
-}
-
-export function useJobStreaming(
-  onStreamSettled: () => void | Promise<void>,
-): UseJobStreamingResult {
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamError, setStreamError] = useState<string | null>(null);
-  const [parsedByQueryId, setParsedByQueryId] = useState<Record<string, unknown>>({});
-  const buffersRef = useRef<Record<string, string>>({});
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const settledRef = useRef(false);
-  const onSettledRef = useRef(onStreamSettled);
-  onSettledRef.current = onStreamSettled;
-
-  const runSettledOnce = useCallback(async () => {
-    if (settledRef.current) {
-      return;
-    }
-    settledRef.current = true;
-    setIsStreaming(false);
-    try {
-      await onSettledRef.current();
-    } catch {
-      return;
-    }
-  }, []);
-
-  const disconnectJobStream = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setIsStreaming(false);
-  }, []);
-
-  const connectJobStream = useCallback(
-    async (jobId: string) => {
-      const trimmed = jobId.trim();
-      if (trimmed.length === 0) {
-        return;
-      }
-      disconnectJobStream();
-      settledRef.current = false;
-      buffersRef.current = {};
-      setParsedByQueryId({});
-      setStreamError(null);
-      setIsStreaming(true);
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-      try {
-        const streamHeaders: Record<string, string> = {
-          "X-Tenant-ID": DEFAULT_WORKSPACE_TENANT_ID,
-        };
-        const accessToken = getAccessToken();
-        if (accessToken !== null && accessToken.length > 0) {
-          streamHeaders.Authorization = `Bearer ${accessToken}`;
-        }
-        await fetchEventSource(`/api/v1/jobs/${trimmed}/stream`, {
-          signal: abortController.signal,
-          credentials: "include",
-          headers: streamHeaders,
-          openWhenHidden: true,
-          async onopen(response) {
-            if (!response.ok) {
-              const text = await response.text();
-              throw new Error(text.length > 0 ? text : `HTTP ${response.status}`);
-            }
-          },
-          onmessage(event) {
-            if (event.event === "chunk") {
-              const payload = parseVerifyStreamChunkPayload(event.data);
-              if (payload === null) {
-                return;
-              }
-              if (payload.kind === "error") {
-                setStreamError(payload.text);
-                void runSettledOnce();
-                return;
-              }
-              const bufferKey = payload.queryId ?? "_";
-              const buffers = buffersRef.current;
-              if (payload.kind === "delta") {
-                buffers[bufferKey] = (buffers[bufferKey] ?? "") + payload.text;
-              } else {
-                buffers[bufferKey] = payload.text;
-              }
-              const partial = tryParseModelJson(buffers[bufferKey] ?? "");
-              setParsedByQueryId((previous) => {
-                const next: Record<string, unknown> = { ...previous };
-                if (partial !== null) {
-                  next[bufferKey] = partial;
-                }
-                return next;
-              });
-              if (payload.kind === "done" && payload.queryId === undefined) {
-                void runSettledOnce();
-              }
-              return;
-            }
-            if (event.event === "error") {
-              try {
-                const parsed: unknown = keysToCamelDeep(JSON.parse(event.data));
-                const rec = parsed as Record<string, unknown>;
-                const message = typeof rec.message === "string" ? rec.message : "stream error";
-                setStreamError(message);
-              } catch {
-                setStreamError(event.data);
-              }
-              void runSettledOnce();
-            }
-          },
-          onclose() {
-            void runSettledOnce();
-          },
-          onerror(err) {
-            setStreamError(err instanceof Error ? err.message : String(err));
-            void runSettledOnce();
-            throw err;
-          },
-        });
-      } catch (caught: unknown) {
-        if (caught instanceof Error && caught.name === "AbortError") {
-          setIsStreaming(false);
-          return;
-        }
-        if (!settledRef.current) {
-          const message = caught instanceof Error ? caught.message : String(caught);
-          setStreamError(message);
-          await runSettledOnce();
-        }
-      } finally {
-        abortControllerRef.current = null;
-      }
-    },
-    [disconnectJobStream, runSettledOnce],
-  );
-
-  return {
-    isStreaming,
-    streamError,
-    parsedByQueryId,
-    connectJobStream,
-    disconnectJobStream,
-  };
+  return { jobStatus, lastError, isLoading, refetchJobFromRest };
 }
 </file>
 
@@ -4767,7 +4526,7 @@ export default function GeoOnboardingView(): JSX.Element {
 <file path="frontend/src/pages/JobAnalysisPage.tsx">
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
 import { mergeBannerJobHint } from "../lib/bannerJobHint";
@@ -4779,12 +4538,10 @@ import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import CircularProgress from "@mui/material/CircularProgress";
-import { useJobNotification } from "../hooks/useJobNotification";
-import { useJobStreaming } from "../hooks/useJobStreaming";
+import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import {
   competitorLabelsFromProject,
   formatAuditDate,
-  liveMetricsFromParsed,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
   resolveChartShareData,
@@ -4903,14 +4660,6 @@ function ProjectInfoBlock({
   );
 }
 
-function LiveMetricText({ value }: { value: string }): JSX.Element {
-  return (
-    <span className="inline-block min-w-[2.25rem] tabular-nums transition-all duration-500 ease-out will-change-transform">
-      {value}
-    </span>
-  );
-}
-
 function CompletedScoreCell({ value }: { value: string | number }): JSX.Element {
   return (
     <span className="inline-block tabular-nums transition-all duration-500 ease-out">{value}</span>
@@ -4931,47 +4680,12 @@ export function JobAnalysisPage(): JSX.Element {
   const [pdfDownloadInFlight, setPdfDownloadInFlight] = useState(false);
 
   const effectiveJobId = jobIdFromRoute?.trim() || jobIdInput.trim();
-  const effectiveJobIdRef = useRef(effectiveJobId);
-  effectiveJobIdRef.current = effectiveJobId;
 
   const {
     jobStatus,
     lastError: jobNotifyError,
     isLoading: jobNotifyLoading,
-    refetchJobFromRest,
-  } = useJobNotification(effectiveJobId);
-
-  const refetchAnalysis = useCallback(async (jobIdStr: string): Promise<JobAnalysisDetail | null> => {
-    const id = jobIdStr.trim();
-    if (id.length === 0) {
-      return null;
-    }
-    const res = await apiFetch(`/api/v1/jobs/${id}/analysis`);
-    if (!res.ok) {
-      return null;
-    }
-    const body: unknown = await responseJsonAsCamel(res);
-    const p = parseJobAnalysisDetail(body);
-    setData(p);
-    return p;
-  }, []);
-
-  const handleStreamSettled = useCallback(async () => {
-    const id = effectiveJobIdRef.current.trim();
-    if (id.length === 0) {
-      return;
-    }
-    await refetchJobFromRest();
-    await refetchAnalysis(id);
-  }, [refetchJobFromRest, refetchAnalysis]);
-
-  const {
-    isStreaming,
-    streamError,
-    parsedByQueryId,
-    connectJobStream,
-    disconnectJobStream,
-  } = useJobStreaming(handleStreamSettled);
+  } = useJobStatusPolling(effectiveJobId);
 
   const displayJobId = jobStatus?.jobId ?? data?.jobId ?? null;
   const displayJobStatus = jobStatus?.jobStatus ?? data?.jobStatus ?? null;
@@ -5016,7 +4730,7 @@ export function JobAnalysisPage(): JSX.Element {
   }, [displayJobRollupDiagnostic, displayJobRollupActions, displayJobRollupMedZ]);
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
-  const analysisLocked = isStreaming || isProcessingDisplay;
+  const analysisLocked = isProcessingDisplay;
   const resultRows: ResultDetail[] =
     data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
   const isPdfGeneratingUi =
@@ -5028,18 +4742,18 @@ export function JobAnalysisPage(): JSX.Element {
     [data?.project],
   );
   const chartTrendData = useMemo(
-    () => resolveChartTrendData(resultRows, parsedByQueryId, isStreaming),
-    [resultRows, parsedByQueryId, isStreaming],
+    () => resolveChartTrendData(resultRows, {}, false),
+    [resultRows],
   );
   const chartShareData = useMemo(
     () =>
-      resolveChartShareData(brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming),
-    [brandForCharts, competitorPair, resultRows, parsedByQueryId, isStreaming],
+      resolveChartShareData(brandForCharts, competitorPair, resultRows, {}, false),
+    [brandForCharts, competitorPair, resultRows],
   );
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
   const displaySomForTier = useMemo(() => {
-    const avg = resolveAverageSomScore(resultRows, parsedByQueryId, isStreaming);
+    const avg = resolveAverageSomScore(resultRows, {}, false);
     if (avg !== null) {
       return avg;
     }
@@ -5047,7 +4761,7 @@ export function JobAnalysisPage(): JSX.Element {
       return 0;
     }
     return null;
-  }, [resultRows, parsedByQueryId, isStreaming, isCompletedDisplay]);
+  }, [resultRows, isCompletedDisplay]);
   const showTierSkeleton = useMemo(() => {
     if (effectiveJobId.length === 0) {
       return false;
@@ -5058,8 +4772,8 @@ export function JobAnalysisPage(): JSX.Element {
     if (displaySomForTier !== null) {
       return false;
     }
-    return isProcessingDisplay || isStreaming;
-  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay, isStreaming]);
+    return isProcessingDisplay;
+  }, [effectiveJobId.length, loading, displaySomForTier, isProcessingDisplay]);
   const showTierBlock = useMemo(() => {
     return effectiveJobId.length > 0 && (showTierSkeleton || displaySomForTier !== null);
   }, [effectiveJobId.length, showTierSkeleton, displaySomForTier]);
@@ -5145,17 +4859,6 @@ export function JobAnalysisPage(): JSX.Element {
       setPdfRequestInFlight(false);
     }
   }, [jobStatus?.pdfStatus]);
-
-  useEffect(() => {
-    const trimmed = effectiveJobId.trim();
-    if (trimmed.length === 0) {
-      return undefined;
-    }
-    void connectJobStream(trimmed);
-    return () => {
-      disconnectJobStream();
-    };
-  }, [effectiveJobId, connectJobStream, disconnectJobStream]);
 
   useEffect(() => {
     if (!effectiveJobId) {
@@ -5327,56 +5030,13 @@ export function JobAnalysisPage(): JSX.Element {
           <p className="mt-2 text-sm text-slate-600">
             ステータス: {resolvedStatus} / ブランド: {displayBrand}
           </p>
-          {isStreaming && (
-            <p className="mt-2 text-sm text-sky-700">AI応答をストリーミング受信中です…</p>
-          )}
-          {streamError && (
-            <p className="mt-2 text-sm text-amber-800">ストリーム: {streamError}</p>
-          )}
-          {Object.keys(parsedByQueryId).length > 0 && (
-            <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                ライブプレビュー（partial-json）
-              </div>
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="px-3 py-2 font-semibold text-slate-700">クエリID</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">SoM</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">overall</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">言及</th>
-                    <th className="px-3 py-2 font-semibold text-slate-700">GEO可視性ランク</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(parsedByQueryId).map(([queryIdKey, parsedValue]) => {
-                    const m = liveMetricsFromParsed(parsedValue);
-                    return (
-                      <tr key={queryIdKey} className="border-b border-slate-100 last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs text-slate-800">{queryIdKey}</td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.somScore === null ? "…" : String(m.somScore)} />
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.overallScore === null ? "…" : String(m.overallScore)} />
-                        </td>
-                        <td className="px-3 py-2 text-slate-800">
-                          <LiveMetricText
-                            value={
-                              m.brandMentioned === null ? "…" : m.brandMentioned ? "あり" : "なし"
-                            }
-                          />
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-slate-800">
-                          <LiveMetricText value={m.mentionRank === null ? "—" : String(m.mentionRank)} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <p className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            <span
+              className="inline-block h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
+              aria-hidden
+            />
+            解析結果は完了後に表示されます（ジョブ状態は自動更新されます）。
+          </p>
           {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
         </div>
       )}

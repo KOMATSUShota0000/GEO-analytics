@@ -23,7 +23,7 @@ import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.infrastructure.config.Bucket4jConfiguration;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
@@ -135,7 +135,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     private SyncVerificationService syncVerificationService;
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
     private HybridCompetitorPipelineService hybridCompetitorPipelineService;
@@ -158,7 +158,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         lenient().doNothing().when(aiRubricAuditService).runMultiDomainAuditForCompletedJob(any(UUID.class));
         lenient().doNothing().when(projectAuditLifecyclePublisher).publishAuditCompleted(any(JobEntity.class));
         lenient()
-                .when(serpApiAdapter.checkSgeMention(anyString(), anyString()))
+                .when(geoCompetitorSearchAdapter.checkSgeMention(anyString(), anyString()))
                 .thenReturn(new SgeMentionResult(false, 0, "{}"));
         when(syncVerificationService.verify(
                 anyString(),
@@ -219,7 +219,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     void tearDownState() {
         reset(
                 syncVerificationService,
-                serpApiAdapter,
+                geoCompetitorSearchAdapter,
                 hybridCompetitorPipelineService,
                 jobBenchmarkCaptureService,
                 aiRubricAuditService,

@@ -1,7 +1,7 @@
 package com.geo.analytics.infrastructure.ratelimit;
 
 import com.geo.analytics.application.service.RateLimiterService;
-import com.geo.analytics.domain.enums.PricingPlan;
+import com.geo.analytics.domain.enums.RateLimitPlan;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,7 +47,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        PricingPlan plan = PricingPlan.STANDARD;
+        RateLimitPlan plan = RateLimitPlan.STANDARD;
         if (!rateLimiterService.tryAcquire(plan)) {
             response.sendError(HttpStatus.TOO_MANY_REQUESTS.value(), "Rate limit exceeded");
             return;

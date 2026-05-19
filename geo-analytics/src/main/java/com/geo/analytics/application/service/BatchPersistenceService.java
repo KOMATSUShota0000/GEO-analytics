@@ -10,6 +10,8 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,8 @@ import java.util.UUID;
 @Service
 @Transactional("batchTransactionManager")
 public class BatchPersistenceService {
+
+    private static final Logger log = LoggerFactory.getLogger(BatchPersistenceService.class);
 
     private static final TypeReference<List<String>> LIST_STRING_TYPE = new TypeReference<>() {};
 
@@ -384,7 +388,13 @@ public class BatchPersistenceService {
         String jraJson = rs.getString("job_recommended_actions");
         if (jraJson != null) {
             try { job.setJobRecommendedActions(objectMapper.readValue(jraJson, LIST_STRING_TYPE)); }
-            catch (JsonProcessingException ignored) {}
+            catch (JsonProcessingException jsonProcessingException) {
+                // フォールバック挙動（未設定のまま）は従来通り。復元失敗の事実だけは可視化する。
+                log.warn(
+                        "Failed to deserialize job_recommended_actions; leaving unset. jobId={}",
+                        job.getId(),
+                        jsonProcessingException);
+            }
         }
         job.setGapBatchIdempotencyKey(rs.getObject("gap_batch_idempotency_key", UUID.class));
         job.setCreateIdempotencyKey(rs.getObject("create_idempotency_key", UUID.class));
@@ -437,7 +447,13 @@ public class BatchPersistenceService {
         String raJson = rs.getString("recommended_actions");
         if (raJson != null) {
             try { e.setRecommendedActions(objectMapper.readValue(raJson, LIST_STRING_TYPE)); }
-            catch (JsonProcessingException ignored) {}
+            catch (JsonProcessingException jsonProcessingException) {
+                // フォールバック挙動（未設定のまま）は従来通り。復元失敗の事実だけは可視化する。
+                log.warn(
+                        "Failed to deserialize recommended_actions; leaving unset. jobId={}",
+                        e.getJobId(),
+                        jsonProcessingException);
+            }
         }
         e.setModelInsightsJson(rs.getString("model_insights"));
         e.setAuditDate(rs.getObject("audit_date", LocalDate.class));

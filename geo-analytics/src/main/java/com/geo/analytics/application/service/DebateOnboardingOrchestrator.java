@@ -14,12 +14,12 @@ import com.geo.analytics.domain.logic.ConvergenceController;
 import com.geo.analytics.domain.logic.DebateTextMathHeuristics;
 import com.geo.analytics.domain.logic.InformationGainCalculator;
 import com.geo.analytics.application.security.PromptInjectionValidator;
-import com.geo.analytics.domain.logic.SeoDataEvidenceProvider;
-import com.geo.analytics.domain.logic.SeoEvidenceXmlBuilder;
+import com.geo.analytics.domain.logic.GeoEvidenceRanker;
+import com.geo.analytics.domain.logic.GeoRagEvidenceXmlBuilder;
 import com.geo.analytics.domain.logic.CompetitorEvidenceBudget;
 import com.geo.analytics.domain.model.MinorityReport;
-import com.geo.analytics.domain.model.SeoEvidence;
-import com.geo.analytics.domain.model.SeoOrganicRow;
+import com.geo.analytics.domain.model.GeoRagEvidence;
+import com.geo.analytics.domain.model.GeoEvidenceRow;
 import com.geo.analytics.infrastructure.ai.DirectorOnboardingJson;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.DebateOnboardingSseEvent;
@@ -35,6 +35,7 @@ import org.springframework.web.client.RestClientResponseException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -61,7 +62,7 @@ public class DebateOnboardingOrchestrator {
     private final ChatLanguageModel skepticChatModel;
     private final ChatLanguageModel directorChatModel;
     private final ObjectMapper objectMapper;
-    private final SeoDataEvidenceProvider seoDataEvidenceProvider;
+    private final GeoEvidenceRanker geoEvidenceRanker;
     private final PromptInjectionValidator promptInjectionValidator;
     private final DebateMathAuditService debateMathAuditService;
     private final OnboardingDebateStreamRegistry onboardingDebateStreamRegistry;
@@ -72,7 +73,7 @@ public class DebateOnboardingOrchestrator {
             @Qualifier(AiConfig.GEMINI_DEBATE_SKEPTIC) ChatLanguageModel skepticChatModel,
             @Qualifier(AiConfig.GEMINI_DEBATE_DIRECTOR) ChatLanguageModel directorChatModel,
             ObjectMapper objectMapper,
-            SeoDataEvidenceProvider seoDataEvidenceProvider,
+            GeoEvidenceRanker geoEvidenceRanker,
             PromptInjectionValidator promptInjectionValidator,
             DebateMathAuditService debateMathAuditService,
             OnboardingDebateStreamRegistry onboardingDebateStreamRegistry) {
@@ -81,7 +82,7 @@ public class DebateOnboardingOrchestrator {
         this.skepticChatModel = skepticChatModel;
         this.directorChatModel = directorChatModel;
         this.objectMapper = objectMapper;
-        this.seoDataEvidenceProvider = Objects.requireNonNull(seoDataEvidenceProvider, "seoDataEvidenceProvider");
+        this.geoEvidenceRanker = Objects.requireNonNull(geoEvidenceRanker, "geoEvidenceRanker");
         this.promptInjectionValidator =
                 Objects.requireNonNull(promptInjectionValidator, "promptInjectionValidator");
         this.debateMathAuditService = Objects.requireNonNull(debateMathAuditService, "debateMathAuditService");
@@ -89,11 +90,14 @@ public class DebateOnboardingOrchestrator {
                 Objects.requireNonNull(onboardingDebateStreamRegistry, "onboardingDebateStreamRegistry");
     }
 
-    public static void enforceNarrationLogBufferCap(List<DebateOnboardingSseEvent> narrationLogBuffer) {
+    public static void enforceNarrationLogBufferCap(Deque<DebateOnboardingSseEvent> narrationLogBuffer) {
         Objects.requireNonNull(narrationLogBuffer, "narrationLogBuffer");
-        synchronized (narrationLogBuffer) {
-            while (narrationLogBuffer.size() >= MAX_NARRATION_LOG_BUFFER_ENTRIES) {
-                narrationLogBuffer.remove(0);
+        // ConcurrentLinkedDeque は弱整合性のため synchronized 不要。size() は O(n) だが
+        // キャップ（小さい固定上限）以下では実質的なコストにならず、pollFirst() で
+        // 旧 remove(0) と同じ FIFO 先頭削除挙動を維持する。
+        while (narrationLogBuffer.size() >= MAX_NARRATION_LOG_BUFFER_ENTRIES) {
+            if (narrationLogBuffer.pollFirst() == null) {
+                break;
             }
         }
     }
@@ -113,11 +117,11 @@ public class DebateOnboardingOrchestrator {
             String plainText,
             UUID targetId,
             String searchQuery,
-            List<SeoOrganicRow> rawSeoRows,
+            List<GeoEvidenceRow> rawSeoRows,
             IndustryType industryHint,
             UUID sessionId,
             AtomicInteger executedTurns,
-            List<DebateOnboardingSseEvent> narrationLogBuffer) {
+            Deque<DebateOnboardingSseEvent> narrationLogBuffer) {
         Objects.requireNonNull(targetId, "targetId");
         Objects.requireNonNull(executedTurns, "executedTurns");
         Objects.requireNonNull(narrationLogBuffer, "narrationLogBuffer");
@@ -130,13 +134,13 @@ public class DebateOnboardingOrchestrator {
         double lastGeoIg = 0.0d;
         double lastTrust = 0.0d;
         boolean competitorXmlIncluded = false;
-        List<SeoEvidence> usedEvidencesForAudit = List.of();
+        List<GeoRagEvidence> usedEvidencesForAudit = List.of();
 
         try {
             IndustryType resolvedIndustry = industryHint != null ? industryHint : IndustryType.OTHER;
             String q = searchQuery == null ? "" : searchQuery;
             String wrapped = "<scraped_data>\n" + plainText + "\n</scraped_data>";
-            List<SeoEvidence> seoEvidences = List.of();
+            List<GeoRagEvidence> seoEvidences = List.of();
             if (rawSeoRows != null && !rawSeoRows.isEmpty()) {
                 emitAndRecord(
                         targetId,
@@ -148,11 +152,11 @@ public class DebateOnboardingOrchestrator {
                         "AI推奨視点に基づき、参照候補の根拠スニペットを収集・正規化しています。",
                         null);
                 seoEvidences =
-                        seoDataEvidenceProvider.provideEvidences(
+                        geoEvidenceRanker.provideEvidences(
                                 q,
                                 rawSeoRows,
                                 RAG_EVIDENCE_MAX_COUNT,
-                                SeoDataEvidenceProvider.DEFAULT_MAX_PER_DOMAIN,
+                                GeoEvidenceRanker.DEFAULT_MAX_PER_DOMAIN,
                                 DEFAULT_EVIDENCE_RELEVANCE_LABEL);
                 SubscriptionPlan subscriptionPlan =
                         TenantPlanScope.currentSubscriptionPlan().orElse(SubscriptionPlan.STANDARD);
@@ -162,7 +166,7 @@ public class DebateOnboardingOrchestrator {
             String competitorXml =
                     (seoEvidences == null || seoEvidences.isEmpty())
                             ? ""
-                            : SeoEvidenceXmlBuilder.buildCompetitorBlock(seoEvidences);
+                            : GeoRagEvidenceXmlBuilder.buildCompetitorBlock(seoEvidences);
             if (!competitorXml.isEmpty()) {
                 if (promptInjectionValidator.isCompetitorXmlSafe(competitorXml)) {
                     competitorXmlIncluded = true;
@@ -375,7 +379,7 @@ public class DebateOnboardingOrchestrator {
     private void emitAndRecord(
             UUID targetId,
             UUID sessionId,
-            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            Deque<DebateOnboardingSseEvent> narrationLogBuffer,
             DebateOnboardingSseEvent.DebateOnboardingSseEventType eventType,
             DebateOnboardingSseEvent.DebateStreamPersona persona,
             DebateOnboardingSseEvent.DebateStreamPhase phase,
@@ -412,10 +416,8 @@ public class DebateOnboardingOrchestrator {
                             timestamp,
                             sessionId);
         }
-        synchronized (narrationLogBuffer) {
-            enforceNarrationLogBufferCap(narrationLogBuffer);
-            narrationLogBuffer.add(bufferEvent);
-        }
+        enforceNarrationLogBufferCap(narrationLogBuffer);
+        narrationLogBuffer.add(bufferEvent);
         try {
             onboardingDebateStreamRegistry.sendEvent(targetId, sessionId, wireEvent);
         } catch (Throwable throwable) {

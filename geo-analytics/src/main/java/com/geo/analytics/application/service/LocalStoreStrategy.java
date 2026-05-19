@@ -36,7 +36,8 @@ public class LocalStoreStrategy implements CompetitorExtractionStrategy {
         String targetUrl = ctx.targetUrl();
         Objects.requireNonNull(jobId, "jobId");
         if (projectId == null) {
-            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(
+                    IndustryType.OTHER, "全国", SyntheticSelectedCompetitorFactory.SyntheticPadReason.NO_CANDIDATES);
         }
         IndustryType industry = IndustryType.OTHER;
         String tradeAreaLabel = "全国";
@@ -60,7 +61,8 @@ public class LocalStoreStrategy implements CompetitorExtractionStrategy {
         }
         List<ExtractedPlace> places = localStoreRippleSearch.collectMergedPlaces(projectId, attrs, industry);
         if (places.isEmpty()) {
-            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(
+                    IndustryType.OTHER, "全国", SyntheticSelectedCompetitorFactory.SyntheticPadReason.NO_CANDIDATES);
         }
         try {
             return competitorFilterService.filter(projectId, industry, tradeAreaLabel, places);

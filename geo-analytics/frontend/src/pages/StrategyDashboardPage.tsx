@@ -4,6 +4,7 @@ import { RelativeEvaluationSection } from "../components/strategy/RelativeEvalua
 import { LockedInsightCallout } from "../components/policy/LockedInsightCallout";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { useProjectAssetSnapshots } from "../hooks/useProjectAssetSnapshots";
+import { useRelativeBenchmark } from "../hooks/useRelativeBenchmark";
 import { useLatestEmotionalAlert } from "../hooks/useLatestEmotionalAlert";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -47,6 +48,7 @@ export default function StrategyDashboardPage(): JSX.Element {
   const { emotionalAlert } = useLatestEmotionalAlert(projectId);
   const range = useMemo(() => defaultRange(), []);
   const {data, loading, error} = useProjectAssetSnapshots(projectId, range.from, range.to);
+  const benchmark = useRelativeBenchmark(projectId);
   const isPdfMode = usePrintSnapshot();
   const [pdfReadyFlag, setPdfReadyFlag] = useState(false);
 
@@ -144,7 +146,13 @@ export default function StrategyDashboardPage(): JSX.Element {
         )}
 
         <AbsoluteEvaluationSection data={data} brandColor={brandColor} isPdfMode={isPdfMode} />
-        <RelativeEvaluationSection />
+        <RelativeEvaluationSection
+          rows={benchmark.rows}
+          locked={benchmark.locked}
+          available={benchmark.available}
+          loading={benchmark.loading}
+          error={benchmark.error}
+        />
 
         {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
       </div>

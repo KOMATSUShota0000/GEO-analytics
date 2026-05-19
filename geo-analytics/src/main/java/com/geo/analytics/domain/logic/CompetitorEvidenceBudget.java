@@ -1,6 +1,6 @@
 package com.geo.analytics.domain.logic;
 
-import com.geo.analytics.domain.model.SeoEvidence;
+import com.geo.analytics.domain.model.GeoRagEvidence;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,12 +17,12 @@ public final class CompetitorEvidenceBudget {
      * {@code sortedEvidences} は優先度が高い順（先頭ほど重要）。{@code maxChars <= 0} のときは空リスト。
      * 元リストは変更しない。
      */
-    public static List<SeoEvidence> clipEvidences(List<SeoEvidence> sortedEvidences, int maxChars) {
+    public static List<GeoRagEvidence> clipEvidences(List<GeoRagEvidence> sortedEvidences, int maxChars) {
         if (sortedEvidences == null || sortedEvidences.isEmpty() || maxChars <= 0) {
             return List.of();
         }
-        ArrayList<SeoEvidence> work = new ArrayList<>(sortedEvidences.size());
-        for (SeoEvidence e : sortedEvidences) {
+        ArrayList<GeoRagEvidence> work = new ArrayList<>(sortedEvidences.size());
+        for (GeoRagEvidence e : sortedEvidences) {
             if (e != null) {
                 work.add(e);
             }
@@ -39,17 +39,17 @@ public final class CompetitorEvidenceBudget {
         return fitSingleEvidence(work.get(0), maxChars);
     }
 
-    private static int competitorXmlLength(List<SeoEvidence> evidences) {
-        return SeoEvidenceXmlBuilder.buildCompetitorBlock(evidences).length();
+    private static int competitorXmlLength(List<GeoRagEvidence> evidences) {
+        return GeoRagEvidenceXmlBuilder.buildCompetitorBlock(evidences).length();
     }
 
-    private static List<SeoEvidence> fitSingleEvidence(SeoEvidence e, int maxChars) {
+    private static List<GeoRagEvidence> fitSingleEvidence(GeoRagEvidence e, int maxChars) {
         String full = e.snippet() == null ? "" : e.snippet();
         int totalCp = full.codePointCount(0, full.length());
         for (int prefixCp = totalCp; prefixCp >= 0; prefixCp--) {
             String snippet = snippetPrefixWithEllipsisByCodePoints(full, prefixCp);
-            SeoEvidence candidate =
-                    new SeoEvidence(
+            GeoRagEvidence candidate =
+                    new GeoRagEvidence(
                             e.url(),
                             e.title(),
                             snippet,

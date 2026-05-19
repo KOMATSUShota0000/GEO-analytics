@@ -17,19 +17,19 @@ public class SerpJobCompetitorExtractor {
 
     private final JobPersistenceService jobPersistenceService;
     private final TargetAttributesInferenceService targetAttributesInferenceService;
-    private final SerpOrganicSearchService serpOrganicSearchService;
+    private final GeoCompetitorSearchService geoCompetitorSearchService;
     private final CompetitorFilterService competitorFilterService;
     private final SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory;
 
     public SerpJobCompetitorExtractor(
             JobPersistenceService jobPersistenceService,
             TargetAttributesInferenceService targetAttributesInferenceService,
-            SerpOrganicSearchService serpOrganicSearchService,
+            GeoCompetitorSearchService geoCompetitorSearchService,
             CompetitorFilterService competitorFilterService,
             SyntheticSelectedCompetitorFactory syntheticSelectedCompetitorFactory) {
         this.jobPersistenceService = jobPersistenceService;
         this.targetAttributesInferenceService = targetAttributesInferenceService;
-        this.serpOrganicSearchService = serpOrganicSearchService;
+        this.geoCompetitorSearchService = geoCompetitorSearchService;
         this.competitorFilterService = competitorFilterService;
         this.syntheticSelectedCompetitorFactory = syntheticSelectedCompetitorFactory;
     }
@@ -40,7 +40,8 @@ public class SerpJobCompetitorExtractor {
         String targetUrl = ctx.targetUrl();
         Objects.requireNonNull(jobId, "jobId");
         if (projectId == null) {
-            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(IndustryType.OTHER, "全国");
+            return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(
+                    IndustryType.OTHER, "全国", SyntheticSelectedCompetitorFactory.SyntheticPadReason.NO_CANDIDATES);
         }
         JobEntity job = jobPersistenceService.findJobById(jobId);
         String brandName = job.getBrandName() != null ? job.getBrandName() : "";
@@ -69,7 +70,7 @@ public class SerpJobCompetitorExtractor {
             summaryHint = s.length() > 120 ? s.substring(0, 120) : s;
         }
         String searchQuery = buildQuery(serpProfile, tradeAreaLabel, primary, brandName, summaryHint);
-        List<SerpOrganicResult> organic = serpOrganicSearchService.searchOrganic(projectId, searchQuery);
+        List<SerpOrganicResult> organic = geoCompetitorSearchService.searchOrganic(projectId, searchQuery);
         String effectiveTargetUrl = targetUrl != null && !targetUrl.isBlank() ? targetUrl : job.getTargetUrl();
         return competitorFilterService.filterFromSerpOrganic(
                 projectId,

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorFilterAiSelection;
 import com.geo.analytics.application.dto.ExtractedPlace;
 import com.geo.analytics.application.dto.SelectedCompetitor;
+import com.geo.analytics.application.service.SyntheticSelectedCompetitorFactory.SyntheticPadReason;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.infrastructure.ai.CompetitorFilterPrompts;
@@ -51,10 +52,7 @@ public class CompetitorFilterService {
         String area = tradeAreaLabel != null ? tradeAreaLabel.trim() : "";
         List<ExtractedPlace> safePlaces = places != null ? places : List.of();
         if (safePlaces.isEmpty()) {
-            return List.of(
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
+            return threeSynthetic(safeIndustry, area, SyntheticPadReason.NO_CANDIDATES);
         }
         UUID reservationId = creditVaultService.reserve(projectId, COMPETITOR_FILTER_CREDIT);
         try {
@@ -70,10 +68,7 @@ public class CompetitorFilterService {
             return List.copyOf(merged);
         } catch (Throwable throwable) {
             creditVaultService.refund(reservationId);
-            return List.of(
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
+            return threeSynthetic(safeIndustry, area, SyntheticPadReason.FILTER_UNAVAILABLE);
         }
     }
 
@@ -89,10 +84,7 @@ public class CompetitorFilterService {
         String area = contextLabel != null ? contextLabel.trim() : "";
         List<SerpOrganicResult> safeOrganics = organics != null ? organics : List.of();
         if (safeOrganics.isEmpty()) {
-            return List.of(
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
+            return threeSynthetic(safeIndustry, area, SyntheticPadReason.NO_CANDIDATES);
         }
         String systemMsg =
                 promptProfile == CompetitorExtractionMode.ONLINE_SERVICE
@@ -117,11 +109,13 @@ public class CompetitorFilterService {
             return List.copyOf(merged);
         } catch (Throwable throwable) {
             creditVaultService.refund(reservationId);
-            return List.of(
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 0),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 1),
-                    syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(safeIndustry, area, 2));
+            return threeSynthetic(safeIndustry, area, SyntheticPadReason.FILTER_UNAVAILABLE);
         }
+    }
+
+    private List<SelectedCompetitor> threeSynthetic(
+            IndustryType industry, String area, SyntheticPadReason reason) {
+        return syntheticSelectedCompetitorFactory.threeShortReasoningPlaceholders(industry, area, reason);
     }
 
     private List<CompetitorFilterAiSelection> parseSelections(String rawJson) throws Exception {
@@ -183,7 +177,8 @@ public class CompetitorFilterService {
     private void padSyntheticToThree(List<SelectedCompetitor> merged, IndustryType industry, String tradeAreaLabel) {
         int ordinal = 0;
         while (merged.size() < 3) {
-            merged.add(syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(industry, tradeAreaLabel, ordinal));
+            merged.add(syntheticSelectedCompetitorFactory.singleFilterPadPlaceholder(
+                    industry, tradeAreaLabel, ordinal, SyntheticPadReason.INSUFFICIENT_REAL));
             ordinal++;
         }
     }

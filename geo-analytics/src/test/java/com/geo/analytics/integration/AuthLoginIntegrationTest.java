@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SyncVerificationService;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +23,7 @@ class AuthLoginIntegrationTest extends PostgresSuperuserTestBase {
     private WebTestClient webTestClient;
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
     private SyncVerificationService syncVerificationService;

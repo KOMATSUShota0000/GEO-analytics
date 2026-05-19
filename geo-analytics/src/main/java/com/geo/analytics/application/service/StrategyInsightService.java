@@ -91,7 +91,7 @@ public final class StrategyInsightService {
             var medSt = medianInt(stages);
             return fromVisibilityStage(medSt);
         }
-        Arrays.parallelSort(zArr);
+        Arrays.sort(zArr);
         var medZ = medianSorted(zArr);
         return fromModifiedZ(medZ);
     }

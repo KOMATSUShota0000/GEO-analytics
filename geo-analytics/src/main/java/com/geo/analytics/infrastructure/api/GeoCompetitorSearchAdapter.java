@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Locale;
 
 @Component
-public class SerpApiAdapter implements SgeMeasurementPort {
-    private static final Logger log = LoggerFactory.getLogger(SerpApiAdapter.class);
+public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
+    private static final Logger log = LoggerFactory.getLogger(GeoCompetitorSearchAdapter.class);
     private static final String SERPAPI_SEARCH_URL = "https://serpapi.com/search.json";
     private static final Duration SERP_CONNECT_TIMEOUT = Duration.ofSeconds(15);
     /** AI Overview 等の AI visibility 応答は JSON が大きくなり得るため読み取りタイムアウトを長めに設定する。 */
@@ -35,7 +35,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
     private final ObjectMapper objectMapper;
     private final String serpApiKey;
 
-    public SerpApiAdapter(
+    public GeoCompetitorSearchAdapter(
             RestClient.Builder restClientBuilder,
             ObjectMapper objectMapper,
             AppProperties appProperties) {
@@ -135,7 +135,7 @@ public class SerpApiAdapter implements SgeMeasurementPort {
         if (serpApiKey.isBlank()) {
             throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
         }
-        String searchQuery = SerpSearchQueryBuilder.build(brandName, query);
+        String searchQuery = GeoCompetitorQueryBuilder.build(brandName, query);
         if (searchQuery.isBlank()) {
             log.warn("AI visibility request skipped: empty query after build brand=\"{}\" userKeyword=\"{}\"", brandName, query);
             throw new IllegalArgumentException("AI visibility query must not be blank");

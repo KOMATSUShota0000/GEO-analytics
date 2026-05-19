@@ -1,7 +1,7 @@
 package com.geo.analytics.domain.logic;
 
-import com.geo.analytics.domain.model.SeoEvidence;
-import com.geo.analytics.domain.model.SeoOrganicRow;
+import com.geo.analytics.domain.model.GeoRagEvidence;
+import com.geo.analytics.domain.model.GeoEvidenceRow;
 import java.lang.StrictMath;
 import java.net.URI;
 import java.time.Duration;
@@ -18,11 +18,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * 検索オーガニック行から鮮度・類似度に基づき精鋭 N 件の {@link SeoEvidence} のみを返す。下位候補は {@link
- * SeoEvidence} に詰め替えない。
+ * 検索オーガニック行から鮮度・類似度に基づき精鋭 N 件の {@link GeoRagEvidence} のみを返す。下位候補は {@link
+ * GeoRagEvidence} に詰め替えない。
  */
 @Component
-public class SeoDataEvidenceProvider {
+public class GeoEvidenceRanker {
 
     /** 鮮度減衰 $\lambda$（年⁻¹）。 */
     public static final double DEFAULT_FRESHNESS_LAMBDA = 0.5d;
@@ -42,7 +42,7 @@ public class SeoDataEvidenceProvider {
     private final double snippetDuplicateThreshold;
 
     @Autowired
-    public SeoDataEvidenceProvider(SimilarityScorer similarityScorer) {
+    public GeoEvidenceRanker(SimilarityScorer similarityScorer) {
         this(
                 similarityScorer,
                 1.0d,
@@ -51,7 +51,7 @@ public class SeoDataEvidenceProvider {
                 DEFAULT_SNIPPET_DUPLICATE_THRESHOLD);
     }
 
-    public SeoDataEvidenceProvider(
+    public GeoEvidenceRanker(
             SimilarityScorer similarityScorer,
             double wSim,
             double freshnessLambda,
@@ -77,9 +77,9 @@ public class SeoDataEvidenceProvider {
      * @param maxPerDomain 同一ホストあたりの上限 k（1 未満は 1 に繰り上げ）
      * @param defaultRelevanceCategory 行にカテゴリが無い場合のラベル（null は空文字）
      */
-    public List<SeoEvidence> provideEvidences(
+    public List<GeoRagEvidence> provideEvidences(
             String query,
-            List<SeoOrganicRow> rows,
+            List<GeoEvidenceRow> rows,
             int maxEvidenceCount,
             int maxPerDomain,
             String defaultRelevanceCategory) {
@@ -89,9 +89,9 @@ public class SeoDataEvidenceProvider {
     /**
      * @param referenceInstant 鮮度計算の基準時刻（null なら {@link Instant#now()}）
      */
-    public List<SeoEvidence> provideEvidences(
+    public List<GeoRagEvidence> provideEvidences(
             String query,
-            List<SeoOrganicRow> rows,
+            List<GeoEvidenceRow> rows,
             int maxEvidenceCount,
             int maxPerDomain,
             String defaultRelevanceCategory,
@@ -105,7 +105,7 @@ public class SeoDataEvidenceProvider {
         int k = Math.max(1, maxPerDomain);
 
         List<RankedRow> ranked = new ArrayList<>(rows.size());
-        for (SeoOrganicRow row : rows) {
+        for (GeoEvidenceRow row : rows) {
             if (row == null) {
                 continue;
             }
@@ -136,20 +136,20 @@ public class SeoDataEvidenceProvider {
                         .thenComparing(r -> r.row().url(), Comparator.nullsFirst(String::compareTo)));
 
         Map<String, Integer> perHost = new HashMap<>();
-        List<SeoEvidence> packed = new ArrayList<>(Math.min(maxEvidenceCount, ranked.size()));
+        List<GeoRagEvidence> packed = new ArrayList<>(Math.min(maxEvidenceCount, ranked.size()));
 
         for (RankedRow rr : ranked) {
             if (packed.size() >= maxEvidenceCount) {
                 break;
             }
-            SeoOrganicRow row = rr.row();
+            GeoEvidenceRow row = rr.row();
             String host = hostKey(row.url());
             int used = perHost.getOrDefault(host, 0);
             if (used >= k) {
                 continue;
             }
             boolean dup = false;
-            for (SeoEvidence kept : packed) {
+            for (GeoRagEvidence kept : packed) {
                 if (snippetTooSimilar(row.title(), row.snippet(), kept.title(), kept.snippet())) {
                     dup = true;
                     break;
@@ -160,7 +160,7 @@ public class SeoDataEvidenceProvider {
             }
             perHost.put(host, used + 1);
             packed.add(
-                    new SeoEvidence(
+                    new GeoRagEvidence(
                             row.url(),
                             row.title() == null ? "" : row.title(),
                             row.snippet() == null ? "" : row.snippet(),
@@ -173,8 +173,8 @@ public class SeoDataEvidenceProvider {
     }
 
     private boolean snippetTooSimilar(String titleA, String snipA, String titleB, String snipB) {
-        String blockA = (titleA == null ? "" : titleA) + '\u0001' + (snipA == null ? "" : snipA);
-        String blockB = (titleB == null ? "" : titleB) + '\u0001' + (snipB == null ? "" : snipB);
+        String blockA = (titleA == null ? "" : titleA) + '' + (snipA == null ? "" : snipA);
+        String blockB = (titleB == null ? "" : titleB) + '' + (snipB == null ? "" : snipB);
         double sim = SNIPPET_PAIR_SIMILARITY.score(blockA, blockB);
         if (!Double.isFinite(sim)) {
             return false;
@@ -238,5 +238,5 @@ public class SeoDataEvidenceProvider {
         }
     }
 
-    private record RankedRow(SeoOrganicRow row, double priority, String relevanceCategory) {}
+    private record RankedRow(GeoEvidenceRow row, double priority, String relevanceCategory) {}
 }

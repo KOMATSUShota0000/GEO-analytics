@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * WORM 布石: 監査イベントを JSON として標準出力および一時ファイルへ書き出すのみ（本番 S3 は未接続）。
+ * WORM 布石: 監査イベントを JSON として一時ファイルへ書き出すのみ（本番 S3 は未接続）。
  */
 @Component
 public class LocalWormAuditAdapter implements WormAuditExportPort {
@@ -36,7 +36,8 @@ public class LocalWormAuditAdapter implements WormAuditExportPort {
         }
         try {
             String json = toJson(event);
-            System.out.println(json);
+            // 本番 stdout 汚染を避けるため標準出力直書きは廃止。監査 JSON 本体は debug ログにのみ残す。
+            log.debug("WORM audit payload eventId={} json={}", event.id(), json);
             Path tmp = Files.createTempFile("worm-audit-", ".json");
             Files.writeString(tmp, json, StandardCharsets.UTF_8);
             log.info("WORM audit export written to {} eventId={}", tmp.toAbsolutePath(), event.id());

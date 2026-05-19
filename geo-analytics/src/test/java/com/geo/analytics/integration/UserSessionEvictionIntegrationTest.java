@@ -6,7 +6,7 @@ import static org.awaitility.Awaitility.await;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -37,7 +37,7 @@ class UserSessionEvictionIntegrationTest extends PostgresTestBase {
     private Cache<UUID, Boolean> userSessionsCache;
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
     private SyncVerificationService syncVerificationService;

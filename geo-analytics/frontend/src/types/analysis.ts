@@ -126,7 +126,13 @@ export interface CompetitorShare {
   name: string;
   value: number;
 }
-export type SubscriptionPlanApi = "STANDARD" | "PRO";
+export type SubscriptionPlanApi = "STANDARD" | "PRO" | "EXPERT";
+
+/** PRO・EXPERT を同一プロTier として正規化する。フロントはこの値で isProPlanUi を判定する。 */
+export function normalizeToProTier(plan: SubscriptionPlanApi): boolean {
+  return plan === "PRO" || plan === "EXPERT";
+}
+
 export interface AnalyticsSummaryNormalized {
   trend: TrendData[];
   share: CompetitorShare[];
@@ -143,7 +149,7 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
   if (!Array.isArray(trendRaw) || !Array.isArray(shareRaw) || typeof planRaw !== "string") {
     return null;
   }
-  if (planRaw !== "STANDARD" && planRaw !== "PRO") {
+  if (planRaw !== "STANDARD" && planRaw !== "PRO" && planRaw !== "EXPERT") {
     return null;
   }
   const trend: TrendData[] = [];

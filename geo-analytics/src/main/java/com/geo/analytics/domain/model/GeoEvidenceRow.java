@@ -4,16 +4,16 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Serp 等のオーガニック検索結果1行。{@link com.geo.analytics.domain.logic.SeoDataEvidenceProvider} の入力。
+ * Serp 等のオーガニック検索結果1行。{@link com.geo.analytics.domain.logic.GeoEvidenceRanker} の入力。
  */
-public record SeoOrganicRow(
+public record GeoEvidenceRow(
         String url,
         String title,
         String snippet,
         Optional<Instant> publishedAt,
         Optional<String> rowRelevanceCategory) {
 
-    public SeoOrganicRow {
+    public GeoEvidenceRow {
         url = url == null ? "" : url;
         title = title == null ? "" : title;
         snippet = snippet == null ? "" : snippet;

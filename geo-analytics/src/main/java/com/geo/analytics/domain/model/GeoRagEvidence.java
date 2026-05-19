@@ -6,7 +6,7 @@ import java.util.Optional;
 /**
  * RAG 証拠としてディベート等に渡す検索行の精鋭サブセット。
  */
-public record SeoEvidence(
+public record GeoRagEvidence(
         String url,
         String title,
         String snippet,

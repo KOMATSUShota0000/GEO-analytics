@@ -8,7 +8,7 @@ import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.event.UserSessionEvictedEvent;
 import com.geo.analytics.application.service.SessionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.entity.UserSession;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
@@ -106,7 +106,7 @@ class SecurityConcurrencyTest {
     private PlatformTransactionManager platformTransactionManager;
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
     private SyncVerificationService syncVerificationService;

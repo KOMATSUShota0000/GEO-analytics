@@ -293,6 +293,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <reuseForks>false</reuseForks>
+                    <argLine>--enable-preview -Djdk.tracePinnedThreads=short</argLine>
                     <environmentVariables>
                         <JAVA_TOOL_OPTIONS>--enable-preview</JAVA_TOOL_OPTIONS>
                     </environmentVariables>

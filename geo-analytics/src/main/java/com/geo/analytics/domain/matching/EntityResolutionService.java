@@ -15,7 +15,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.StructuredTaskScope.Subtask;
 import java.util.concurrent.locks.LockSupport;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 @Service("scopedMatchingEntityResolutionService")
@@ -77,7 +76,10 @@ public final class EntityResolutionService {
         CompletableFuture.runAsync(() -> LockSupport.parkNanos(1_000_000L), virtualYieldExecutor).join();
         int n = specs.size();
         ScoredRow[] buf = new ScoredRow[n];
-        IntStream.range(0, n).parallel().forEach(i -> buf[i] = this.buildScoredRow(specs.get(i), ctx));
+        // 小規模データ（immediateThreshold=32件以下）では逐次が速く、共有 ForkJoinPool(commonPool) も汚さない
+        for (int i = 0; i < n; i++) {
+            buf[i] = this.buildScoredRow(specs.get(i), ctx);
+        }
         return List.copyOf(Arrays.asList(buf));
     }
 

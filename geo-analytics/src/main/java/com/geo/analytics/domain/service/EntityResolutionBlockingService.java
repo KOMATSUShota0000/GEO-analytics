@@ -41,7 +41,7 @@ public final class EntityResolutionBlockingService {
     }
 
     public Map<String, List<ResolvableEntity>> bucketByBlockingHash(List<ResolvableEntity> entities) {
-        return entities.parallelStream()
-            .collect(Collectors.groupingByConcurrent(e -> blockingHashSha256(e.label())));
+        return entities.stream()
+            .collect(Collectors.groupingBy(e -> blockingHashSha256(e.label())));
     }
 }

@@ -3,8 +3,10 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.GeoOnboardingLlmResult;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.IndustryType;
+import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.model.MinorityReport;
-import com.geo.analytics.domain.model.SeoOrganicRow;
+import com.geo.analytics.domain.model.GeoEvidenceRow;
+import com.geo.analytics.infrastructure.api.dto.SerpOrganicResult;
 import com.geo.analytics.infrastructure.crawler.extraction.StreamTextExtractor;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.geo.analytics.infrastructure.repository.ProjectRepository;
@@ -24,10 +26,12 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -46,6 +50,7 @@ public class ProjectOnboardingService {
     private final OnboardingDebateStreamRegistry onboardingDebateStreamRegistry;
     private final TransactionTemplate transactionTemplate;
     private final ProjectContextTextLimiter projectContextTextLimiter;
+    private final GeoCompetitorSearchService geoCompetitorSearchService;
 
     public ProjectOnboardingService(
             CreditVaultService creditVaultService,
@@ -54,7 +59,8 @@ public class ProjectOnboardingService {
             DebateOnboardingOrchestrator debateOnboardingOrchestrator,
             OnboardingDebateStreamRegistry onboardingDebateStreamRegistry,
             TransactionTemplate transactionTemplate,
-            ProjectContextTextLimiter projectContextTextLimiter) {
+            ProjectContextTextLimiter projectContextTextLimiter,
+            GeoCompetitorSearchService geoCompetitorSearchService) {
         this.creditVaultService = creditVaultService;
         this.projectRepository = projectRepository;
         this.safeHttpClient = safeHttpClient;
@@ -62,6 +68,7 @@ public class ProjectOnboardingService {
         this.onboardingDebateStreamRegistry = onboardingDebateStreamRegistry;
         this.transactionTemplate = transactionTemplate;
         this.projectContextTextLimiter = projectContextTextLimiter;
+        this.geoCompetitorSearchService = geoCompetitorSearchService;
     }
 
     public void runOnboarding(UUID projectId, String url, IndustryType industryHint, UUID sessionId) {
@@ -171,7 +178,8 @@ public class ProjectOnboardingService {
 
     private GeoOnboardingLlmResult runGeoPipeline(
             UUID projectId, String url, IndustryType industryHint, UUID sessionId, AtomicInteger executedTurns) {
-        List<DebateOnboardingSseEvent> narrationLogBuffer = new ArrayList<>(64);
+        // 仮想スレッドのピン留め回避のため synchronized 不要なロックフリー Deque を採用。
+        Deque<DebateOnboardingSseEvent> narrationLogBuffer = new ConcurrentLinkedDeque<>();
         Thread worker = Thread.currentThread();
         try {
             if (sessionId != null) {
@@ -222,7 +230,15 @@ public class ProjectOnboardingService {
                 throw new UncheckedIOException(ioException);
             }
             String searchQuery = extractSearchQueryHint(uri);
-            List<SeoOrganicRow> seoRows = buildPlaceholderSeoRows(url);
+            emitNarration(
+                    projectId,
+                    sessionId,
+                    narrationLogBuffer,
+                    "競合情報を収集しています。SerpAPI から有機検索結果を取得中です。",
+                    DebateOnboardingSseEvent.DebateOnboardingSseEventType.NARRATION,
+                    DebateOnboardingSseEvent.DebateStreamPersona.SYSTEM,
+                    DebateOnboardingSseEvent.DebateStreamPhase.GATHERING);
+            List<GeoEvidenceRow> seoRows = buildCompetitorEvidenceRows(projectId, url, searchQuery);
             return debateOnboardingOrchestrator.runDebateOnboarding(
                     plain, projectId, searchQuery, seoRows, industryHint, sessionId, executedTurns, narrationLogBuffer);
         } finally {
@@ -235,7 +251,7 @@ public class ProjectOnboardingService {
     private void emitNarration(
             UUID projectId,
             UUID sessionId,
-            List<DebateOnboardingSseEvent> narrationLogBuffer,
+            Deque<DebateOnboardingSseEvent> narrationLogBuffer,
             String message,
             DebateOnboardingSseEvent.DebateOnboardingSseEventType eventType,
             DebateOnboardingSseEvent.DebateStreamPersona persona,
@@ -256,10 +272,8 @@ public class ProjectOnboardingService {
                         null,
                         timestamp,
                         sessionId);
-        synchronized (narrationLogBuffer) {
-            DebateOnboardingOrchestrator.enforceNarrationLogBufferCap(narrationLogBuffer);
-            narrationLogBuffer.add(bufferEvent);
-        }
+        DebateOnboardingOrchestrator.enforceNarrationLogBufferCap(narrationLogBuffer);
+        narrationLogBuffer.add(bufferEvent);
         try {
             onboardingDebateStreamRegistry.sendEvent(projectId, sessionId, wireEvent);
         } catch (Throwable throwable) {
@@ -268,22 +282,71 @@ public class ProjectOnboardingService {
     }
 
     /**
-     * Serp API のオーガニック結果パースに差し替え予定。現状はオンボ1件のプレースホルダ。
+     * SerpAPI から競合エビデンス行を取得し、自社ドメインを除外して返す。
+     * API キー未設定・クレジット不足・エラー等の場合はプレースホルダ1件にフォールバックする。
      */
-    private static List<SeoOrganicRow> buildPlaceholderSeoRows(String pageUrl) {
+    private List<GeoEvidenceRow> buildCompetitorEvidenceRows(
+            UUID projectId, String pageUrl, String searchQuery) {
+        try {
+            List<SerpOrganicResult> organicResults =
+                    geoCompetitorSearchService.searchOrganic(projectId, searchQuery);
+            if (organicResults.isEmpty()) {
+                return fallbackPlaceholder(pageUrl);
+            }
+            String selfHost = normalizeDomainHost(pageUrl);
+            List<GeoEvidenceRow> rows = new ArrayList<>(organicResults.size());
+            for (SerpOrganicResult result : organicResults) {
+                String resultHost = normalizeDomainHost(result.link());
+                if (!selfHost.isEmpty() && selfHost.equals(resultHost)) {
+                    // 自社ドメインは競合リストに含めない
+                    continue;
+                }
+                rows.add(new GeoEvidenceRow(
+                        result.link() != null ? result.link() : "",
+                        result.title() != null ? result.title() : "",
+                        result.snippet() != null ? result.snippet() : "",
+                        Optional.empty(),
+                        Optional.empty()));
+            }
+            return rows.isEmpty() ? fallbackPlaceholder(pageUrl) : List.copyOf(rows);
+        } catch (InsufficientQuotaException insufficientQuotaException) {
+            log.warn("SerpAPI 呼び出しをスキップ: クレジット不足 projectId={}", projectId);
+            return fallbackPlaceholder(pageUrl);
+        } catch (Exception exception) {
+            log.warn("SerpAPI 競合エビデンス取得失敗。プレースホルダにフォールバック。projectId={}", projectId, exception);
+            return fallbackPlaceholder(pageUrl);
+        }
+    }
+
+    private static List<GeoEvidenceRow> fallbackPlaceholder(String pageUrl) {
         String safeUrl = pageUrl == null ? "" : pageUrl.trim();
         if (safeUrl.isEmpty()) {
             return List.of();
         }
-        List<SeoOrganicRow> rows = new ArrayList<>(1);
-        rows.add(
-                new SeoOrganicRow(
-                        safeUrl,
-                        "自社サイト（オンボーディング対象）",
-                        "フェーズ1.3 のプレースホルダ。実際の生成AI回答内シェア用スニペットは外部取得API連携で置換予定。",
-                        Optional.empty(),
-                        Optional.empty()));
-        return List.copyOf(rows);
+        return List.of(new GeoEvidenceRow(
+                safeUrl,
+                "自社サイト（オンボーディング対象）",
+                "競合エビデンスを取得できませんでした。自社サイトのみでペルソナ議論を実行します。",
+                Optional.empty(),
+                Optional.empty()));
+    }
+
+    /**
+     * www. の有無による不一致を防ぐため、ホスト名を正規化する。
+     */
+    private static String normalizeDomainHost(String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        try {
+            String host = URI.create(url.trim()).getHost();
+            if (host == null) {
+                return "";
+            }
+            return host.startsWith("www.") ? host.substring(4) : host;
+        } catch (IllegalArgumentException illegalArgumentException) {
+            return "";
+        }
     }
 
     /**

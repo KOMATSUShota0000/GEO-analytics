@@ -1,14 +1,14 @@
 package com.geo.analytics.domain.logic;
 
-import com.geo.analytics.domain.model.SeoEvidence;
+import com.geo.analytics.domain.model.GeoRagEvidence;
 import java.util.List;
 
 /**
- * 競合SEOスニペットを XML でラップし、テキストノードをエスケープしてプロンプト汚染を抑える。
+ * 競合スニペットを XML でラップし、テキストノードをエスケープしてプロンプト汚染を抑える。
  */
-public final class SeoEvidenceXmlBuilder {
+public final class GeoRagEvidenceXmlBuilder {
 
-    private SeoEvidenceXmlBuilder() {}
+    private GeoRagEvidenceXmlBuilder() {}
 
     /**
      * {@code evidences} が null または空のときは空文字。それ以外は
@@ -23,13 +23,13 @@ public final class SeoEvidenceXmlBuilder {
      * &lt;/competitor_seo_data&gt;
      * </pre>
      */
-    public static String buildCompetitorBlock(List<SeoEvidence> evidences) {
+    public static String buildCompetitorBlock(List<GeoRagEvidence> evidences) {
         if (evidences == null || evidences.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder(evidences.size() * 256 + 64);
         sb.append("<competitor_seo_data>\n");
-        for (SeoEvidence e : evidences) {
+        for (GeoRagEvidence e : evidences) {
             if (e == null) {
                 continue;
             }

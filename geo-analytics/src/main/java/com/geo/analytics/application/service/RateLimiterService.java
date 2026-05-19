@@ -1,5 +1,5 @@
 package com.geo.analytics.application.service;
-import com.geo.analytics.domain.enums.PricingPlan;
+import com.geo.analytics.domain.enums.RateLimitPlan;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.BucketConfiguration;
@@ -14,7 +14,7 @@ public class RateLimiterService {
     public RateLimiterService(@Qualifier("rateLimitProxyManager") ProxyManager<String> rateLimitProxyManager) {
         this.proxyManager = Objects.requireNonNull(rateLimitProxyManager);
     }
-    public boolean tryAcquire(PricingPlan plan) {
+    public boolean tryAcquire(RateLimitPlan plan) {
         return TenantPlanScope.currentTenantIdString()
                 .filter(t -> !t.isBlank())
                 .map(tenantId -> {
@@ -23,7 +23,7 @@ public class RateLimiterService {
                 })
                 .orElse(false);
     }
-    private static BucketConfiguration bucketConfiguration(PricingPlan plan) {
+    private static BucketConfiguration bucketConfiguration(RateLimitPlan plan) {
         Bandwidth burst = Bandwidth.builder()
                 .capacity(plan.burstCapacity())
                 .refillGreedy(plan.burstCapacity(), Duration.ofSeconds(1))

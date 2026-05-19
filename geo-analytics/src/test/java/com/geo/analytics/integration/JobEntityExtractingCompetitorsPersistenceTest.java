@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import jakarta.persistence.EntityManager;
@@ -25,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 class JobEntityExtractingCompetitorsPersistenceTest extends PostgresSuperuserTestBase {
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @Autowired
     private JobRepository jobRepository;

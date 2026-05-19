@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.SyncVerificationService;
-import com.geo.analytics.infrastructure.api.SerpApiAdapter;
+import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.integration.support.RlsTenantQueryFacade;
@@ -31,7 +31,7 @@ class RlsIntegrationTest extends PostgresTestBase {
     private RlsTenantQueryFacade rlsTenantQueryFacade;
 
     @MockitoBean
-    private SerpApiAdapter serpApiAdapter;
+    private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
     private SyncVerificationService syncVerificationService;
