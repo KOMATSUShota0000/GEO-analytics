@@ -62,10 +62,21 @@ public class AsyncSgeMeasurementService {
         UUID jobId = job.getId();
         List<QueryEntity> queryList = Objects.requireNonNull(queries, "queries");
         log.info("AI Overview measurement started jobId={} queryCount={}", jobId, queryList.size());
-        try {
-            if (serpApiKey.isBlank()) {
-                throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
+        if (serpApiKey.isBlank()) {
+            log.warn("SERPAPI key is not configured. Degrading SGE measurement to empty placeholders. jobId={} queryCount={}",
+                    jobId, queryList.size());
+            UUID wid = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            for (QueryEntity queryEntity : queryList) {
+                batchPersistence.insertSgeResult(
+                        wid, jobId, queryEntity.getId(),
+                        queryEntity.getQueryText(),
+                        "{}",
+                        false,
+                        0);
             }
+            return;
+        }
+        try {
             if (queryList.isEmpty()) {
                 log.warn("Skipping AI Overview measurement: empty query list jobId={}", jobId);
                 return;

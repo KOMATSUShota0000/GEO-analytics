@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { AnalysisCharts } from "../components/AnalysisCharts";
@@ -200,6 +200,26 @@ export default function ReportPrintPage(): JSX.Element {
     const ok = (analysisReady && fontsReady && logoReady) || isErrorState;
     setPdfReadyFlag(ok);
   }, [analysisReady, fontsReady, logoReady, isErrorState]);
+
+  const autoPrintRequested = searchParams.get("print") === "1";
+  const autoPrintFiredRef = useRef(false);
+  useEffect(() => {
+    if (!autoPrintRequested || autoPrintFiredRef.current) {
+      return;
+    }
+    if (!pdfReadyFlag || isErrorState) {
+      return;
+    }
+    autoPrintFiredRef.current = true;
+    const timer = window.setTimeout(() => {
+      try {
+        window.print();
+      } catch {
+        // ignore
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [autoPrintRequested, pdfReadyFlag, isErrorState]);
 
   const isProcessing = useMemo(() => {
     if (!data) return false;
@@ -451,18 +471,37 @@ export default function ReportPrintPage(): JSX.Element {
           <p className="mt-1 break-all">
             <span className="font-medium text-slate-800">対象URL</span> {data.project.targetUrl}
           </p>
-          {data.project.competitorUrls.length > 0 && (
-            <div className="mt-1">
-              <span className="font-medium text-slate-800">競合URL</span>
-              <ul className="ml-4 list-disc">
-                {data.project.competitorUrls.map((url) => (
-                  <li key={url} className="break-all">
-                    {url}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {(() => {
+            const profiles = data.project.competitorProfiles ?? [];
+            const fallbackUrls = data.project.competitorUrls.filter(
+              (u) => u != null && u.trim().length > 0,
+            );
+            if (profiles.length === 0 && fallbackUrls.length === 0) {
+              return null;
+            }
+            return (
+              <div className="mt-1">
+                <span className="font-medium text-slate-800">競合</span>
+                <ul className="ml-4 list-disc">
+                  {profiles.length > 0
+                    ? profiles.map((p, i) => (
+                        <li key={`prof-${i}-${p.name}`} className="break-all">
+                          {p.synthetic
+                            ? `${p.name}（参考基準点・実競合ではない）`
+                            : p.websiteUrl != null
+                              ? `${p.name}（${p.websiteUrl}）`
+                              : p.name}
+                        </li>
+                      ))
+                    : fallbackUrls.map((url, i) => (
+                        <li key={`url-${i}-${url}`} className="break-all">
+                          {url}
+                        </li>
+                      ))}
+                </ul>
+              </div>
+            );
+          })()}
         </section>
       )}
       {pdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}

@@ -8,6 +8,8 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import java.util.List;
 
 @Component
 public final class GapDiagnosisGeminiClient {
+    private static final Logger log = LoggerFactory.getLogger(GapDiagnosisGeminiClient.class);
     private static final String SYS = """
         You output only one JSON object. Keys must be exactly: gap_reason (string, Japanese, at most 200 characters), actions (JSON array of exactly 3 Japanese strings). \
         No markdown. No text outside JSON.""";
@@ -29,6 +32,12 @@ public final class GapDiagnosisGeminiClient {
     }
 
     public GapLlmResult analyze(String userContent) {
+        // 空コンテンツを Gemini に投げると 400 INVALID_ARGUMENT でログが汚れ、クレジットも無駄に消費する。
+        // 発生源で呼び出しを止め、中立フォールバック（理由なし＋汎用アクション3件）を返す。
+        if (userContent == null || userContent.isBlank()) {
+            log.warn("gap diagnosis skipped: user content is empty/blank");
+            return neutralFallback();
+        }
         var req = ChatRequest.builder()
             .messages(SystemMessage.from(SYS), UserMessage.from(userContent))
             .build();
@@ -60,5 +69,11 @@ public final class GapDiagnosisGeminiClient {
             actions.add("コンテンツ最適化の継続");
         }
         return new GapLlmResult(reason, List.copyOf(actions.subList(0, 3)));
+    }
+
+    private static GapLlmResult neutralFallback() {
+        return new GapLlmResult(
+                "",
+                List.of("コンテンツ最適化の継続", "コンテンツ最適化の継続", "コンテンツ最適化の継続"));
     }
 }

@@ -183,11 +183,17 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
   }
   return { trend, share, subscriptionPlan: planRaw };
 }
+export interface CompetitorProfile {
+  name: string;
+  websiteUrl: string | null;
+  synthetic: boolean;
+}
 export interface JobProjectInfo {
   projectId: string;
   projectName: string;
   targetUrl: string;
   competitorUrls: string[];
+  competitorProfiles: CompetitorProfile[];
   brandColor: string;
   logoUrl: string | null;
   industryType?: string;
@@ -206,6 +212,19 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
   const compRaw = p.competitorUrls;
   const comp = Array.isArray(compRaw)
     ? compRaw.filter((x): x is string => typeof x === "string")
+    : [];
+  const profRaw = p.competitor_profiles ?? p.competitorProfiles;
+  const profiles: CompetitorProfile[] = Array.isArray(profRaw)
+    ? profRaw.reduce<CompetitorProfile[]>((acc, x) => {
+        if (x !== null && typeof x === "object") {
+          const o = x as JsonDict;
+          const nm = typeof o.name === "string" ? o.name : "";
+          const wuRaw = o.websiteUrl ?? o.website_url;
+          const wu = typeof wuRaw === "string" && wuRaw.length > 0 ? wuRaw : null;
+          acc.push({ name: nm, websiteUrl: wu, synthetic: o.synthetic === true });
+        }
+        return acc;
+      }, [])
     : [];
   const bcRaw = p.brandColor;
   const bc =
@@ -226,6 +245,7 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
     projectName,
     targetUrl,
     competitorUrls: comp,
+    competitorProfiles: profiles,
     brandColor: bc,
     logoUrl: lu,
     industryType,
@@ -327,6 +347,13 @@ export function averageLiveScoresFromParsed(
 }
 export function competitorLabelsFromProject(project: JobProjectInfo | null): [string, string] {
   const urls = project?.competitorUrls ?? [];
+  const profiles = project?.competitorProfiles ?? [];
+  // プロファイル名（実競合のホスト名／合成競合の参照ティア名）があればそれを優先する。
+  // 無い場合のみ従来どおり URL ホスト名から導出する。
+  const fromProfile = (idx: number, fallback: string): string => {
+    const nm = profiles[idx]?.name;
+    return typeof nm === "string" && nm.trim().length > 0 ? nm.trim() : fallback;
+  };
   const a =
     urls[0] !== undefined
       ? (() => {
@@ -349,7 +376,7 @@ export function competitorLabelsFromProject(project: JobProjectInfo | null): [st
           }
         })()
       : "競合B";
-  return [a, b];
+  return [fromProfile(0, a), fromProfile(1, b)];
 }
 export function buildCompetitorShareData(
   brandName: string,

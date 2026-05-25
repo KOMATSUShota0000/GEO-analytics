@@ -117,20 +117,63 @@ function ProjectInfoBlock({
           {project.targetUrl}
         </a>
       </p>
-      {project.competitorUrls.length > 0 && (
-        <div className="mt-2 text-sm text-slate-600">
-          <span className="font-medium text-slate-800">競合URL</span>
-          <ul className="mt-1 list-inside list-disc space-y-1">
-            {project.competitorUrls.map((url) => (
-              <li key={url} className="break-all">
-                <a href={url} className="text-sky-700 underline hover:text-sky-900" target="_blank" rel="noreferrer">
-                  {url}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {(() => {
+        const profiles = project.competitorProfiles ?? [];
+        // 旧ジョブ（プロファイル未保持）は空URLを除外して従来どおりURL表示にフォールバックする。
+        const fallbackUrls = project.competitorUrls.filter((u) => u != null && u.trim().length > 0);
+        if (profiles.length === 0 && fallbackUrls.length === 0) {
+          return null;
+        }
+        const allSynthetic = profiles.length > 0 && profiles.every((p) => p.synthetic);
+        return (
+          <div className="mt-2 text-sm text-slate-600">
+            <span className="font-medium text-slate-800">競合</span>
+            {allSynthetic && (
+              <p className="mt-1 text-xs text-slate-500">
+                実競合が十分に取得できなかったため、参考基準点を表示しています。
+              </p>
+            )}
+            <ul className="mt-1 space-y-1">
+              {profiles.length > 0
+                ? profiles.map((p, i) => (
+                    <li key={`prof-${i}-${p.name}`} className="break-all">
+                      {p.synthetic ? (
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span>{p.name}</span>
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+                            参考基準点・実競合ではない
+                          </span>
+                        </span>
+                      ) : p.websiteUrl != null ? (
+                        <a
+                          href={p.websiteUrl}
+                          className="text-sky-700 underline hover:text-sky-900"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {p.name.trim().length > 0 ? p.name : p.websiteUrl}
+                        </a>
+                      ) : (
+                        <span>{p.name}</span>
+                      )}
+                    </li>
+                  ))
+                : fallbackUrls.map((url, i) => (
+                    <li key={`url-${i}-${url}`} className="break-all">
+                      <a
+                        href={url}
+                        className="text-sky-700 underline hover:text-sky-900"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {url}
+                      </a>
+                    </li>
+                  ))}
+            </ul>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -325,6 +368,16 @@ export function JobAnalysisPage(): JSX.Element {
     } finally {
       setPdfDownloadInFlight(false);
     }
+  }, [effectiveJobId]);
+
+  const openPrintReport = useCallback((): void => {
+    const id = effectiveJobId.trim();
+    if (id.length === 0) {
+      return;
+    }
+    const token = (import.meta.env.VITE_PDF_INTERNAL_TOKEN ?? "dev-internal-token") as string;
+    const url = `/reports/print/${encodeURIComponent(id)}?print=1&internal_token=${encodeURIComponent(token)}`;
+    window.open(url, "_blank", "noopener");
   }, [effectiveJobId]);
 
   const goToJobCreation = useCallback((): void => {
@@ -593,15 +646,16 @@ export function JobAnalysisPage(): JSX.Element {
           {!isPdfGeneratingUi && (jobStatus.pdfStatus === null || jobStatus.pdfStatus === PDF_FAILED) && (
             <button
               type="button"
-              onClick={requestPdfReport}
-              disabled={analysisLocked || !isCompletedDisplay || pdfRequestInFlight}
+              onClick={openPrintReport}
+              disabled={analysisLocked || !isCompletedDisplay}
               className={
-                !analysisLocked && isCompletedDisplay && !pdfRequestInFlight
+                !analysisLocked && isCompletedDisplay
                   ? "inline-flex cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
                   : "inline-flex cursor-not-allowed rounded-lg border border-slate-200 bg-slate-200 px-4 py-2 text-sm font-medium text-slate-600 opacity-60"
               }
+              title="新しいタブで印刷プレビューを開きます。ブラウザの『PDFとして保存』をご利用ください。"
             >
-              PDFレポートを生成
+              PDFとして保存
             </button>
           )}
           <button

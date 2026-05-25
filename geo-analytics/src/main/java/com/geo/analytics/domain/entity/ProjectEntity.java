@@ -16,6 +16,7 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.Size;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.model.MinorityReport;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -62,6 +63,9 @@ public class ProjectEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
     private List<MinorityReport> minorityReports = new ArrayList<>();
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "competitor_profiles", nullable = false, columnDefinition = "jsonb")
+    private List<CompetitorProfile> competitorProfiles = new ArrayList<>();
     public ProjectEntity() {
     }
     public UUID getId() {
@@ -160,6 +164,12 @@ public class ProjectEntity extends BaseTenantEntity {
     public void setMinorityReports(List<MinorityReport> minorityReports) {
         this.minorityReports = minorityReports != null ? minorityReports : new ArrayList<>();
     }
+    public List<CompetitorProfile> getCompetitorProfiles() {
+        return competitorProfiles;
+    }
+    public void setCompetitorProfiles(List<CompetitorProfile> competitorProfiles) {
+        this.competitorProfiles = competitorProfiles != null ? competitorProfiles : new ArrayList<>();
+    }
     @PrePersist
     protected void onCreate() {
         LocalDateTime now = LocalDateTime.now();
@@ -173,6 +183,9 @@ public class ProjectEntity extends BaseTenantEntity {
         }
         if (minorityReports == null) {
             minorityReports = new ArrayList<>();
+        }
+        if (competitorProfiles == null) {
+            competitorProfiles = new ArrayList<>();
         }
     }
     @PreUpdate

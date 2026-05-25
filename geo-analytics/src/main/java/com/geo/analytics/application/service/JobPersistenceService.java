@@ -8,6 +8,7 @@ import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.RubricCriterionId;
+import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
@@ -687,6 +688,32 @@ public class JobPersistenceService {
                         projectRepository.save(projectEntity);
                     });
         });
+    }
+    @Transactional
+    public void saveProjectCompetitorProfiles(UUID projectId, List<CompetitorProfile> profiles) {
+        UUID tenantId = readWorkspaceIdForProject(projectId);
+        TenantPlanScope.executeWithTenant(tenantId, () -> {
+            projectRepository
+                    .findById(projectId)
+                    .ifPresent(projectEntity -> {
+                        projectEntity.setCompetitorProfiles(normalizeThreeProfiles(profiles));
+                        projectRepository.save(projectEntity);
+                    });
+        });
+    }
+    private static List<CompetitorProfile> normalizeThreeProfiles(List<CompetitorProfile> profiles) {
+        List<CompetitorProfile> out = new ArrayList<>();
+        if (profiles != null) {
+            for (CompetitorProfile profile : profiles) {
+                if (profile != null) {
+                    out.add(profile);
+                }
+                if (out.size() == 3) {
+                    return new ArrayList<>(out);
+                }
+            }
+        }
+        return new ArrayList<>(out);
     }
     private static List<String> normalizeThreeUrls(List<String> urls) {
         List<String> out = new ArrayList<>();

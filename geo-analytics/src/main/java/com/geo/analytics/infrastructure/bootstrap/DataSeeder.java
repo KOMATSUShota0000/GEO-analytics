@@ -3,6 +3,7 @@ package com.geo.analytics.infrastructure.bootstrap;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
+import com.geo.analytics.infrastructure.repository.OrganizationRepository;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
@@ -28,19 +29,24 @@ public class DataSeeder implements CommandLineRunner {
     private static final String SEED_EMAIL = "bootstrap@example.com";
     private static final String SEED_PASSWORD = "bootstrap";
 
+    static final long DEV_CREDIT_TOPUP = 1_000_000L;
+
     private final DataSeeder self;
     private final WorkspaceRepository workspaceRepository;
     private final OrganizationUserRepository organizationUserRepository;
+    private final OrganizationRepository organizationRepository;
     private final PasswordEncoder passwordEncoder;
 
     public DataSeeder(
             @Lazy DataSeeder self,
             WorkspaceRepository workspaceRepository,
             OrganizationUserRepository organizationUserRepository,
+            OrganizationRepository organizationRepository,
             PasswordEncoder passwordEncoder) {
         this.self = self;
         this.workspaceRepository = workspaceRepository;
         this.organizationUserRepository = organizationUserRepository;
+        this.organizationRepository = organizationRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -54,6 +60,12 @@ public class DataSeeder implements CommandLineRunner {
 
     @Transactional
     public void seedData(UUID orgId, UUID wid) {
+        organizationRepository.findByIdForUpdate(orgId).ifPresent(org -> {
+            if (org.getCreditBalance() == 0) {
+                org.setCreditBalance(DEV_CREDIT_TOPUP);
+                log.info("[DEV] Topped up credit balance for default organization: {} credits", DEV_CREDIT_TOPUP);
+            }
+        });
         if (workspaceRepository.count() == 0) {
             WorkspaceEntity w = new WorkspaceEntity();
             w.setId(wid);

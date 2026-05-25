@@ -1,6 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.OrganizationEntity;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.OrganizationRepository;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -23,10 +24,15 @@ public class BrandingService {
 
     private final OrganizationRepository organizationRepository;
     private final AppProperties appProperties;
+    private final WorkspacePlanResolver workspacePlanResolver;
 
-    public BrandingService(OrganizationRepository organizationRepository, AppProperties appProperties) {
+    public BrandingService(
+            OrganizationRepository organizationRepository,
+            AppProperties appProperties,
+            WorkspacePlanResolver workspacePlanResolver) {
         this.organizationRepository = organizationRepository;
         this.appProperties = appProperties;
+        this.workspacePlanResolver = workspacePlanResolver;
     }
 
     @Transactional(readOnly = true)
@@ -36,11 +42,15 @@ public class BrandingService {
         OrganizationEntity org = organizationRepository
                 .findByIdAndDeletedAtIsNull(orgId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        return new WorkspaceBrandingResponse(org.getToolName(), org.getBrandColor(), LOGO_URL);
+        String logoUrl = logoEntitled() ? LOGO_URL : "";
+        return new WorkspaceBrandingResponse(org.getToolName(), org.getBrandColor(), logoUrl);
     }
 
     @Transactional(readOnly = true)
     public Resource loadLogoResource() throws FileNotFoundException {
+        if (!logoEntitled()) {
+            throw new FileNotFoundException("logo");
+        }
         UUID orgId = TenantContextHolder.getOrganizationId()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
         OrganizationEntity org = organizationRepository
@@ -55,6 +65,13 @@ public class BrandingService {
             throw new FileNotFoundException(resolved.toString());
         }
         return new PathResource(resolved);
+    }
+
+    private boolean logoEntitled() {
+        return TenantContextHolder.getTenantId()
+                .map(workspacePlanResolver::resolvePlan)
+                .map(SubscriptionPlan::usesProTierFeatures)
+                .orElse(false);
     }
 
     private Path normalizedStorageRoot() {

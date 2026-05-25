@@ -1,6 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.application.dto.SelectedCompetitor;
+import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
@@ -198,6 +199,8 @@ public class JobQuerySubmissionService {
                     hybridCompetitorPipelineService.executePipeline(jobId, projectId, targetUrl, competitorExtractionMode);
             List<String> urls = competitorUrlsFromSelected(selected);
             jobPersistenceService.saveProjectCompetitorUrls(projectId, urls);
+            jobPersistenceService.saveProjectCompetitorProfiles(
+                    projectId, competitorProfilesFromSelected(selected));
             continueAfterCompetitorsPersisted(
                     jobId, queryTexts, planEnum, realtime, batchDeposit, batchTenantId);
         } catch (Throwable throwable) {
@@ -246,6 +249,26 @@ public class JobQuerySubmissionService {
         JobEntity batchJobEntity = jobPersistenceService.findJobById(jobId);
         List<QueryEntity> batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, queryTexts.size());
+    }
+
+    private static List<CompetitorProfile> competitorProfilesFromSelected(List<SelectedCompetitor> selected) {
+        List<CompetitorProfile> out = new ArrayList<>();
+        if (selected != null) {
+            for (SelectedCompetitor competitor : selected) {
+                if (competitor == null) {
+                    continue;
+                }
+                String url = competitor.websiteUrl();
+                out.add(new CompetitorProfile(
+                        competitor.name(),
+                        url != null && !url.isBlank() ? url : null,
+                        competitor.synthetic()));
+                if (out.size() == 3) {
+                    return new ArrayList<>(out);
+                }
+            }
+        }
+        return new ArrayList<>(out);
     }
 
     private static List<String> competitorUrlsFromSelected(List<SelectedCompetitor> selected) {

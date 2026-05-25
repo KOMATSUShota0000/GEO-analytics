@@ -28,3 +28,23 @@ export async function fetchWorkspacePlan(): Promise<WorkspaceSubscriptionPlan | 
     return null;
   }
 }
+
+/**
+ * デフォルトワークスペースのプランを切り替える（開発・検証用）。
+ * バックエンド: PATCH /api/v1/workspaces/{id}/subscription  body: {"plan": "PRO"}
+ */
+export async function changeWorkspacePlan(plan: WorkspaceSubscriptionPlan): Promise<boolean> {
+  try {
+    const res = await apiFetch(
+      `/api/v1/workspaces/${DEFAULT_WORKSPACE_TENANT_ID}/subscription`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
