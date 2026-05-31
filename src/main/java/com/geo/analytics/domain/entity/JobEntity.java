@@ -70,6 +70,8 @@ public class JobEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "job_recommended_actions")
     private List<String> jobRecommendedActions;
+    @Column(name = "job_advice_source", length = 32)
+    private String jobAdviceSource;
     @Column(name = "gap_batch_idempotency_key")
     private UUID gapBatchIdempotencyKey;
     @Column(name = "create_idempotency_key")
@@ -234,6 +236,12 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setJobRecommendedActions(List<String> jobRecommendedActions) {
         this.jobRecommendedActions = jobRecommendedActions;
+    }
+    public String getJobAdviceSource() {
+        return jobAdviceSource;
+    }
+    public void setJobAdviceSource(String jobAdviceSource) {
+        this.jobAdviceSource = jobAdviceSource;
     }
     public UUID getGapBatchIdempotencyKey() {
         return gapBatchIdempotencyKey;

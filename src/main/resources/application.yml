@@ -5,7 +5,7 @@ spring:
     api:
       jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
       username: "${API_WORKER_USER:api_worker}"
-      password: "${API_WORKER_PASSWORD:api_worker_pass}"
+      password: "${API_WORKER_PASSWORD}"
       hikari:
         connection-timeout: 10000
         leak-detection-threshold: 30000
@@ -14,7 +14,7 @@ spring:
     batch:
       jdbc-url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
       username: "${BATCH_WORKER_USER:batch_worker}"
-      password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
+      password: "${BATCH_WORKER_PASSWORD}"
       hikari:
         connection-timeout: 10000
         leak-detection-threshold: 30000
@@ -26,6 +26,11 @@ spring:
     url: "${DB_URL:jdbc:postgresql://localhost:5432/geo_analytics}"
     user: "${FLYWAY_USER:postgres}"
     password: "${FLYWAY_PASSWORD:}"
+    # V129 がワーカーロールのパスワードを env 由来値へ ALTER する際に展開する。
+    # 未設定なら起動時にプロパティ解決で失敗させ、弱い値で黙って動かさない。
+    placeholders:
+      api_worker_password: "${API_WORKER_PASSWORD}"
+      batch_worker_password: "${BATCH_WORKER_PASSWORD}"
   jpa:
     open-in-view: false
     hibernate:

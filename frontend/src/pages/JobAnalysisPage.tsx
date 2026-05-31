@@ -12,7 +12,17 @@ import { RubricGapAlertStack } from "../components/RubricGapAlertStack";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
+import { LoadingCharacter } from "../components/LoadingCharacter";
+import { DebateAdviceTeaserBanner } from "../components/DebateAdviceTeaserBanner";
 import CircularProgress from "@mui/material/CircularProgress";
+
+const AI_ADVICE_LOADING_MESSAGES = [
+  "4人のAIアナリストが議論を始めています...",
+  "ANALYSTが市場データを精査中...",
+  "SKEPTICが反論ポイントを検討中...",
+  "INNOVATORが新しい切り口を提案中...",
+  "DIRECTORが最終提言をまとめています...",
+] as const;
 import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import {
   competitorLabelsFromProject,
@@ -681,9 +691,24 @@ export function JobAnalysisPage(): JSX.Element {
           />
         )}
       <div id="next-action-section" className="scroll-mt-28 pdf-no-print">
+        {!showJobStrategyBlock && isCompletedDisplay && (
+          <div className="pdf-avoid-break mb-6 pdf-no-print">
+            <LoadingCharacter messages={AI_ADVICE_LOADING_MESSAGES} />
+          </div>
+        )}
         {showJobStrategyBlock && (
           <div className="pdf-avoid-break mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+              {jobStatus?.adviceSource === "TEMPLATE_FALLBACK" ? (
+                <span
+                  className="pdf-no-print shrink-0 cursor-help rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                  title="AI議論の生成に失敗したため、基本テンプレートで表示しています"
+                >
+                  簡易分析モード
+                </span>
+              ) : null}
+            </div>
             {displayJobRollupMedZ != null && (
               <p className="mt-1 text-xs text-sky-900/80">
                 中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
@@ -699,6 +724,7 @@ export function JobAnalysisPage(): JSX.Element {
                 ))}
               </ul>
             ) : null}
+            {!isProPlanUi ? <DebateAdviceTeaserBanner /> : null}
           </div>
         )}
       </div>

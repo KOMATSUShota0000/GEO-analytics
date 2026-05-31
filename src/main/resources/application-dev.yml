@@ -11,11 +11,11 @@ spring:
     api:
       jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
       username: "${API_WORKER_USER:api_worker}"
-      password: "${API_WORKER_PASSWORD:api_worker_pass}"
+      password: "${API_WORKER_PASSWORD}"
     batch:
       jdbc-url: "jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:geo_analytics}"
       username: "${BATCH_WORKER_USER:batch_worker}"
-      password: "${BATCH_WORKER_PASSWORD:batch_worker_pass}"
+      password: "${BATCH_WORKER_PASSWORD}"
   jpa:
     hibernate:
       ddl-auto: validate

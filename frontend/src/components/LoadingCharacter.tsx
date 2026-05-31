@@ -1,7 +1,7 @@
 import { Bot, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
-const MESSAGES = [
+const DEFAULT_MESSAGES = [
   "AIがウェブサイトを調査しています...",
   "GEO可視性を計測中...",
   "ユーザーのアテンションをシミュレーション中...",
@@ -12,16 +12,24 @@ const INTERVAL_MS = 3200;
 
 export type LoadingCharacterProps = {
   className?: string;
+  /** メッセージ配列を差し替えたい場合に指定（例: AI議論アドバイス生成中）。空配列はデフォルトにフォールバック。 */
+  messages?: readonly string[];
 };
 
-export function LoadingCharacter({ className = "" }: LoadingCharacterProps): JSX.Element {
+export function LoadingCharacter({
+  className = "",
+  messages,
+}: LoadingCharacterProps): JSX.Element {
+  const effectiveMessages =
+    messages && messages.length > 0 ? messages : DEFAULT_MESSAGES;
   const [index, setIndex] = useState(0);
   useEffect(() => {
+    setIndex(0);
     const id = window.setInterval(() => {
-      setIndex((i) => (i + 1) % MESSAGES.length);
+      setIndex((i) => (i + 1) % effectiveMessages.length);
     }, INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, []);
+  }, [effectiveMessages]);
   return (
     <div
       role="status"
@@ -47,7 +55,7 @@ export function LoadingCharacter({ className = "" }: LoadingCharacterProps): JSX
           />
         </div>
         <p className="min-h-[2.75rem] flex-1 text-center text-sm font-medium leading-relaxed text-indigo-950/90 transition-opacity duration-300 sm:text-left">
-          {MESSAGES[index]}
+          {effectiveMessages[index]}
         </p>
       </div>
       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-indigo-100/80">

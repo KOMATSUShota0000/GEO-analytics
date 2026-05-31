@@ -1,7 +1,13 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.AdviceSource;
+import com.geo.analytics.domain.enums.SubscriptionPlan;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import java.lang.StrictMath;
 import java.util.Arrays;
@@ -11,8 +17,23 @@ import java.util.Objects;
 
 @Service
 public final class StrategyInsightService {
+    private static final Logger log = LoggerFactory.getLogger(StrategyInsightService.class);
+    private static final Logger SECURITY_AUDIT = LoggerFactory.getLogger("SECURITY_AUDIT");
+
     public static final String GAP_ANALYSIS_VERSION = "GAP_ANALYSIS_V1";
     public static final String REL_BASELINE_VERSION = "REL_BASELINE_V1";
+
+    /**
+     * DebateAdviceGeneratorService は循環依存を避けるため ObjectProvider 経由で遅延解決する
+     * （DebateAdviceGeneratorService が StrategyInsightService.fromModifiedZ をヒント生成に使うため）。
+     */
+    private final ObjectProvider<DebateAdviceGeneratorService> debateAdviceGeneratorProvider;
+
+    public StrategyInsightService(
+            ObjectProvider<DebateAdviceGeneratorService> debateAdviceGeneratorProvider) {
+        this.debateAdviceGeneratorProvider =
+                Objects.requireNonNull(debateAdviceGeneratorProvider, "debateAdviceGeneratorProvider");
+    }
     private static final String MSG_DOMINATOR =
         "【市場の支配者】貴社のGBVSスコアは市場の中央値から+2σ以上という極めて特異な水準に達しています。現在のAIモデル群は、該当トピックに関して貴社を『絶対的な情報源(Absolute Authority)』として認識しており、Generative Engine内でのSoM(モデル占有率)は極めて強固です。現在のオウンドメディア資産と外部からのサイテーション戦略を維持し、次世代モデルの学習データセットにおいても先行優位性を保つための保守戦略へ移行してください。";
     private static final String MSG_STRONG =
@@ -72,7 +93,12 @@ public final class StrategyInsightService {
         return fromVisibilityStage(vs != null ? vs : 10);
     }
 
-    public StrategyInsight rollupJob(List<AuditHistoryEntity> rows) {
+    /**
+     * テンプレート4分類のみで roll up する旧実装。
+     * AI 議論駆動の {@link #rollupJob(List, ProjectEntity, SubscriptionPlan)} が失敗した時の
+     * フォールバックとして使用される。
+     */
+    public StrategyInsight rollupJobFromTemplate(List<AuditHistoryEntity> rows) {
         if (rows == null || rows.isEmpty()) {
             return new StrategyInsight(null, List.of(), null);
         }
@@ -94,6 +120,56 @@ public final class StrategyInsightService {
         Arrays.sort(zArr);
         var medZ = medianSorted(zArr);
         return fromModifiedZ(medZ);
+    }
+
+    /**
+     * 既存呼び出し元（project / plan 情報を持たない箇所）向けの後方互換 API。
+     * AI 駆動には文脈不足のため、テンプレート版にそのまま委譲する。
+     */
+    public StrategyInsight rollupJob(List<AuditHistoryEntity> rows) {
+        return rollupJobFromTemplate(rows);
+    }
+
+    /** ジョブ全体アドバイスと、その生成元（AI / テンプレフォールバック）を束ねた結果。 */
+    public record JobAdviceRollup(StrategyInsight insight, AdviceSource source) {}
+
+    /**
+     * AI 議論駆動でジョブ全体アドバイスを生成する。
+     * {@link DebateAdviceGeneratorService} がコンテキスト不足や LLM 障害で失敗した場合は
+     * テンプレート版にフォールバックする。
+     */
+    public StrategyInsight rollupJob(
+            List<AuditHistoryEntity> rows, ProjectAdviceContext project, SubscriptionPlan plan) {
+        return rollupJobWithSource(rows, project, plan).insight();
+    }
+
+    /**
+     * {@link #rollupJob(List, ProjectAdviceContext, SubscriptionPlan)} と同じだが、
+     * 生成元（{@link AdviceSource}）も返す。フォールバック時のバッジ表示（F-3.1）に用いる。
+     */
+    public JobAdviceRollup rollupJobWithSource(
+            List<AuditHistoryEntity> rows, ProjectAdviceContext project, SubscriptionPlan plan) {
+        if (rows == null || rows.isEmpty() || project == null) {
+            return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
+        }
+        DebateAdviceGeneratorService generator = debateAdviceGeneratorProvider.getIfAvailable();
+        if (generator == null) {
+            log.debug("DebateAdviceGeneratorService unavailable, falling back to template");
+            return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
+        }
+        try {
+            return new JobAdviceRollup(generator.generateForJob(rows, project, plan), AdviceSource.AI);
+        } catch (RuntimeException exception) {
+            SECURITY_AUDIT.info(
+                    "advice_generated source=TEMPLATE_FALLBACK plan={} cause={}",
+                    plan,
+                    exception.getClass().getSimpleName());
+            log.warn(
+                    "AI advice generation failed, falling back to template plan={}",
+                    plan,
+                    exception);
+            return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
+        }
     }
 
     public Double medianModifiedZ(List<AuditHistoryEntity> rows) {

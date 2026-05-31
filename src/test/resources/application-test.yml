@@ -9,6 +9,11 @@ spring:
 
   flyway:
     enabled: false
+    # Why: Flyway 無効でも main の application.yml が持つ placeholders の ${ENV} 解決が
+    #      走らないよう、ダミー値で上書きする（このプロファイルは H2・flyway 無効）。
+    placeholders:
+      api_worker_password: test
+      batch_worker_password: test
   datasource:
     api:
       jdbc-url: jdbc:h2:mem:ga_it;DB_CLOSE_DELAY=-1

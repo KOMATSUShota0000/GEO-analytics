@@ -5,6 +5,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration,classpath:db/migration-rls-it
+    # Why: V129 のワーカーロールパスワード ALTER 用。テストロール（init.sql 等）の値と一致させ、
+    #      ALTER 後も結合テストの datasource 接続が通るようにする。
+    placeholders:
+      api_worker_password: api_worker_pass
+      batch_worker_password: batch_worker_pass
   jpa:
     hibernate:
       ddl-auto: validate

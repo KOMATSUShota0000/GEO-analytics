@@ -38,6 +38,7 @@ export interface JobStatusResponse {
   diagnosticMessage: string | null;
   recommendedActions: string[];
   jobMedianModifiedZ: number | null;
+  adviceSource: string | null;
 }
 
 export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | null {
@@ -98,6 +99,8 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
       : typeof jmzRaw === "number" && !Number.isNaN(jmzRaw)
         ? jmzRaw
         : null;
+  const asRaw = r.adviceSource;
+  const adviceSource = typeof asRaw === "string" ? asRaw : null;
   return {
     jobId,
     projectId:
@@ -114,6 +117,7 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
     diagnosticMessage: dm,
     recommendedActions,
     jobMedianModifiedZ: jmz,
+    adviceSource,
   };
 }
 

@@ -21,7 +21,8 @@ public record JobStatusResponse(
     LocalDateTime updatedAt,
     String diagnosticMessage,
     List<String> recommendedActions,
-    Double jobMedianModifiedZ
+    Double jobMedianModifiedZ,
+    String adviceSource
 ) {
     public static JobStatusResponse from(JobEntity jobEntity) {
         return from(jobEntity, null);
@@ -50,6 +51,7 @@ public record JobStatusResponse(
             jobEntity.getUpdatedAt(),
             dm,
             ra,
-            zm);
+            zm,
+            jobEntity.getJobAdviceSource());
     }
 }

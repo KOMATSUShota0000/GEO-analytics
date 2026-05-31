@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorScoreRow;
+import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
@@ -55,7 +57,7 @@ public class BatchPersistenceService {
                     + "plan_limits_snapshot, brand_name, target_url, business_summary, target_audience, focus_points, "
                     + "brand_color, logo_url, gemini_job_name, "
                     + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
-                    + "job_diagnostic_message, job_recommended_actions, gap_batch_idempotency_key, "
+                    + "job_diagnostic_message, job_recommended_actions, job_advice_source, gap_batch_idempotency_key, "
                     + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed, "
                     + "self_rubric_audit_json, competitor_rubric_audits_json, self_crawled_page_json, "
                     + "meo_review_count, meo_average_stars, emotional_alert, extracted_knowledge";
@@ -131,12 +133,23 @@ public class BatchPersistenceService {
     }
 
     public void updateJobStrategyRollup(UUID jobId, String diagnosticMessage, List<String> recommendedActions) {
+        updateJobStrategyRollup(jobId, diagnosticMessage, recommendedActions, null);
+    }
+
+    /**
+     * ジョブ全体アドバイスと生成元（{@code adviceSource}）を永続化する。
+     * {@code adviceSource} が null の場合は生成元列を更新しない（テンプレ確定パス等の後方互換）。
+     */
+    public void updateJobStrategyRollup(
+            UUID jobId, String diagnosticMessage, List<String> recommendedActions, String adviceSource) {
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                    "UPDATE jobs SET job_diagnostic_message = ?, job_recommended_actions = ?, updated_at = now() WHERE id = ?");
+                    "UPDATE jobs SET job_diagnostic_message = ?, job_recommended_actions = ?,"
+                            + " job_advice_source = COALESCE(?, job_advice_source), updated_at = now() WHERE id = ?");
             ps.setString(1, diagnosticMessage);
             setJsonb(ps, 2, toJson(recommendedActions));
-            ps.setObject(3, jobId);
+            ps.setString(3, adviceSource);
+            ps.setObject(4, jobId);
             return ps;
         });
     }
@@ -274,6 +287,43 @@ public class BatchPersistenceService {
 
     public record ProjectBrandInfo(UUID id, String brandColor, String logoUrl) {}
 
+    /**
+     * AI 議論駆動アドバイス生成用のプロジェクト・コンテキストを JDBC で取得する。
+     * GapAnalysisService から呼ばれるパスは JDBC ベースで、JPA を持ち込まないために本メソッドを用意。
+     */
+    public Optional<ProjectAdviceContext> findProjectAdviceContext(UUID projectId) {
+        if (projectId == null) {
+            return Optional.empty();
+        }
+        // workspace / organization は Pro/Expert 議論起動時のチケット消費とテナントコンテキスト確立に必要。
+        // 非同期 gap analysis スレッドは ScopedValue が未バインドのため、ここで識別子ごと取得しておく。
+        // projects は workspace を tenant_id（VARCHAR(36) に workspace UUID を保持）でリンクするため、
+        // JOIN・射影とも tenant_id::uuid で扱う（BaseTenantEntity.getWorkspaceId と整合）。
+        List<ProjectAdviceContext> rows = jdbc.query(
+                "SELECT p.industry_type, p.target_audience, p.extracted_strengths,"
+                        + " p.id AS project_id, p.tenant_id::uuid AS workspace_id, w.organization_id"
+                        + " FROM projects p JOIN workspaces w ON w.id = p.tenant_id::uuid"
+                        + " WHERE p.id = ?",
+                (rs, rn) -> {
+                    String it = rs.getString("industry_type");
+                    IndustryType industry;
+                    try {
+                        industry = it == null ? IndustryType.OTHER : IndustryType.valueOf(it);
+                    } catch (IllegalArgumentException e) {
+                        industry = IndustryType.OTHER;
+                    }
+                    return new ProjectAdviceContext(
+                            industry,
+                            rs.getString("target_audience"),
+                            rs.getString("extracted_strengths"),
+                            rs.getObject("project_id", UUID.class),
+                            rs.getObject("workspace_id", UUID.class),
+                            rs.getObject("organization_id", UUID.class));
+                },
+                projectId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+
     public Optional<ProjectBrandInfo> findProjectBrandInfo(UUID projectId) {
         List<ProjectBrandInfo> rows = jdbc.query(
                 "SELECT id, brand_color, logo_url FROM projects WHERE id = ?",
@@ -385,6 +435,7 @@ public class BatchPersistenceService {
         Timestamp ua = rs.getTimestamp("updated_at");
         if (ua != null) job.setUpdatedAt(ua.toLocalDateTime());
         job.setJobDiagnosticMessage(rs.getString("job_diagnostic_message"));
+        job.setJobAdviceSource(rs.getString("job_advice_source"));
         String jraJson = rs.getString("job_recommended_actions");
         if (jraJson != null) {
             try { job.setJobRecommendedActions(objectMapper.readValue(jraJson, LIST_STRING_TYPE)); }

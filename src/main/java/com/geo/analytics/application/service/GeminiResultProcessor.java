@@ -159,12 +159,10 @@ public class GeminiResultProcessor {
                 planBasedQuotaManager.addTokens(tid, QuotaCreditCalculator.DEPOSIT_PER_KEYWORD);
             }
         }
-        var auditsAfter = batchPersistence.findResultsByJobId(jobEntity.getId());
-        var rollup = strategyInsightService.rollupJob(auditsAfter);
-        batchPersistence.updateJobStrategyRollup(
-            jobEntity.getId(),
-            rollup.diagnosticMessage(),
-            List.copyOf(rollup.recommendedActions()));
+        // ADR-2026-05-30: ジョブ全体 strategy_rollup の生成は GapAnalysisService 側に
+        // 集約した（旧実装はここでもテンプレ rollup を書いて GapAnalysisService が
+        // 同じ計算で上書きする2度書きになっていた）。AI 議論駆動アドバイス導入後は
+        // LLM 二重呼び出し = チケット2倍消費を避けるため、ここでは何もしない。
         gapAnalysisService.scheduleForJob(jobEntity.getId());
     }
     private record BatchParsedLine(

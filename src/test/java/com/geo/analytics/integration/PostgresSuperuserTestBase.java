@@ -9,8 +9,6 @@ public abstract class PostgresSuperuserTestBase {
 
     private static final String PG_USER = "postgres";
     private static final String PG_PASSWORD = "postgres";
-    private static final String API_WORKER_USER = "api_worker";
-    private static final String API_WORKER_PASSWORD = "api_worker_pass";
 
     private static final PostgreSQLContainer<?> POSTGRES = createContainer();
 
@@ -49,6 +47,10 @@ public abstract class PostgresSuperuserTestBase {
         registry.add("spring.flyway.password", () -> PG_PASSWORD);
         registry.add("spring.flyway.enabled", () -> true);
         registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+        // Why: V129 の placeholder 解決を application-test.yml の暗黙マージに依存させず明示する。
+        //      このテストは postgres スーパーユーザーで接続するため値はダミーで足りる。
+        registry.add("spring.flyway.placeholders.api_worker_password", () -> "test");
+        registry.add("spring.flyway.placeholders.batch_worker_password", () -> "test");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
     }
 }

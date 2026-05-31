@@ -1,7 +1,9 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
@@ -58,11 +60,26 @@ public final class GapAnalysisService {
         }
         Integer medStBox = strategyInsightService.medianVisibilityStage(rows);
         int medSt = medStBox != null ? medStBox : 1;
-        var rollup = strategyInsightService.rollupJob(rows);
+        // AI 議論駆動アドバイス: project コンテキストとプランを渡す。
+        // LLM 失敗時は StrategyInsightService 内でテンプレフォールバックされる。
+        var projectContext = jobEntity.getProjectId() != null
+                ? batchPersistence.findProjectAdviceContext(jobEntity.getProjectId()).orElse(null)
+                : null;
+        StrategyInsight rollup;
+        String adviceSource;
+        if (projectContext != null) {
+            var rollupWithSource = strategyInsightService.rollupJobWithSource(rows, projectContext, plan);
+            rollup = rollupWithSource.insight();
+            adviceSource = rollupWithSource.source().name();
+        } else {
+            rollup = strategyInsightService.rollupJob(rows);
+            adviceSource = null;
+        }
         batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
-            List.copyOf(rollup.recommendedActions()));
+            List.copyOf(rollup.recommendedActions()),
+            adviceSource);
         String trendFull = rollup.diagnosticMessage() != null ? rollup.diagnosticMessage() : "";
         String trendClip = trendFull.length() > 420 ? trendFull.substring(0, 420) : trendFull;
         var outlierRows = new ArrayList<AuditHistoryEntity>();
@@ -171,11 +188,13 @@ public final class GapAnalysisService {
     }
 
     private void finalizeJobRollupAndGapFlag(UUID jobId, List<AuditHistoryEntity> rows) {
+        // 早期確定パス（rows<2 / medZ==null）もテンプレ確定のため TEMPLATE_FALLBACK を明示記録（F-3.1）。
         var rollup = strategyInsightService.rollupJob(rows);
         batchPersistence.updateJobStrategyRollup(
             jobId,
             rollup.diagnosticMessage(),
-            List.copyOf(rollup.recommendedActions()));
+            List.copyOf(rollup.recommendedActions()),
+            AdviceSource.TEMPLATE_FALLBACK.name());
         batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 }

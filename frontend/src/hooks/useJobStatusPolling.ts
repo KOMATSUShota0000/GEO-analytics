@@ -51,6 +51,7 @@ function mergeJobStatusPreservingSummary(
     diagnosticMessage: previous.diagnosticMessage,
     recommendedActions: previous.recommendedActions,
     jobMedianModifiedZ: previous.jobMedianModifiedZ,
+    adviceSource: previous.adviceSource,
   };
 }
 
