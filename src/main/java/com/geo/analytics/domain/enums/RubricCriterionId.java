@@ -15,12 +15,14 @@ public enum RubricCriterionId {
     PRICE_AND_CONSTRAINTS(Source.LLM, 5.0d),
     EXTERNAL_CITATIONS(Source.LLM, 5.0d),
     MACHINE_READABILITY_SIGNAL(Source.SYSTEM, 25.0d),
-    MEO_TRUST_SCORE(Source.MEO, 25.0d);
+    MEO_TRUST_SCORE(Source.MEO, 25.0d),
+    THIRD_PARTY_MENTIONS(Source.AUTHORITY, 20.0d);
 
     public enum Source {
         LLM,
         SYSTEM,
-        MEO
+        MEO,
+        AUTHORITY
     }
 
     private final Source source;
