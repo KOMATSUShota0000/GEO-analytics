@@ -1,7 +1,10 @@
 package com.geo.analytics.domain.entity;
 import jakarta.persistence.CascadeType;
+import com.geo.analytics.domain.enums.AiRecognitionState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -61,6 +64,10 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     private String calculationVersion;
     @Column(name = "negative_alert", nullable = false)
     private Boolean negativeAlert = false;
+    // AIがブランドを正しい実体として認識しているかの定性ステート（V13 Sprint3）。スコア非算入のレポート用エビデンス。
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ai_recognition_state", length = 32)
+    private AiRecognitionState aiRecognitionState;
     @Column(name = "modified_z_score")
     private Double modifiedZScore;
     @Column(name = "diagnostic_message", columnDefinition = "text")
@@ -183,6 +190,12 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setNegativeAlert(Boolean negativeAlert) {
         this.negativeAlert = negativeAlert;
+    }
+    public AiRecognitionState getAiRecognitionState() {
+        return aiRecognitionState;
+    }
+    public void setAiRecognitionState(AiRecognitionState aiRecognitionState) {
+        this.aiRecognitionState = aiRecognitionState;
     }
     public Double getModifiedZScore() {
         return modifiedZScore;
