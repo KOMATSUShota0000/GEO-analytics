@@ -9,6 +9,7 @@ import com.geo.analytics.infrastructure.ai.LlmWebsiteTextClip;
 import com.geo.analytics.infrastructure.ai.RubricAuditPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import java.util.EnumSet;
@@ -55,8 +56,10 @@ public class RubricAuditService {
         try {
             String rawJson =
                     rubricAuditChatModel.chat(ChatRequest.builder()
-                                    .messages(SystemMessage.from(
-                                            RubricAuditPrompts.systemPrompt(websiteText, jobContextBlock)))
+                                    .messages(
+                                            SystemMessage.from(RubricAuditPrompts.systemInstruction()),
+                                            UserMessage.from(
+                                                    RubricAuditPrompts.userPayload(websiteText, jobContextBlock)))
                                     .build())
                             .aiMessage()
                             .text();

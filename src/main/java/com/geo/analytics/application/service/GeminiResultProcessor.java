@@ -134,7 +134,7 @@ public class GeminiResultProcessor {
                     UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
                     UUID pid = Objects.requireNonNull(jobEntity.getProjectId());
                     var negAlert = m.sentimentIntensity() < -0.5;
-                    var insight = strategyInsightService.fromModifiedZ(gbvs.modifiedZScore());
+                    var insight = strategyInsightService.describeForQuery(somScore, m.aiCitationPosition());
                     batchPersistence.upsertAuditHistory(
                         jobEntity.getId(), wid, pid,
                         line.queryId(),

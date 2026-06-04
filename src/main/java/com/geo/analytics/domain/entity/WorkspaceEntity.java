@@ -25,6 +25,10 @@ public class WorkspaceEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", length = 16)
     private SubscriptionPlan subscriptionPlan = SubscriptionPlan.STANDARD;
+    @Column(name = "stripe_customer_id", length = 64)
+    private String stripeCustomerId;
+    @Column(name = "stripe_subscription_id", length = 64)
+    private String stripeSubscriptionId;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -63,6 +67,22 @@ public class WorkspaceEntity {
 
     public void setSubscriptionPlan(SubscriptionPlan subscriptionPlan) {
         this.subscriptionPlan = subscriptionPlan != null ? subscriptionPlan : SubscriptionPlan.STANDARD;
+    }
+
+    public String getStripeCustomerId() {
+        return stripeCustomerId;
+    }
+
+    public void setStripeCustomerId(String stripeCustomerId) {
+        this.stripeCustomerId = stripeCustomerId;
+    }
+
+    public String getStripeSubscriptionId() {
+        return stripeSubscriptionId;
+    }
+
+    public void setStripeSubscriptionId(String stripeSubscriptionId) {
+        this.stripeSubscriptionId = stripeSubscriptionId;
     }
 
     public LocalDateTime getCreatedAt() {

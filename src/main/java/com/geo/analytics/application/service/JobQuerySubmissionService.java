@@ -307,6 +307,7 @@ public class JobQuerySubmissionService {
     private void executeImmediateParallelProcessing(UUID jobId) {
         var jobEntity = jobPersistenceService.findJobById(jobId);
         var brandName = jobEntity.getBrandName();
+        var targetUrl = jobEntity.getTargetUrl();
         var competitorHosts = loadCompetitorHosts(jobEntity);
         var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
@@ -318,7 +319,7 @@ public class JobQuerySubmissionService {
                                 () -> {
                                     try {
                                         processOneQueryRealtimeCore(
-                                                jobId, tenantId, brandName, competitorHosts, qe, appliedPlan);
+                                                jobId, tenantId, brandName, targetUrl, competitorHosts, qe, appliedPlan);
                                     } catch (Throwable x) {
                                         quotaManager.addTokens(
                                                 tenantId,
@@ -380,17 +381,30 @@ public class JobQuerySubmissionService {
             UUID jobId,
             UUID tenantId,
             String brandName,
+            String targetUrl,
             List<String> competitorHosts,
             QueryEntity queryEntity,
             SubscriptionPlan appliedPlan) {
-        var syncVerificationResult = syncVerificationService.verify(
-                brandName,
-                queryEntity.getQueryText(),
-                appliedPlan,
-                jobId,
-                queryEntity.getId(),
-                brandName,
-                competitorHosts);
+        // target_url がある場合は自社ページをクロールして実コンテンツで SoM 解析する。
+        // URL 未設定の旧ジョブのみ内部知識モード（クロールなし）にフォールバックする。
+        var syncVerificationResult = targetUrl != null && !targetUrl.isBlank()
+                ? syncVerificationService.verifyWithUrl(
+                        brandName,
+                        queryEntity.getQueryText(),
+                        targetUrl,
+                        appliedPlan,
+                        jobId,
+                        queryEntity.getId(),
+                        brandName,
+                        competitorHosts)
+                : syncVerificationService.verify(
+                        brandName,
+                        queryEntity.getQueryText(),
+                        appliedPlan,
+                        jobId,
+                        queryEntity.getId(),
+                        brandName,
+                        competitorHosts);
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
         try {

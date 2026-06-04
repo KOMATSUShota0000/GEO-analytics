@@ -47,6 +47,7 @@ public class SerpJobCompetitorExtractor {
         String brandName = job.getBrandName() != null ? job.getBrandName() : "";
         IndustryType industry = IndustryType.OTHER;
         String tradeAreaLabel = "全国";
+        String categoryKeyword = "";
         try {
             TargetAttributes attrs =
                     targetAttributesInferenceService.infer(projectId, targetUrl != null ? targetUrl : "");
@@ -57,13 +58,21 @@ public class SerpJobCompetitorExtractor {
                 if (attrs.tradeAreaLabel() != null && !attrs.tradeAreaLabel().isBlank()) {
                     tradeAreaLabel = attrs.tradeAreaLabel().trim();
                 }
+                if (attrs.categoryKeyword() != null && !attrs.categoryKeyword().isBlank()) {
+                    categoryKeyword = attrs.categoryKeyword().trim();
+                }
             }
         } catch (Throwable throwable) {
         }
-        String primary =
-                industry.getSearchLabel() != null && !industry.getSearchLabel().isBlank()
-                        ? industry.getSearchLabel().trim()
-                        : industry.getLabel();
+        // 具体的職種ワードを最優先。無ければ業種の検索ラベル→粗いラベルへフォールバック。
+        String primary;
+        if (!categoryKeyword.isEmpty()) {
+            primary = categoryKeyword;
+        } else if (industry.getSearchLabel() != null && !industry.getSearchLabel().isBlank()) {
+            primary = industry.getSearchLabel().trim();
+        } else {
+            primary = industry.getLabel();
+        }
         String summaryHint = "";
         if (job.getBusinessSummary() != null && !job.getBusinessSummary().isBlank()) {
             String s = job.getBusinessSummary().strip();

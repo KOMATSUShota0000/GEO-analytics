@@ -3,6 +3,7 @@ import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ShoppingBagIcon from "@mui/icons-material/ShoppingBag";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
 import {
   Alert,
   Box,
@@ -21,12 +22,19 @@ import {
   Snackbar,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createJob, CreateJobHttpError } from "../api/jobsApi";
+import {
+  changeWorkspacePlan,
+  fetchWorkspacePlan,
+  type WorkspaceSubscriptionPlan,
+} from "../api/workspace-api";
 import { useBranding } from "../branding/useBranding";
 import { LoadingCharacter } from "../components/LoadingCharacter";
 import type { CompetitorExtractionMode } from "../types/createJobRequest";
@@ -86,6 +94,14 @@ function formatKnowledgeFileSize(bytes: number): string {
 }
 
 const JOB_CREATE_TIMEOUT_MS = 7 * 60 * 1000;
+
+const PLAN_LABELS: Record<WorkspaceSubscriptionPlan, string> = {
+  STANDARD: "Standard",
+  PRO: "Pro",
+  EXPERT: "Expert",
+};
+
+const DEV_PLAN_OPTIONS: WorkspaceSubscriptionPlan[] = ["STANDARD", "PRO", "EXPERT"];
 
 const MSG_PAYLOAD_TOO_LARGE =
   "アップロード可能なサイズを超えています。1ファイルあたり最大10MB、リクエスト全体は50MB以内にしてください。ファイルを減らすか容量を小さくしてから再度お試しください。";
@@ -154,6 +170,36 @@ export default function JobCreationPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [skipSnackbarOpen, setSkipSnackbarOpen] = useState(false);
   const [skipSnackbarMessage, setSkipSnackbarMessage] = useState("");
+  const [plan, setPlan] = useState<WorkspaceSubscriptionPlan | null>(null);
+
+  // プラン切替スイッチは開発環境専用（プランごとの機能ゲート検証用）。本番では実ユーザーに出さない。
+  const devPlanSwitchEnabled = import.meta.env.DEV;
+
+  useEffect(() => {
+    if (!devPlanSwitchEnabled) {
+      return;
+    }
+    let active = true;
+    void fetchWorkspacePlan().then((p) => {
+      if (active) {
+        setPlan(p);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [devPlanSwitchEnabled]);
+
+  const handleDevPlanChange = async (next: WorkspaceSubscriptionPlan | null) => {
+    if (next === null || next === plan) {
+      return;
+    }
+    const ok = await changeWorkspacePlan(next);
+    if (ok) {
+      // 切替後、プランゲートされた画面は各々の再取得時に新プランを反映する。
+      setPlan(next);
+    }
+  };
 
   const mergeIncomingFiles = (list: FileList | File[]) => {
     const arr = Array.from(list);
@@ -217,6 +263,41 @@ export default function JobCreationPage(): JSX.Element {
         <Typography variant="subtitle1" fontWeight={700}>
           {toolName}
         </Typography>
+        {/* 核③ SaaSグロース: ログイン直後の最初の画面から Pro プランへ常時誘導する導線 */}
+        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ ml: "auto", flexShrink: 0 }}>
+          {devPlanSwitchEnabled && plan !== null ? (
+            // 開発専用: プランを実際に切り替えて機能ゲートを検証するためのスイッチ。本番ビルドでは描画されない。
+            <Stack direction="row" alignItems="center" spacing={0.75}>
+              <Typography
+                variant="caption"
+                sx={{ color: "warning.main", fontWeight: 700, letterSpacing: 0.5 }}
+              >
+                DEV
+              </Typography>
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={plan}
+                onChange={(_ev, next) => void handleDevPlanChange(next as WorkspaceSubscriptionPlan | null)}
+                aria-label="開発用プラン切替"
+              >
+                {DEV_PLAN_OPTIONS.map((p) => (
+                  <ToggleButton key={p} value={p} sx={{ py: 0.25, px: 1 }}>
+                    {PLAN_LABELS[p]}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </Stack>
+          ) : null}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<WorkspacePremiumIcon />}
+            onClick={() => navigate("/pricing")}
+          >
+            プラン・料金
+          </Button>
+        </Stack>
       </Box>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>

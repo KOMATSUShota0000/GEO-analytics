@@ -2,11 +2,14 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
+import com.geo.analytics.domain.entity.JobEntity;
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.enums.RubricVerdictStatus;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.AuditRubricResultRepository;
+import com.geo.analytics.infrastructure.repository.JobRepository;
 import jakarta.persistence.EntityNotFoundException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -32,12 +35,15 @@ public class RubricGapAnalysisService {
 
     private final AuditRubricResultRepository auditRubricResultRepository;
     private final AuditHistoryRepository auditHistoryRepository;
+    private final JobRepository jobRepository;
 
     public RubricGapAnalysisService(
             AuditRubricResultRepository auditRubricResultRepository,
-            AuditHistoryRepository auditHistoryRepository) {
+            AuditHistoryRepository auditHistoryRepository,
+            JobRepository jobRepository) {
         this.auditRubricResultRepository = auditRubricResultRepository;
         this.auditHistoryRepository = auditHistoryRepository;
+        this.jobRepository = jobRepository;
     }
 
     @Transactional(readOnly = true)
@@ -142,8 +148,11 @@ public class RubricGapAnalysisService {
                 case MEO -> meoTotal = StrictMath.fma(score, 1.0d, meoTotal);
             }
         }
+        CompetitorExtractionMode mode = jobRepository.findById(history.getJobId())
+                .map(JobEntity::getCompetitorExtractionMode)
+                .orElse(CompetitorExtractionMode.LOCAL_STORE);
         double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
-                aiAuditTotal, meoTotal, machineReadabilityTotal);
+                aiAuditTotal, meoTotal, machineReadabilityTotal, mode);
         double rounded = BigDecimal.valueOf(finalScore)
                 .setScale(3, RoundingMode.HALF_EVEN)
                 .doubleValue();

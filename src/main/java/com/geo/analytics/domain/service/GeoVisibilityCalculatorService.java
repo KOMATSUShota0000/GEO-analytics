@@ -1,8 +1,8 @@
 package com.geo.analytics.domain.service;
 
+import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.model.SomRawMetrics;
-import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -15,7 +15,7 @@ public final class GeoVisibilityCalculatorService {
     private static final Logger log = LoggerFactory.getLogger(GeoVisibilityCalculatorService.class);
 
     /** Must fit DB column varchar(32) on audit_history.calculation_version. */
-    public static final String CALCULATION_VERSION = "V11_GEO_PURE";
+    public static final String CALCULATION_VERSION = "V13_GEO4AXIS";
 
     /** 出現密度 mentionDensity がこの値に達するとブランドシグナルの密度成分が飽和する（説明用コメント付き定数）。 */
     private static final double MENTION_DENSITY_SATURATION = 0.30d;
@@ -23,9 +23,31 @@ public final class GeoVisibilityCalculatorService {
     /** この出現回数を超えるとブランドシグナルの回数成分が飽和する。 */
     private static final double MENTION_COUNT_SATURATION = 12.0d;
 
+    /** PWIM（ADR-017）言及成分の重み。単独サイト解析を主用途とするため言及重視に配分。 */
+    private static final double PWIM_ALPHA = 0.6d;
+
+    /** PWIM（ADR-017）順位ボーナス成分の重み。 */
+    private static final double PWIM_BETA = 0.4d;
+
     private static final double SOURCE_WEIGHT_HIGH = 1.5;
     private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
     private static final double SOURCE_WEIGHT_LOW = 0.3;
+
+    // GEO Readiness V13_GEO4AXIS の3軸配点（ADR-023）。MEO単独軸を「権威・エンティティ認知」へ昇華。
+    /** コンテンツ素地（ルーブリックLLM10基準の合計）の上限。 */
+    private static final double MAX_CONTENT = 50.0d;
+
+    /** 技術素地（構造化データ・見出し・llms.txt）の上限。旧25から圧縮（配管シグナルのため軽め）。 */
+    private static final double MAX_TECHNICAL = 20.0d;
+
+    /** 権威・エンティティ認知の上限。第三者言及の広がりが中核（Sprint2で本配線）。Sprint1は暫定でMEO由来。 */
+    private static final double MAX_AUTHORITY = 30.0d;
+
+    /** ルーブリック機械可読性シグナルの素点上限（RubricCriterionId.MACHINE_READABILITY_SIGNAL）。 */
+    private static final double RAW_MACHINE_READABILITY_MAX = 25.0d;
+
+    /** ルーブリックMEOトラストの素点上限。Sprint1では権威軸のローカル向けサブ指標として供給。 */
+    private static final double RAW_MEO_MAX = 25.0d;
 
     /**
      * ブランド別名をカンマ区切りで分割（後段の LLM ハンドオフ用のユーティリティ）。
@@ -44,13 +66,34 @@ public final class GeoVisibilityCalculatorService {
     }
 
     public static double calculateFinalGeoScore(
-            double aiAuditTotal, double meoScore, double machineReadabilityScore) {
+            double aiAuditTotal,
+            double meoScore,
+            double machineReadabilityScore,
+            CompetitorExtractionMode mode) {
         double safeAi = Double.isFinite(aiAuditTotal) ? aiAuditTotal : 0.0d;
         double safeMeo = Double.isFinite(meoScore) ? meoScore : 0.0d;
         double safeMr = Double.isFinite(machineReadabilityScore) ? machineReadabilityScore : 0.0d;
-        double partial = Math.fma(1.0d, safeMeo, safeMr);
-        double sum = Math.fma(1.0d, safeAi, partial);
-        return Math.max(0.0d, Math.min(100.0d, sum));
+
+        // コンテンツ素地はルーブリックLLM10基準の素点(0-50)をそのまま採用。
+        double content = clamp(safeAi, 0.0d, MAX_CONTENT);
+        // 技術素地は素点(0-25)を配点(0-20)へ線形圧縮（構造化データ等は配管シグナルのため軽め）。
+        double technical = safeMr * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
+
+        // 権威・エンティティ認知: Sprint1 は暫定でローカルのMEO素点(0-25)を配点(0-30)へ拡大して供給。
+        // 非地域業種は現状この軸の入力を持たないため「適用外」とし、分母(applicableMax)から除いて
+        // 正規化する。これにより MEO 除外時の天井潰れ（旧 ADR-019 が係数再配分で対処していた問題）を
+        // 構造的に防ぐ。第三者言及を本配線する Sprint2 で全業種に適用し、この分岐は解消予定。
+        boolean authorityApplicable = !isNonLocalMode(mode);
+        double authority = authorityApplicable ? safeMeo * (MAX_AUTHORITY / RAW_MEO_MAX) : 0.0d;
+        double applicableMax = MAX_CONTENT + MAX_TECHNICAL + (authorityApplicable ? MAX_AUTHORITY : 0.0d);
+
+        double weightedSum = content + technical + authority;
+        return clampPercent(Math.fma(100.0d, weightedSum / applicableMax, 0.0d));
+    }
+
+    private static boolean isNonLocalMode(CompetitorExtractionMode mode) {
+        return mode == CompetitorExtractionMode.CORPORATE_SERVICE
+                || mode == CompetitorExtractionMode.ONLINE_SERVICE;
     }
 
     public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
@@ -71,19 +114,13 @@ public final class GeoVisibilityCalculatorService {
             double pct = Math.fma(clamp01(work[0]), 100.0, 0.0);
             return List.of(new GbvsResult(clampPercent(pct), stageFromScorePercent(pct), zScores[0]));
         }
-        double[] sorted = Arrays.copyOf(work, n);
-        Arrays.sort(sorted);
-        double minR = sorted[0];
-        double maxR = sorted[n - 1];
         GbvsResult[] out = new GbvsResult[n];
         IntStream.range(0, n).forEach(i -> {
             double z = zScores[i];
             int stage = stageFromModifiedZ(z);
-            double span = Math.fma(maxR, 1.0, -minR);
-            double pct = span > RobustAuditMathUtil.EPSILON
-                    ? Math.fma(100.0, (work[i] - minR) / span, 0.0)
-                    : Math.fma(clamp01(work[i]), 100.0, 0.0);
-            out[i] = new GbvsResult(clampPercent(pct), stage, z);
+            // PWIM は絶対評価。ジョブ内 min-max 正規化（相対）を廃し、各クエリのスコアをそのまま百分率化する。
+            double pct = clampPercent(Math.fma(100.0, work[i], 0.0));
+            out[i] = new GbvsResult(pct, stage, z);
         });
         return IntStream.range(0, n).mapToObj(i -> out[i]).toList();
     }
@@ -167,65 +204,31 @@ public final class GeoVisibilityCalculatorService {
         if (mentions == 0 && aiPos != null) {
             mentionSignal = Math.max(mentionSignal, 0.12);
         }
-        double stuffingPenalty = 1.0;
-        double brandSignalCore = sourceWeight * mentionSignal * stuffingPenalty;
-        double otherPresence = Math.max(total - mentions, 0) > 0 ? 1.0 : 0.0;
-        double otherSignal = otherPresence * SOURCE_WEIGHT_LOW;
-        double textCoreDenom = brandSignalCore + otherSignal;
-        double textCore = textCoreDenom > RobustAuditMathUtil.EPSILON
-                ? clamp01(brandSignalCore / textCoreDenom)
+        // PWIM（ADR-017）: 順位への乗算依存を廃し、言及=基礎点・順位=加算ボーナスの線形統合へ。
+        // 単独サイト解析で aiCitationPosition が空でも、言及があれば非ゼロのスコアを返す（SoMゼロ問題の解消）。
+        double normalizedSourceWeight = clamp01(sourceWeight / SOURCE_WEIGHT_HIGH);
+        double mentionComponent = clamp01(mentionSignal * normalizedSourceWeight);
+        // 順位ボーナスは NDCG 由来の対数減衰（1位=1.0, 2位≈0.63, 5位≈0.39）。
+        double citationBonus = (aiPos != null && aiPos > 0)
+                ? clamp01(1.0 / (StrictMath.log(aiPos + 1.0) / StrictMath.log(2.0)))
                 : 0.0;
-        int sStar = (aiPos != null && mentions == 0) ? 10 : stageFromScorePercent(textCore * 100.0);
-        double progressRate = aiPos != null
-                ? VisibilityStageMapper.define(sStar, aiPos).progressRate()
-                : 0.0;
-        double brandSignal = presence * progressRate * brandSignalCore;
-        double denom = brandSignal + otherSignal;
         double sentimentObserved = metrics.sentimentIntensity();
-        if (denom <= RobustAuditMathUtil.EPSILON) {
-            log.info(
-                    "[MATH DEBUG] outcome=zero_denom aiPos={} sStar={} p={} mentions={} total={} presence={} mentionSignal={} density={} stuffingPenalty={} brandSignalCore={} brandSignal={} otherPresence={} otherSignal={} denom={} sourceWeight={} sentimentIntensity_observed={} textCore={} somScore=0.0",
-                    aiPos,
-                    sStar,
-                    progressRate,
-                    mentions,
-                    total,
-                    presence,
-                    mentionSignal,
-                    mentionDensity,
-                    stuffingPenalty,
-                    brandSignalCore,
-                    brandSignal,
-                    otherPresence,
-                    otherSignal,
-                    denom,
-                    sourceWeight,
-                    sentimentObserved,
-                    textCore);
-            return 0.0;
-        }
-        double somScore = clamp01(brandSignal / denom);
+        double pwimScore = clamp01(Math.fma(PWIM_ALPHA, mentionComponent, PWIM_BETA * citationBonus));
         log.info(
-                "[MATH DEBUG] outcome=ok aiPos={} sStar={} p={} mentions={} total={} presence={} mentionSignal={} density={} stuffingPenalty={} brandSignalCore={} brandSignal={} otherPresence={} otherSignal={} denom={} sourceWeight={} sentimentIntensity_observed={} textCore={} somScore={}",
+                "[MATH DEBUG] outcome=ok model=pwim aiPos={} mentions={} total={} density={} mentionSignal={} normSourceWeight={} mentionComponent={} citationBonus={} alpha={} beta={} sentimentIntensity_observed={} somScore={}",
                 aiPos,
-                sStar,
-                progressRate,
                 mentions,
                 total,
-                presence,
-                mentionSignal,
                 mentionDensity,
-                stuffingPenalty,
-                brandSignalCore,
-                brandSignal,
-                otherPresence,
-                otherSignal,
-                denom,
-                sourceWeight,
+                mentionSignal,
+                normalizedSourceWeight,
+                mentionComponent,
+                citationBonus,
+                PWIM_ALPHA,
+                PWIM_BETA,
                 sentimentObserved,
-                textCore,
-                somScore);
-        return somScore;
+                pwimScore);
+        return pwimScore;
     }
 
     private static double clamp01(double v) {

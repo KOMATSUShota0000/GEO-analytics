@@ -30,9 +30,18 @@ EXTERNAL_CITATIONS — 外部ソースへの言及
 
     private RubricAuditPrompts() {}
 
-    public static String systemPrompt(String websiteText, String jobContextBlock) {
+    /** ルーブリック判定の指示部。Gemini には systemInstruction として渡す。 */
+    public static String systemInstruction() {
+        return PREFIX;
+    }
+
+    /**
+     * 判定材料（ジョブ文脈＋対象テキスト）。Gemini の contents（UserMessage）として渡す。
+     * SystemMessage だけで chat を呼ぶと Gemini が "contents is not specified"(400) を返すため、
+     * 材料は必ず UserMessage 側へ載せる。
+     */
+    public static String userPayload(String websiteText, String jobContextBlock) {
         StringBuilder sb = new StringBuilder();
-        sb.append(PREFIX);
         if (jobContextBlock != null && !jobContextBlock.isBlank()) {
             sb.append("---ジョブ文脈---\n\n");
             sb.append(jobContextBlock.strip());

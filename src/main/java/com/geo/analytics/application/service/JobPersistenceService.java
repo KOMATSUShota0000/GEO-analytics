@@ -2,8 +2,10 @@ package com.geo.analytics.application.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.CompetitorScoreRow;
+import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
+import com.geo.analytics.application.dto.TaskDTO;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -246,12 +248,16 @@ public class JobPersistenceService {
                     truncateStackTrace(runtimeException));
             rubricRows = List.of();
         }
-        ScoreBreakdown breakdown = computeBreakdown(rubricRows);
+        CompetitorExtractionMode mode = jobRepository.findById(latest.getJobId())
+                .map(JobEntity::getCompetitorExtractionMode)
+                .orElse(CompetitorExtractionMode.LOCAL_STORE);
+        ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode);
         List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
         return new JobAnalysisAttachment(breakdown, tasks);
     }
 
-    private static ScoreBreakdown computeBreakdown(List<AuditRubricResultEntity> rubricRows) {
+    private static ScoreBreakdown computeBreakdown(
+            List<AuditRubricResultEntity> rubricRows, CompetitorExtractionMode mode) {
         if (rubricRows == null || rubricRows.isEmpty()) {
             return ScoreBreakdown.empty();
         }
@@ -279,7 +285,7 @@ public class JobPersistenceService {
             }
         }
         double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
-                aiAuditTotal, meoTotal, machineReadabilityTotal);
+                aiAuditTotal, meoTotal, machineReadabilityTotal, mode);
         return new ScoreBreakdown(aiAuditTotal, meoTotal, machineReadabilityTotal, finalScore);
     }
 
@@ -310,6 +316,38 @@ public class JobPersistenceService {
                     "job_analysis_attachment_remediation_parse_failed auditHistoryId={} trace={}",
                     history.getId(),
                     truncateStackTrace(exception));
+            return List.of();
+        }
+    }
+
+    /**
+     * コンサル出力 JSON から prioritizedTasks の title を抽出する（戦略診断の動的化用・ADR-020）。
+     * rawResponse がコンサル JSON でない（パース失敗時の生テキスト保存）場合は空を返し、
+     * 呼び出し側を SoM 帯テンプレートへフォールバックさせる。
+     */
+    private List<String> extractSiteTaskHints(String consultantJson) {
+        if (consultantJson == null || consultantJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            ConsultantOutputData data = objectMapper.readValue(consultantJson, ConsultantOutputData.class);
+            List<TaskDTO> tasks = data.prioritizedTasks();
+            if (tasks == null || tasks.isEmpty()) {
+                return List.of();
+            }
+            ArrayList<String> titles = new ArrayList<>(tasks.size());
+            for (int i = 0; i < tasks.size(); i++) {
+                TaskDTO task = tasks.get(i);
+                if (task == null) {
+                    continue;
+                }
+                String title = task.title();
+                if (title != null && !title.isBlank()) {
+                    titles.add(title.strip());
+                }
+            }
+            return List.copyOf(titles);
+        } catch (Exception exception) {
             return List.of();
         }
     }
@@ -383,9 +421,10 @@ public class JobPersistenceService {
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
             var negativeAlert = sentimentIntensity < -0.5;
-            var insight = modifiedZScore != null
-                ? strategyInsightService.fromModifiedZ(modifiedZScore)
-                : strategyInsightService.fromVisibilityStage(visibilityStage != null ? visibilityStage : 10);
+            // 定型文を排し、SoM 絶対値・引用順位に加えサイト固有の優先改善タスクを後半文へ反映する（ADR-018/020）。
+            // rawResponse はコンサル出力 JSON（prioritizedTasks を含む）。パース不能時は帯テンプレへフォールバックする。
+            var siteTaskHints = extractSiteTaskHints(rawResponse);
+            var insight = strategyInsightService.describeForQuery(somScore, aiCitationPosition, siteTaskHints);
             var actions = new ArrayList<>(insight.recommendedActions());
             Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
             if (existingOptional.isPresent()) {
@@ -487,7 +526,8 @@ public class JobPersistenceService {
 
     @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(JobCreateFields fields, UUID idempotencyKey) {
-        ProjectEntity projectEntity = projectManagementService.getOrCreateDefaultProject(fields.brandName());
+        ProjectEntity projectEntity =
+                projectManagementService.getOrCreateDefaultProject(fields.brandName(), fields.targetUrl());
         UUID workspaceId = projectEntity.getWorkspaceId();
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         return runJobCreationWithProject(fields, idempotencyKey, projectEntity, workspaceId, orgId);
@@ -496,7 +536,8 @@ public class JobPersistenceService {
     @Transactional(readOnly = false)
     public JobCreateOutcome createJobWithIdempotency(JobCreateFields fields, UUID idempotencyKey, UUID workspaceId) {
         ProjectManagementService.DefaultProjectResolution resolution =
-                projectManagementService.getOrCreateDefaultProjectForWorkspace(fields.brandName(), workspaceId);
+                projectManagementService.getOrCreateDefaultProjectForWorkspace(
+                        fields.brandName(), workspaceId, fields.targetUrl());
         ProjectEntity projectEntity = resolution.project();
         UUID resolvedWorkspaceId = projectEntity.getWorkspaceId();
         UUID orgId = resolution.organizationId();

@@ -6,13 +6,24 @@ const MAX_MEO = 25;
 const MAX_MACHINE_READABILITY = 25;
 const MAX_TOTAL = 100;
 
+// 非地域業種（全国BtoB・オンライン）は MEO を除外し AI×1.2／機械×1.6 へ再配分する（ADR-019 / バックエンドと一致）。
+const AI_WEIGHT_NON_LOCAL = 1.2;
+const MACHINE_WEIGHT_NON_LOCAL = 1.6;
+const MAX_AI_AUDIT_NON_LOCAL = MAX_AI_AUDIT * AI_WEIGHT_NON_LOCAL; // 60
+const MAX_MACHINE_NON_LOCAL = MAX_MACHINE_READABILITY * MACHINE_WEIGHT_NON_LOCAL; // 40
+
 const AXIS_AI = "#6366F1";
 const AXIS_MEO = "#10B981";
 const AXIS_MR = "#F59E0B";
 
+function isNonLocalIndustry(mode: string | undefined): boolean {
+  return mode === "CORPORATE_SERVICE" || mode === "ONLINE_SERVICE";
+}
+
 export interface GeoScoreBreakdownProps {
   breakdown: ScoreBreakdown | null | undefined;
   brandName?: string;
+  industryMode?: string;
 }
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -81,11 +92,16 @@ function AxisRow({ label, value, max, color }: AxisRowProps): JSX.Element {
   );
 }
 
-export function GeoScoreBreakdown({ breakdown, brandName }: GeoScoreBreakdownProps): JSX.Element | null {
+export function GeoScoreBreakdown({
+  breakdown,
+  brandName,
+  industryMode,
+}: GeoScoreBreakdownProps): JSX.Element | null {
   if (!breakdown) {
     return null;
   }
   const total = clamp(breakdown.finalScore, 0, MAX_TOTAL);
+  const nonLocal = isNonLocalIndustry(industryMode);
   return (
     <Box
       sx={{
@@ -130,14 +146,33 @@ export function GeoScoreBreakdown({ breakdown, brandName }: GeoScoreBreakdownPro
         </Box>
         <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
           <Stack spacing={1.25}>
-            <AxisRow label="AI 監査" value={breakdown.aiAuditTotal} max={MAX_AI_AUDIT} color={AXIS_AI} />
-            <AxisRow label="MEO トラスト" value={breakdown.meoTotal} max={MAX_MEO} color={AXIS_MEO} />
-            <AxisRow
-              label="機械可読性"
-              value={breakdown.machineReadabilityTotal}
-              max={MAX_MACHINE_READABILITY}
-              color={AXIS_MR}
-            />
+            {nonLocal ? (
+              <>
+                <AxisRow
+                  label="AI 監査"
+                  value={breakdown.aiAuditTotal * AI_WEIGHT_NON_LOCAL}
+                  max={MAX_AI_AUDIT_NON_LOCAL}
+                  color={AXIS_AI}
+                />
+                <AxisRow
+                  label="機械可読性"
+                  value={breakdown.machineReadabilityTotal * MACHINE_WEIGHT_NON_LOCAL}
+                  max={MAX_MACHINE_NON_LOCAL}
+                  color={AXIS_MR}
+                />
+              </>
+            ) : (
+              <>
+                <AxisRow label="AI 監査" value={breakdown.aiAuditTotal} max={MAX_AI_AUDIT} color={AXIS_AI} />
+                <AxisRow label="MEO トラスト" value={breakdown.meoTotal} max={MAX_MEO} color={AXIS_MEO} />
+                <AxisRow
+                  label="機械可読性"
+                  value={breakdown.machineReadabilityTotal}
+                  max={MAX_MACHINE_READABILITY}
+                  color={AXIS_MR}
+                />
+              </>
+            )}
           </Stack>
         </Box>
       </Stack>

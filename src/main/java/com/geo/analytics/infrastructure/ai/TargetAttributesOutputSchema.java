@@ -26,12 +26,13 @@ public final class TargetAttributesOutputSchema {
         List<String> industryValues = Arrays.stream(IndustryType.values()).map(Enum::name).toList();
         return JsonObjectSchema.builder()
                 .addEnumProperty("industry", industryValues)
+                .addStringProperty("categoryKeyword")
                 .addStringProperty("tradeAreaLabel")
                 .addStringProperty("city")
                 .addStringProperty("ward")
                 .addStringProperty("town")
                 .addStringProperty("confidenceNote")
-                .required("industry", "tradeAreaLabel", "confidenceNote")
+                .required("industry", "categoryKeyword", "tradeAreaLabel", "confidenceNote")
                 .additionalProperties(false)
                 .build();
     }

@@ -202,6 +202,8 @@ export function JobAnalysisPage(): JSX.Element {
   const [data, setData] = useState<JobAnalysisDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // ジョブ完了をポーリングで検知したときに解析データを再取得するためのトリガー。
+  const [analysisReloadNonce, setAnalysisReloadNonce] = useState(0);
   const [isReadyForPdf, setIsReadyForPdf] = useState(false);
   const [pdfRequestInFlight, setPdfRequestInFlight] = useState(false);
   const [pdfRequestNotice, setPdfRequestNotice] = useState<string | null>(null);
@@ -447,7 +449,16 @@ export function JobAnalysisPage(): JSX.Element {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [effectiveJobId]);
+  }, [effectiveJobId, analysisReloadNonce]);
+
+  // ジョブがポーリングで「完了」に変わったら解析データを1度だけ再取得する。
+  // 初回マウント時に処理中の状態で取得するとスコアが0のままになり、手動更新が必要だった問題の根治。
+  const jobReportedCompleted = isCompletedJobStatus(jobStatus?.jobStatus ?? "");
+  useEffect(() => {
+    if (jobReportedCompleted) {
+      setAnalysisReloadNonce((n) => n + 1);
+    }
+  }, [jobReportedCompleted]);
 
   useEffect(() => {
     const ready = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
@@ -525,7 +536,11 @@ export function JobAnalysisPage(): JSX.Element {
   const geoScoreSection =
     data !== null && data.scoreBreakdown != null ? (
       <div className="pdf-avoid-break mb-6">
-        <GeoScoreBreakdown breakdown={data.scoreBreakdown} brandName={data.brandName} />
+        <GeoScoreBreakdown
+          breakdown={data.scoreBreakdown}
+          brandName={data.brandName}
+          industryMode={data.project?.industryType}
+        />
       </div>
     ) : null;
 

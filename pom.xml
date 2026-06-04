@@ -24,6 +24,7 @@
         <sudachi.dict.zip>sudachi-dictionary-20260116-core.zip</sudachi.dict.zip>
         <jjwt.version>0.12.6</jjwt.version>
         <apache-tika.version>2.9.2</apache-tika.version>
+        <stripe.version>28.4.0</stripe.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -167,6 +168,12 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.22.2</version>
+        </dependency>
+        <!-- Stripe セルフサーブ自動決済（案B・Checkout＋Webhook）。鍵は環境変数注入（application.yml にハードコード禁止） -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>${stripe.version}</version>
         </dependency>
         <dependency>
             <groupId>com.worksap.nlp</groupId>

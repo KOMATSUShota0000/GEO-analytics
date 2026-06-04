@@ -4,6 +4,8 @@ import { JobAnalysisPage } from "./pages/JobAnalysisPage";
 import JobCreationPage from "./pages/JobCreationPage";
 import LoginPage from "./pages/LoginPage";
 import PricingPage from "./pages/PricingPage";
+import PublicDemoPage from "./pages/PublicDemoPage";
+import PublicPlansPage from "./pages/PublicPlansPage";
 import GeoOnboardingView from "./pages/GeoOnboardingView";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import ReportPrintPage from "./pages/ReportPrintPage";
@@ -13,6 +15,9 @@ export default function App(): JSX.Element {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* 公開（未ログイン）マーケティング導線。認証レイアウトの外に置く。 */}
+      <Route path="/demo" element={<PublicDemoPage />} />
+      <Route path="/plans" element={<PublicPlansPage />} />
       <Route element={<RequireAuthLayout />}>
         <Route path="/" element={<JobCreationPage />} />
         <Route path="/job/:jobId" element={<JobAnalysisPage />} />

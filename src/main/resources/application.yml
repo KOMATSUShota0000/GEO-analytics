@@ -93,3 +93,16 @@ app:
       refill-minutes: 1
   notifications:
     mail-from: "${APP_NOTIFICATIONS_MAIL_FROM:noreply@example.com}"
+
+# Stripe セルフサーブ自動決済（案B）。
+# secret-key / webhook-secret は機密 → 必ず環境変数で注入（ハードコード禁止）。
+# price-* は機密ではない（テストモードの価格ID）ため既定値を持たせるが、本番は環境変数で上書き可能。
+stripe:
+  secret-key: "${STRIPE_SECRET_KEY:}"
+  webhook-secret: "${STRIPE_WEBHOOK_SECRET:}"
+  success-url: "${STRIPE_SUCCESS_URL:http://localhost:5173/?billing=success}"
+  cancel-url: "${STRIPE_CANCEL_URL:http://localhost:5173/plans?billing=cancel}"
+  prices:
+    standard: "${STRIPE_PRICE_STANDARD:price_1TeFu0AC5qg6GAUebc4ELEpv}"
+    pro: "${STRIPE_PRICE_PRO:price_1TeFuWAC5qg6GAUebbZdffa0}"
+    expert: "${STRIPE_PRICE_EXPERT:price_1TeFuyAC5qg6GAUe6lWtjpuQ}"

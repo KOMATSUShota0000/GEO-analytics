@@ -74,7 +74,13 @@ public class LocalStoreRippleSearch {
 
     private static List<String> buildDistinctQueries(TargetAttributes targetAttributes, IndustryType industry) {
         IndustryType safe = industry != null ? industry : IndustryType.OTHER;
+        // 具体的職種ワード（例: 訪問看護）を最優先。無ければ粗い業種ラベル（例: YMYL分野）へフォールバック。
         String label = safe.getLabel();
+        if (targetAttributes != null
+                && targetAttributes.categoryKeyword() != null
+                && !targetAttributes.categoryKeyword().isBlank()) {
+            label = targetAttributes.categoryKeyword().trim();
+        }
         String town = "";
         String ward = "";
         String city = "";

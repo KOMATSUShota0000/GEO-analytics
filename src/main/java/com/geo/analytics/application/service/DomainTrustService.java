@@ -59,10 +59,9 @@ public class DomainTrustService {
             log.warn("rag crawl excluded reason=db_block host={}", h);
             return stripCrawl(request);
         }
-        if (!isJapanDomestic(h) && !isAllowNonJp(h)) {
-            log.warn("rag crawl excluded reason=non_jp host={}", h);
-            return stripCrawl(request);
-        }
+        // 自社の解析対象ページ（ユーザーが明示指定した target_url）は、日本ドメインか否かに関わらず必ず解析する。
+        // applyDomainPolicy はこの自社ページ経路でのみ呼ばれるため、旧 non_jp フィルタ（.jp 以外を破棄）は
+        // himawari-kai.org 等 .org/.com の日本企業サイトを誤って解析不能にしていた。明示ブロック/翻訳サイト除外は維持する。
         var trust = resolveTrustBoost(h);
         return new VerificationRequest(
             request.brandName(),
@@ -115,19 +114,6 @@ public class DomainTrustService {
     private boolean matchesTranslationHeuristic(String host) {
         for (var m : TRANSLATION_HOST_MARKERS) {
             if (host.contains(m)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isJapanDomestic(String host) {
-        return host.endsWith(".jp") || "localhost".equals(host) || host.startsWith("127.");
-    }
-
-    private boolean isAllowNonJp(String host) {
-        for (var r : cachedRules.get()) {
-            if (r.getRuleKind() == RagDomainRuleKind.ALLOW_NON_JP && matchesHostSuffix(host, r.getHostSuffix())) {
                 return true;
             }
         }

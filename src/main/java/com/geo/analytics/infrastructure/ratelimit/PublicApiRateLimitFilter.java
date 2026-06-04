@@ -43,7 +43,13 @@ public class PublicApiRateLimitFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String p = stripContextPath(request);
-        return !p.startsWith("/api/public/");
+        if (!p.startsWith("/api/public/")) {
+            return true;
+        }
+        // Stripe Webhook は Stripe からのサーバー間通信で、署名検証で正当性を担保する。
+        // 失敗時の再送（最大数十時間リトライ）やイベント集中で IP 単位のレート制限に達すると
+        // 決済完了通知を取りこぼし、プラン昇格が反映されなくなるため、対象から除外する。
+        return "/api/public/billing/webhook".equals(p);
     }
 
     @Override

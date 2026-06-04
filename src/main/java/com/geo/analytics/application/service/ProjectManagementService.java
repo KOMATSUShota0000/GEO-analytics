@@ -33,7 +33,7 @@ public class ProjectManagementService {
     }
 
     @Transactional
-    public ProjectEntity getOrCreateDefaultProject(String brandName) {
+    public ProjectEntity getOrCreateDefaultProject(String brandName, String targetUrl) {
         Objects.requireNonNull(brandName, "brandName");
         UUID workspaceId = DefaultTenantIds.WORKSPACE_ID;
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
@@ -46,14 +46,16 @@ public class ProjectManagementService {
                 entityManager.flush();
                 return workspaceEntity;
             });
-            return projectRepository.findByTenantIdAndName(workspaceId.toString(), brandName).orElseGet(() -> {
-                ProjectEntity projectEntity = new ProjectEntity();
-                projectEntity.setWorkspaceId(workspaceId);
-                projectEntity.setName(brandName);
-                projectEntity.setTargetUrl("");
-                projectEntity.setCompetitorUrls(new ArrayList<>());
-                return projectRepository.saveAndFlush(projectEntity);
-            });
+            return projectRepository.findByTenantIdAndName(workspaceId.toString(), brandName)
+                    .map(existing -> backfillTargetUrlIfMissing(existing, targetUrl))
+                    .orElseGet(() -> {
+                        ProjectEntity projectEntity = new ProjectEntity();
+                        projectEntity.setWorkspaceId(workspaceId);
+                        projectEntity.setName(brandName);
+                        projectEntity.setTargetUrl(normalizeTargetUrl(targetUrl));
+                        projectEntity.setCompetitorUrls(new ArrayList<>());
+                        return projectRepository.saveAndFlush(projectEntity);
+                    });
         });
     }
 
@@ -61,7 +63,8 @@ public class ProjectManagementService {
      * 指定ワークスペース内でブランド名に紐づくプロジェクトを取得または作成する。ワークスペース行は既に存在すること（自動作成しない）。
      */
     @Transactional
-    public DefaultProjectResolution getOrCreateDefaultProjectForWorkspace(String brandName, UUID workspaceId) {
+    public DefaultProjectResolution getOrCreateDefaultProjectForWorkspace(
+            String brandName, UUID workspaceId, String targetUrl) {
         Objects.requireNonNull(brandName, "brandName");
         Objects.requireNonNull(workspaceId, "workspaceId");
         WorkspaceEntity workspace = workspaceRepository
@@ -70,14 +73,30 @@ public class ProjectManagementService {
         UUID orgId = workspace.getOrganizationId();
         ProjectEntity project = TenantPlanScope.executeWithTenant(workspaceId, () -> projectRepository
                 .findByTenantIdAndName(workspaceId.toString(), brandName)
+                .map(existing -> backfillTargetUrlIfMissing(existing, targetUrl))
                 .orElseGet(() -> {
                     ProjectEntity projectEntity = new ProjectEntity();
                     projectEntity.setWorkspaceId(workspaceId);
                     projectEntity.setName(brandName);
-                    projectEntity.setTargetUrl("");
+                    projectEntity.setTargetUrl(normalizeTargetUrl(targetUrl));
                     projectEntity.setCompetitorUrls(new ArrayList<>());
                     return projectRepository.saveAndFlush(projectEntity);
                 }));
         return new DefaultProjectResolution(project, orgId);
+    }
+
+    // 解析パイプライン（競合抽出・ルーブリック監査・ベンチマーク・MEO）は project.target_url を参照するため、
+    // 過去に "" 固定で作られた既存プロジェクトにもジョブ作成時の実 URL を一度だけ補完する。
+    private ProjectEntity backfillTargetUrlIfMissing(ProjectEntity existing, String targetUrl) {
+        String normalized = normalizeTargetUrl(targetUrl);
+        if (!normalized.isEmpty() && (existing.getTargetUrl() == null || existing.getTargetUrl().isBlank())) {
+            existing.setTargetUrl(normalized);
+            return projectRepository.saveAndFlush(existing);
+        }
+        return existing;
+    }
+
+    private static String normalizeTargetUrl(String targetUrl) {
+        return targetUrl != null ? targetUrl.trim() : "";
     }
 }

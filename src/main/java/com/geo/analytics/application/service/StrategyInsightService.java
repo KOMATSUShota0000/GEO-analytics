@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import java.lang.StrictMath;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -79,6 +80,141 @@ public final class StrategyInsightService {
         return new StrategyInsight(MSG_BLINDSPOT, ACTIONS_LOW, -1.5);
     }
 
+    /** SoM 絶対値の帯ごとの基本方針（Tier 統一しきい値 6/16/31）。 */
+    private record TierAdvice(String tier, String nextMove, List<String> actions) {}
+
+    private static TierAdvice tierAdviceFromSom(double som) {
+        if (som >= 31.0) {
+            return new TierAdvice(
+                "Market Leader（市場リーダー）",
+                "AIが『この分野の結論』として貴社を参照し続けるよう、PRTIMES発信や専門メディアでの独占情報で防衛的に維持してください。",
+                ACTIONS_HIGH);
+        }
+        if (som >= 16.0) {
+            return new TierAdvice(
+                "Competitive（競争力あり）",
+                "主要な選択肢として認知されています。独自調査レポートや一次情報を増やし、AIが引用する権威ノードを拡張してください。",
+                ACTIONS_HIGH);
+        }
+        if (som >= 6.0) {
+            return new TierAdvice(
+                "Challenger（チャレンジャー）",
+                "言及は獲得できていますが、推奨の文脈で選ばれる『信頼の差』が残ります。第三者レビュー・比較サイト・PR露出を増やしてください。",
+                ACTIONS_LOW);
+        }
+        return new TierAdvice(
+            "Invisible（存在なし）",
+            "AI上でブランドがほぼ不可視です。Schema.org 等の構造化データ整備と権威メディアからのサイテーション獲得を最優先にしてください。",
+            ACTIONS_LOW);
+    }
+
+    /**
+     * 定型文を排し、その解析の実測値（SoM 絶対値・引用順位）を文に埋め込んだ動的な診断を返す。
+     * SoM が動けば点数・ティア・次の一手がすべて変わるため、解析ごとに異なる文になる（ADR-018）。
+     */
+    public StrategyInsight describeForQuery(Double som, Integer aiPos) {
+        return describeForQuery(som, aiPos, null);
+    }
+
+    /**
+     * {@link #describeForQuery(Double, Integer)} に加え、ルーブリック監査が抽出した
+     * サイト固有の優先改善タスク（{@code prioritizedTasks} の title）で後半アドバイスと
+     * 推奨アクションを動的化する（ADR-020）。
+     * タスクが空・null の場合は SoM 帯テンプレートへ安全にフォールバックする。
+     */
+    public StrategyInsight describeForQuery(Double som, Integer aiPos, List<String> siteTasks) {
+        double s = som != null ? som : 0.0;
+        TierAdvice ta = tierAdviceFromSom(s);
+        String citation = (aiPos != null && aiPos > 0)
+            ? String.format(Locale.ROOT, "AI回答内で%d番目の推奨として引用されています", aiPos)
+            : "順位付き推奨リストには未掲載です";
+        List<String> tasks = sanitizeSiteTasks(siteTasks);
+        String nextMove;
+        List<String> actions;
+        if (tasks.isEmpty()) {
+            nextMove = ta.nextMove();
+            actions = ta.actions();
+        } else {
+            // サイト固有の最優先改善を後半文に昇格させ、帯固定文を排する。
+            nextMove = String.format(Locale.ROOT, "このサイト固有の最優先改善は「%s」です。", tasks.get(0));
+            actions = tasks;
+        }
+        String diag = String.format(
+            Locale.ROOT,
+            "現在のSoM可視性は%.1f点（%sティア）。%s。%s",
+            s, ta.tier(), citation, nextMove);
+        return new StrategyInsight(diag, actions, null);
+    }
+
+    /**
+     * サイト固有タスク（title）を整形する: 空白除去・重複排除・帯固定テンプレ文の除外・上限3件。
+     * 帯固定テンプレ（{@link #ACTIONS_LOW}/{@link #ACTIONS_HIGH}）はサイト固有ではないため除外し、
+     * 定型文がアドバイスに混入するのを防ぐ。
+     */
+    private static List<String> sanitizeSiteTasks(List<String> siteTasks) {
+        if (siteTasks == null || siteTasks.isEmpty()) {
+            return List.of();
+        }
+        ArrayList<String> out = new ArrayList<>(3);
+        for (String task : siteTasks) {
+            if (task == null) {
+                continue;
+            }
+            String trimmed = task.strip();
+            if (trimmed.isEmpty()
+                    || ACTIONS_LOW.contains(trimmed)
+                    || ACTIONS_HIGH.contains(trimmed)
+                    || out.contains(trimmed)) {
+                continue;
+            }
+            out.add(trimmed);
+            if (out.size() >= 3) {
+                break;
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * ジョブ全体の動的サマリー。クエリ数と SoM 分布（中央値・最高・最低）を文に埋め込む。
+     * 各クエリに蓄積されたサイト固有タスク（{@code siteTasks}）があれば後半アドバイスと
+     * 推奨アクションを動的化し、無ければ SoM 帯テンプレートへフォールバックする（ADR-020）。
+     */
+    private StrategyInsight describeJobRollup(
+            double medSom,
+            double minSom,
+            double maxSom,
+            int queryCount,
+            Double representativeZ,
+            List<String> siteTasks) {
+        TierAdvice ta = tierAdviceFromSom(medSom);
+        String spread = queryCount > 1
+            ? String.format(
+                Locale.ROOT,
+                "%d件のクエリを解析。SoM中央値は%.1f点（最高%.1f／最低%.1f）",
+                queryCount, medSom, maxSom, minSom)
+            : String.format(Locale.ROOT, "解析したクエリのSoM可視性は%.1f点", medSom);
+        List<String> tasks = sanitizeSiteTasks(siteTasks);
+        String nextMove = tasks.isEmpty()
+            ? ta.nextMove()
+            : String.format(Locale.ROOT, "このサイト固有の最優先改善は「%s」です。", tasks.get(0));
+        List<String> actions = tasks.isEmpty() ? ta.actions() : tasks;
+        String diag = String.format(Locale.ROOT, "%s（%sティア）。%s", spread, ta.tier(), nextMove);
+        return new StrategyInsight(diag, actions, representativeZ);
+    }
+
+    /** 各監査行に蓄積されたサイト固有の推奨アクションを集約する（帯固定テンプレは sanitize 側で除外）。 */
+    private static List<String> collectSiteTasksFromRows(List<AuditHistoryEntity> rows) {
+        ArrayList<String> aggregated = new ArrayList<>();
+        for (AuditHistoryEntity row : rows) {
+            List<String> actions = row.getRecommendedActions();
+            if (actions != null) {
+                aggregated.addAll(actions);
+            }
+        }
+        return aggregated;
+    }
+
     public StrategyInsight resolveForAudit(AuditHistoryEntity auditHistoryEntity) {
         var diag = auditHistoryEntity.getDiagnosticMessage();
         var acts = auditHistoryEntity.getRecommendedActions();
@@ -86,8 +222,9 @@ public final class StrategyInsightService {
         if (diag != null && !diag.isBlank() && acts != null && !acts.isEmpty()) {
             return new StrategyInsight(diag, List.copyOf(acts), mz);
         }
-        if (mz != null) {
-            return fromModifiedZ(mz);
+        var som = auditHistoryEntity.getSomScore();
+        if (som != null) {
+            return describeForQuery(som, auditHistoryEntity.getAiCitationPosition());
         }
         var vs = auditHistoryEntity.getVisibilityStage();
         return fromVisibilityStage(vs != null ? vs : 10);
@@ -102,24 +239,26 @@ public final class StrategyInsightService {
         if (rows == null || rows.isEmpty()) {
             return new StrategyInsight(null, List.of(), null);
         }
-        var zStream = rows.stream()
-            .map(AuditHistoryEntity::getModifiedZScore)
+        var soms = rows.stream()
+            .map(AuditHistoryEntity::getSomScore)
             .filter(Objects::nonNull)
-            .mapToDouble(Double::doubleValue);
-        var zArr = zStream.toArray();
-        if (zArr.length == 0) {
+            .mapToDouble(Double::doubleValue)
+            .sorted()
+            .toArray();
+        // 改Z'（ジョブ内相対指標）は数値表示用に温存し、診断文は SoM 絶対値で動的生成する。
+        Double medZ = medianModifiedZ(rows);
+        if (soms.length == 0) {
             var stages = rows.stream()
                 .map(AuditHistoryEntity::getVisibilityStage)
                 .map(s -> s != null ? s : 10)
                 .sorted()
                 .mapToInt(Integer::intValue)
                 .toArray();
-            var medSt = medianInt(stages);
-            return fromVisibilityStage(medSt);
+            return fromVisibilityStage(medianInt(stages));
         }
-        Arrays.sort(zArr);
-        var medZ = medianSorted(zArr);
-        return fromModifiedZ(medZ);
+        var medSom = medianSorted(soms);
+        return describeJobRollup(
+            medSom, soms[0], soms[soms.length - 1], rows.size(), medZ, collectSiteTasksFromRows(rows));
     }
 
     /**
