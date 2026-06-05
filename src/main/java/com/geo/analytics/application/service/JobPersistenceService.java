@@ -12,6 +12,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.model.RemediationTask;
+import com.geo.analytics.domain.service.AiRecognitionClassifier;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
@@ -424,6 +425,11 @@ public class JobPersistenceService {
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
             var negativeAlert = sentimentIntensity < -0.5;
+            // AIがブランドを正しい実体として認識しているかの定性ステート（V13 Sprint3）。
+            // SoM測定で得た応答由来のシグナル（言及有無・正規化済み実体ラベル）と顧客の正規ブランド名から導出する。
+            // 追加API呼び出しはなく、スコア計算にも一切渡さない（SoMとの二重計上回避＝ADR-024）。
+            var aiRecognitionState = AiRecognitionClassifier.classify(
+                brandMentioned, resolvedEntityLabel, jobEntity.getBrandName());
             // 定型文を排し、SoM 絶対値・引用順位に加えサイト固有の優先改善タスクを後半文へ反映する（ADR-018/020）。
             // rawResponse はコンサル出力 JSON（prioritizedTasks を含む）。パース不能時は帯テンプレへフォールバックする。
             var siteTaskHints = extractSiteTaskHints(rawResponse);
@@ -444,6 +450,7 @@ public class JobPersistenceService {
                 existing.setVisibilityStage(visibilityStage);
                 existing.setCalculationVersion(calculationVersion);
                 existing.setNegativeAlert(negativeAlert);
+                existing.setAiRecognitionState(aiRecognitionState);
                 existing.setModifiedZScore(modifiedZScore);
                 existing.setGbvsNormalizedScore(gbvsNormalizedScore);
                 existing.setDiagnosticMessage(insight.diagnosticMessage());
@@ -471,6 +478,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setVisibilityStage(visibilityStage);
                 auditHistoryEntity.setCalculationVersion(calculationVersion);
                 auditHistoryEntity.setNegativeAlert(negativeAlert);
+                auditHistoryEntity.setAiRecognitionState(aiRecognitionState);
                 auditHistoryEntity.setModifiedZScore(modifiedZScore);
                 auditHistoryEntity.setGbvsNormalizedScore(gbvsNormalizedScore);
                 auditHistoryEntity.setDiagnosticMessage(insight.diagnosticMessage());
