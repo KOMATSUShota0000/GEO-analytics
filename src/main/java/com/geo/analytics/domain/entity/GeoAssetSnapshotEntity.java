@@ -32,6 +32,10 @@ public class GeoAssetSnapshotEntity {
     @Column(name = "local_trust_count", nullable = false)
     private long localTrustCount;
 
+    // このスナップショットを算出したスコア計算モデルの版（V13 Sprint4a-3）。旧データは NULL。
+    @Column(name = "calculation_version", length = 32)
+    private String calculationVersion;
+
     public GeoAssetSnapshotEntity() {}
 
     public UUID getId() {
@@ -80,5 +84,13 @@ public class GeoAssetSnapshotEntity {
 
     public void setLocalTrustCount(long localTrustCount) {
         this.localTrustCount = localTrustCount;
+    }
+
+    public String getCalculationVersion() {
+        return calculationVersion;
+    }
+
+    public void setCalculationVersion(String calculationVersion) {
+        this.calculationVersion = calculationVersion;
     }
 }
