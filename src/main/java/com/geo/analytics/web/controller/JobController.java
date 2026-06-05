@@ -15,7 +15,9 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.config.PdfStorageConfig;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
+import com.geo.analytics.domain.service.AiRecognitionAggregator;
 import com.geo.analytics.web.dto.AddQueriesRequest;
+import com.geo.analytics.web.dto.AiRecognitionSummaryResponse;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobAnalysisDetailResponse;
 import com.geo.analytics.web.dto.JobStatusResponse;
@@ -263,6 +265,10 @@ public class JobController {
                 jobPersistenceService.loadJobAnalysisAttachment(jobId, audits);
         List<RemediationTaskResponse> remediationTasksMasked =
                 RemediationTaskResponseMask.apply(bench.factBasedScore(), attachment.remediationTasks());
+        // AI認識状況（Sprint3）をジョブ単位に集約して露出する。スコア非算入の定性エビデンス（Sprint4a-2）。
+        AiRecognitionSummaryResponse aiRecognitionSummary = AiRecognitionSummaryResponse.from(
+                AiRecognitionAggregator.aggregate(
+                        audits.stream().map(a -> a.getAiRecognitionState()).toList()));
         return ResponseEntity.ok(JobAnalysisDetailResponse.from(
             jobEnt,
             aggregate.project(),
@@ -275,6 +281,7 @@ public class JobController {
             bench.rubricGaps(),
             attachment.scoreBreakdown(),
             remediationTasksMasked,
+            aiRecognitionSummary,
             objectMapper));
     }
 
