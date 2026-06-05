@@ -24,3 +24,16 @@ GEO Readiness 総合スコア(0-100)は「AI監査50 / MEO25 / 機械可読性25
 - **トレードオフ/申し送り**:
   - 権威軸はSprint1では中核（第三者言及）未配線でMEO由来の暫定値。Sprint2で SerpAPI 流用の第三者言及へ差し替え、全業種適用＝非地域の「適用外」分岐を解消する。
   - **スコア計算の第2系統**: `DefaultScoringService`(50/25/25)が `GeoAssetSnapshotService` の経時スナップショットで使用されており、本ADRの対象外。新旧モデル混在を避けるため後続スプリントで整合させる必要がある（要対応）。
+
+## Sprint 2 追記（2026-06-04）— 権威軸の本配線
+
+- **第三者言及の本配線完了**: 権威軸の中核を「自社ドメイン以外の独立第三者ドメイン数」で実測。
+  - `ThirdPartyMentionScorer`（純粋ロジック・0-20へ飽和スケール・自社/サブドメイン除外・外部ライブラリ非依存）。
+  - `ThirdPartyMentionMeasurementService`（既存SerpAPI基盤 `GeoCompetitorSearchService` を流用・1解析1コール上限・職種ワード同名対策に対応）。
+  - `AiRubricAuditService` がジョブ完了監査時に自社URLへ新基準 `THIRD_PARTY_MENTIONS`(`Source.AUTHORITY`, 0-20) を1行永続化。
+- **権威(0-30)の合成**: `GeoVisibilityCalculatorService.combineAuthority` = 第三者中核(0-20) ＋ ローカル業種のみMEOサブ(0-10)。非地域業種は中核のみ。
+- **mode依存の解消**: 権威軸が全業種共通になったため `calculateFinalGeoScore` から `CompetitorExtractionMode` を撤去。天井は常に100で固定（Sprint1の正規化分岐は不要化）。
+- **トレードオフ/申し送り**:
+  - 非地域業種は当面 Wikipedia/KG ボーナス(0-10)未配線のため権威上限が実質20＝GEO Readiness 上限が90になり得る（Sprint5でボーナス配線時に解消。authority signal を欠く実体が満点に届かないのはGEO的に妥当）。
+  - 飽和点(独立8ドメイン)・MEOサブ係数(×0.4)は実データでの絶対値チューニング対象。
+  - `categoryKeyword` の audit 経路への引き回しは未配線（現状ブランド名クエリのみ）。次イテレーション。

@@ -13,6 +13,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.enums.RubricVerdictStatus;
+import com.geo.analytics.domain.service.ThirdPartyMentionScorer;
 import com.geo.analytics.infrastructure.ai.JobPromptContextFormatter;
 import com.geo.analytics.infrastructure.crawler.safety.SafeHttpClient;
 import com.geo.analytics.infrastructure.repository.AuditRubricResultRepository;
@@ -61,6 +62,7 @@ public class AiRubricAuditService {
     private final MEODataPort meoDataPort;
     private final AuditRubricResultRepository auditRubricResultRepository;
     private final JobPersistenceService jobPersistenceService;
+    private final ThirdPartyMentionMeasurementService thirdPartyMentionMeasurementService;
     private AiRubricAuditService self;
 
     public AiRubricAuditService(
@@ -69,13 +71,15 @@ public class AiRubricAuditService {
             RubricAuditService rubricAuditService,
             MEODataPort meoDataPort,
             AuditRubricResultRepository auditRubricResultRepository,
-            JobPersistenceService jobPersistenceService) {
+            JobPersistenceService jobPersistenceService,
+            ThirdPartyMentionMeasurementService thirdPartyMentionMeasurementService) {
         this.smartDomainCrawlService = smartDomainCrawlService;
         this.safeHttpClient = safeHttpClient;
         this.rubricAuditService = rubricAuditService;
         this.meoDataPort = meoDataPort;
         this.auditRubricResultRepository = auditRubricResultRepository;
         this.jobPersistenceService = jobPersistenceService;
+        this.thirdPartyMentionMeasurementService = thirdPartyMentionMeasurementService;
     }
 
     @Autowired
@@ -258,6 +262,7 @@ public class AiRubricAuditService {
             withMeo.add(buildMeoTrustResult(trust));
             finalMap.put(url, List.copyOf(withMeo));
         }
+        appendThirdPartyMentionForSelf(finalMap, projectId, meoSearchQuery, normalizedSelfUrl);
         Map<String, List<RubricAuditResult>> result = Map.copyOf(finalMap);
         try {
             self.saveAuditResults(auditHistoryId, normalizedSelfUrl, result);
@@ -269,6 +274,60 @@ public class AiRubricAuditService {
                     truncateStackTrace(runtimeException));
         }
         return result;
+    }
+
+    private void appendThirdPartyMentionForSelf(
+            LinkedHashMap<String, List<RubricAuditResult>> finalMap,
+            UUID projectId,
+            String brandQuery,
+            String normalizedSelfUrl) {
+        if (normalizedSelfUrl == null || normalizedSelfUrl.isEmpty()) {
+            return;
+        }
+        List<RubricAuditResult> selfRows = finalMap.get(normalizedSelfUrl);
+        if (selfRows == null) {
+            return;
+        }
+        RubricAuditResult row;
+        try {
+            // 第三者言及（権威・エンティティ認知の中核）は自社ブランド単位の測定で SerpAPI 1コール。
+            // categoryKeyword による同名対策の本配線は別途（現状はブランド名クエリのみ）。
+            ThirdPartyMentionMeasurementService.AuthorityMentionResult measured =
+                    thirdPartyMentionMeasurementService.measure(projectId, brandQuery, null, normalizedSelfUrl);
+            row = buildThirdPartyMentionResult(measured);
+        } catch (RuntimeException runtimeException) {
+            log.error(
+                    "third_party_mention_measure_failed projectId={} trace={}",
+                    projectId,
+                    truncateStackTrace(runtimeException));
+            return;
+        }
+        if (row == null) {
+            return;
+        }
+        ArrayList<RubricAuditResult> merged = new ArrayList<>(selfRows.size() + 1);
+        merged.addAll(selfRows);
+        merged.add(row);
+        finalMap.put(normalizedSelfUrl, List.copyOf(merged));
+    }
+
+    private static RubricAuditResult buildThirdPartyMentionResult(
+            ThirdPartyMentionMeasurementService.AuthorityMentionResult measured) {
+        if (measured == null) {
+            return null;
+        }
+        double score = measured.authorityCoreScore();
+        int distinct = measured.distinctThirdPartyDomainCount();
+        RubricVerdictStatus verdict;
+        if (score >= ThirdPartyMentionScorer.MAX_AUTHORITY_CORE) {
+            verdict = RubricVerdictStatus.YES;
+        } else if (score > 0.0d) {
+            verdict = RubricVerdictStatus.PARTIAL;
+        } else {
+            verdict = RubricVerdictStatus.NO;
+        }
+        String evidence = "distinct_third_party_domains=" + distinct + "; authority_core=" + score;
+        return new RubricAuditResult(RubricCriterionId.THIRD_PARTY_MENTIONS, verdict, evidence, score);
     }
 
     @Transactional

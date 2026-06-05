@@ -46,8 +46,11 @@ public final class GeoVisibilityCalculatorService {
     /** ルーブリック機械可読性シグナルの素点上限（RubricCriterionId.MACHINE_READABILITY_SIGNAL）。 */
     private static final double RAW_MACHINE_READABILITY_MAX = 25.0d;
 
-    /** ルーブリックMEOトラストの素点上限。Sprint1では権威軸のローカル向けサブ指標として供給。 */
+    /** ルーブリックMEOトラストの素点上限。権威軸のローカル向けサブ指標として供給。 */
     private static final double RAW_MEO_MAX = 25.0d;
+
+    /** ローカル業種のみ権威軸へ加点する MEO(クチコミ)サブ指標の上限。第三者中核20＋ローカルサブ10で④軸30を構成。 */
+    private static final double MAX_MEO_LOCAL_SUB = 10.0d;
 
     /**
      * ブランド別名をカンマ区切りで分割（後段の LLM ハンドオフ用のユーティリティ）。
@@ -66,29 +69,28 @@ public final class GeoVisibilityCalculatorService {
     }
 
     public static double calculateFinalGeoScore(
-            double aiAuditTotal,
-            double meoScore,
-            double machineReadabilityScore,
-            CompetitorExtractionMode mode) {
-        double safeAi = Double.isFinite(aiAuditTotal) ? aiAuditTotal : 0.0d;
-        double safeMeo = Double.isFinite(meoScore) ? meoScore : 0.0d;
-        double safeMr = Double.isFinite(machineReadabilityScore) ? machineReadabilityScore : 0.0d;
-
-        // コンテンツ素地はルーブリックLLM10基準の素点(0-50)をそのまま採用。
-        double content = clamp(safeAi, 0.0d, MAX_CONTENT);
+            double contentScore, double machineReadabilityScore, double authorityScore) {
+        // V13_GEO4AXIS: コンテンツ50＋技術20＋権威30＝100。権威軸を全業種で常時適用するため天井は
+        // 常に100で固定でき、軸欠落時の正規化分岐（旧 ADR-019/Sprint1 の mode 依存）は不要になった。
+        double content = clamp(contentScore, 0.0d, MAX_CONTENT);
         // 技術素地は素点(0-25)を配点(0-20)へ線形圧縮（構造化データ等は配管シグナルのため軽め）。
-        double technical = safeMr * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
+        double technical = clamp(machineReadabilityScore, 0.0d, RAW_MACHINE_READABILITY_MAX)
+                * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
+        double authority = clamp(authorityScore, 0.0d, MAX_AUTHORITY);
+        return clampPercent(content + technical + authority);
+    }
 
-        // 権威・エンティティ認知: Sprint1 は暫定でローカルのMEO素点(0-25)を配点(0-30)へ拡大して供給。
-        // 非地域業種は現状この軸の入力を持たないため「適用外」とし、分母(applicableMax)から除いて
-        // 正規化する。これにより MEO 除外時の天井潰れ（旧 ADR-019 が係数再配分で対処していた問題）を
-        // 構造的に防ぐ。第三者言及を本配線する Sprint2 で全業種に適用し、この分岐は解消予定。
-        boolean authorityApplicable = !isNonLocalMode(mode);
-        double authority = authorityApplicable ? safeMeo * (MAX_AUTHORITY / RAW_MEO_MAX) : 0.0d;
-        double applicableMax = MAX_CONTENT + MAX_TECHNICAL + (authorityApplicable ? MAX_AUTHORITY : 0.0d);
-
-        double weightedSum = content + technical + authority;
-        return clampPercent(Math.fma(100.0d, weightedSum / applicableMax, 0.0d));
+    /**
+     * 権威・エンティティ認知(0-30)を合成する。中核＝第三者言及の広がり(0-20)。ローカル業種のみ MEO(クチコミ)を
+     * サブ指標として 0-10 加点する。非地域業種は MEO を持たないため中核のみ（Wikipedia/KG ボーナスは別途）。
+     */
+    public static double combineAuthority(
+            double thirdPartyCore, double meoRaw, CompetitorExtractionMode mode) {
+        double core = clamp(thirdPartyCore, 0.0d, ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
+        double localSub = isNonLocalMode(mode)
+                ? 0.0d
+                : clamp(meoRaw, 0.0d, RAW_MEO_MAX) * (MAX_MEO_LOCAL_SUB / RAW_MEO_MAX);
+        return clamp(core + localSub, 0.0d, MAX_AUTHORITY);
     }
 
     private static boolean isNonLocalMode(CompetitorExtractionMode mode) {

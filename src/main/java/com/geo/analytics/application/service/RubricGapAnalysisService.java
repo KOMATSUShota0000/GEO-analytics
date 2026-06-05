@@ -128,6 +128,7 @@ public class RubricGapAnalysisService {
         double aiAuditTotal = 0.0d;
         double meoTotal = 0.0d;
         double machineReadabilityTotal = 0.0d;
+        double thirdPartyCoreTotal = 0.0d;
         for (int i = 0; i < rows.size(); i++) {
             AuditRubricResultEntity row = rows.get(i);
             if (!row.isSelf()) {
@@ -146,13 +147,15 @@ public class RubricGapAnalysisService {
                 case LLM -> aiAuditTotal = StrictMath.fma(score, 1.0d, aiAuditTotal);
                 case SYSTEM -> machineReadabilityTotal = StrictMath.fma(score, 1.0d, machineReadabilityTotal);
                 case MEO -> meoTotal = StrictMath.fma(score, 1.0d, meoTotal);
+                case AUTHORITY -> thirdPartyCoreTotal = StrictMath.fma(score, 1.0d, thirdPartyCoreTotal);
             }
         }
         CompetitorExtractionMode mode = jobRepository.findById(history.getJobId())
                 .map(JobEntity::getCompetitorExtractionMode)
                 .orElse(CompetitorExtractionMode.LOCAL_STORE);
+        double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCoreTotal, meoTotal, mode);
         double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
-                aiAuditTotal, meoTotal, machineReadabilityTotal, mode);
+                aiAuditTotal, machineReadabilityTotal, authority);
         double rounded = BigDecimal.valueOf(finalScore)
                 .setScale(3, RoundingMode.HALF_EVEN)
                 .doubleValue();
