@@ -73,11 +73,30 @@ public final class GeoVisibilityCalculatorService {
         // V13_GEO4AXIS: コンテンツ50＋技術20＋権威30＝100。権威軸を全業種で常時適用するため天井は
         // 常に100で固定でき、軸欠落時の正規化分岐（旧 ADR-019/Sprint1 の mode 依存）は不要になった。
         double content = clamp(contentScore, 0.0d, MAX_CONTENT);
-        // 技術素地は素点(0-25)を配点(0-20)へ線形圧縮（構造化データ等は配管シグナルのため軽め）。
-        double technical = clamp(machineReadabilityScore, 0.0d, RAW_MACHINE_READABILITY_MAX)
-                * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
+        double technical = technicalSubScore(machineReadabilityScore);
         double authority = clamp(authorityScore, 0.0d, MAX_AUTHORITY);
         return clampPercent(content + technical + authority);
+    }
+
+    /**
+     * 技術素地(0-20)を算出する。機械可読性の素点(0-25)を配点(0-20)へ線形圧縮する
+     * （構造化データ等は配管シグナルのため軽め）。レポート内訳の露出（Sprint4a-1）にも用いる。
+     */
+    public static double technicalSubScore(double machineReadabilityRaw) {
+        return clamp(machineReadabilityRaw, 0.0d, RAW_MACHINE_READABILITY_MAX)
+                * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
+    }
+
+    /** 権威軸の中核＝第三者言及の広がり(0-20)。combineAuthority と内訳露出の単一ソース。 */
+    public static double authorityThirdPartyCore(double thirdPartyCore) {
+        return clamp(thirdPartyCore, 0.0d, ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
+    }
+
+    /** 権威軸のローカルMEOサブ指標(0-10)。非地域業種は MEO を持たないため0。combineAuthority と内訳露出の単一ソース。 */
+    public static double authorityLocalMeoSub(double meoRaw, CompetitorExtractionMode mode) {
+        return isNonLocalMode(mode)
+                ? 0.0d
+                : clamp(meoRaw, 0.0d, RAW_MEO_MAX) * (MAX_MEO_LOCAL_SUB / RAW_MEO_MAX);
     }
 
     /**
@@ -86,11 +105,7 @@ public final class GeoVisibilityCalculatorService {
      */
     public static double combineAuthority(
             double thirdPartyCore, double meoRaw, CompetitorExtractionMode mode) {
-        double core = clamp(thirdPartyCore, 0.0d, ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
-        double localSub = isNonLocalMode(mode)
-                ? 0.0d
-                : clamp(meoRaw, 0.0d, RAW_MEO_MAX) * (MAX_MEO_LOCAL_SUB / RAW_MEO_MAX);
-        return clamp(core + localSub, 0.0d, MAX_AUTHORITY);
+        return clamp(authorityThirdPartyCore(thirdPartyCore) + authorityLocalMeoSub(meoRaw, mode), 0.0d, MAX_AUTHORITY);
     }
 
     private static boolean isNonLocalMode(CompetitorExtractionMode mode) {
