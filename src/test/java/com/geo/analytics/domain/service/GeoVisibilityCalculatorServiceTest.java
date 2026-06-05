@@ -33,6 +33,59 @@ class GeoVisibilityCalculatorServiceTest {
     }
 
     @Test
+    void technicalSubScore_compresses25RawTo20() {
+        assertThat(GeoVisibilityCalculatorService.technicalSubScore(25.0)).isCloseTo(20.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.technicalSubScore(12.5)).isCloseTo(10.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.technicalSubScore(0.0)).isEqualTo(0.0);
+        // 上限超過・負値はクランプ
+        assertThat(GeoVisibilityCalculatorService.technicalSubScore(99.0)).isCloseTo(20.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.technicalSubScore(-5.0)).isEqualTo(0.0);
+    }
+
+    @Test
+    void authorityThirdPartyCore_clampsToTwenty() {
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(15.0)).isCloseTo(15.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(99.0)).isCloseTo(20.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(-1.0)).isEqualTo(0.0);
+    }
+
+    @Test
+    void authorityLocalMeoSub_localScalesNonLocalIsZero() {
+        // ローカル業種: MEO素点25 → サブ10へ圧縮
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.LOCAL_STORE))
+                .isCloseTo(10.0, within(1e-9));
+        // 非地域業種: 常に0
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                .isEqualTo(0.0);
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.ONLINE_SERVICE))
+                .isEqualTo(0.0);
+    }
+
+    @Test
+    void authoritySubScores_sumEqualsCombineAuthority() {
+        var mode = CompetitorExtractionMode.LOCAL_STORE;
+        double core = GeoVisibilityCalculatorService.authorityThirdPartyCore(12.0);
+        double sub = GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, mode);
+        double combined = GeoVisibilityCalculatorService.combineAuthority(12.0, 25.0, mode);
+        assertThat(core + sub).isCloseTo(combined, within(1e-9));
+    }
+
+    @Test
+    void breakdownAxes_reconcileWithFinalScore() {
+        // 内訳バー（content + technical + authority）が総合点と整合することを保証する（レポート4a-1の核）。
+        var mode = CompetitorExtractionMode.LOCAL_STORE;
+        double aiAudit = 40.0;
+        double machineRaw = 20.0;
+        double thirdPartyCore = 12.0;
+        double meoRaw = 25.0;
+        double content = StrictMath.max(0.0d, StrictMath.min(aiAudit, 50.0));
+        double technical = GeoVisibilityCalculatorService.technicalSubScore(machineRaw);
+        double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCore, meoRaw, mode);
+        double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(aiAudit, machineRaw, authority);
+        assertThat(content + technical + authority).isCloseTo(finalScore, within(1e-9));
+    }
+
+    @Test
     void scenarioA_strongerCitationPriority_yieldsHigherGeoVisibilityScore() {
         var base = new SomRawMetrics(500, null, 1.0, false, true, 500, 0.0, 520, 1.5);
         var strongCitation = new SomRawMetrics(

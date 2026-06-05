@@ -252,13 +252,13 @@ public class JobPersistenceService {
         CompetitorExtractionMode mode = jobRepository.findById(latest.getJobId())
                 .map(JobEntity::getCompetitorExtractionMode)
                 .orElse(CompetitorExtractionMode.LOCAL_STORE);
-        ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode);
+        ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode, latest.getCalculationVersion());
         List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
         return new JobAnalysisAttachment(breakdown, tasks);
     }
 
     private static ScoreBreakdown computeBreakdown(
-            List<AuditRubricResultEntity> rubricRows, CompetitorExtractionMode mode) {
+            List<AuditRubricResultEntity> rubricRows, CompetitorExtractionMode mode, String calculationVersion) {
         if (rubricRows == null || rubricRows.isEmpty()) {
             return ScoreBreakdown.empty();
         }
@@ -287,10 +287,19 @@ public class JobPersistenceService {
                 case AUTHORITY -> thirdPartyCoreTotal = StrictMath.fma(score, 1.0d, thirdPartyCoreTotal);
             }
         }
+        // V13_GEO4AXIS の3軸内訳を露出する（Sprint4a-1）。小計は GeoVisibilityCalculatorService と単一ソースで一致させ、
+        // content + technical + authority = finalScore が整合する（権威=中核+ローカルMEOサブ、ボーナスは Sprint5 で当面0）。
+        double content = StrictMath.max(0.0d, StrictMath.min(aiAuditTotal, ScoreBreakdown.MAX_CONTENT));
+        double technical = GeoVisibilityCalculatorService.technicalSubScore(machineReadabilityTotal);
+        double thirdPartyCore = GeoVisibilityCalculatorService.authorityThirdPartyCore(thirdPartyCoreTotal);
+        double localMeoSub = GeoVisibilityCalculatorService.authorityLocalMeoSub(meoTotal, mode);
         double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCoreTotal, meoTotal, mode);
+        double wikipediaKgBonus = 0.0d;
         double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
                 aiAuditTotal, machineReadabilityTotal, authority);
-        return new ScoreBreakdown(aiAuditTotal, meoTotal, machineReadabilityTotal, finalScore);
+        return new ScoreBreakdown(
+                aiAuditTotal, meoTotal, machineReadabilityTotal, finalScore,
+                content, technical, authority, thirdPartyCore, localMeoSub, wikipediaKgBonus, calculationVersion);
     }
 
     private List<RemediationTaskResponse> parseRemediationTasks(AuditHistoryEntity history) {
