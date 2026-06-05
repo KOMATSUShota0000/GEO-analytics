@@ -63,10 +63,13 @@ public class GeoAssetSnapshotQueryService {
                 .findByProjectIdAndSnapshotDateBetweenOrderBySnapshotDateAsc(projectId, from, to);
         List<AssetSnapshotChartPoint> out = new ArrayList<>(entities.size());
         for (GeoAssetSnapshotEntity entity : entities) {
+            // version 未記録の旧スナップショットは旧モデル V12_PWIM として扱う（バージョン併記移行）。
+            String version = entity.getCalculationVersion() != null ? entity.getCalculationVersion() : "V12_PWIM";
             out.add(new AssetSnapshotChartPoint(
                     entity.getSnapshotDate().toString(),
                     entity.getReadinessScore(),
-                    entity.getLocalTrustCount()));
+                    entity.getLocalTrustCount(),
+                    version));
         }
         return out;
     }
