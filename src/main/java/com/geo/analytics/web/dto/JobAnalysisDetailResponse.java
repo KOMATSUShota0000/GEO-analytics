@@ -25,6 +25,7 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("rubric_gaps") List<String> rubricGaps,
     @JsonProperty("score_breakdown") ScoreBreakdown scoreBreakdown,
     @JsonProperty("remediation_tasks") List<RemediationTaskResponse> remediationTasks,
+    @JsonProperty("ai_recognition_summary") AiRecognitionSummaryResponse aiRecognitionSummary,
     @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert
 ) {
     public JobAnalysisDetailResponse {
@@ -45,6 +46,7 @@ public record JobAnalysisDetailResponse(
             List<String> rubricGaps,
             ScoreBreakdown scoreBreakdown,
             List<RemediationTaskResponse> remediationTasks,
+            AiRecognitionSummaryResponse aiRecognitionSummary,
             ObjectMapper objectMapper) {
         JobProjectResponse projectResponse = projectEntity != null ? JobProjectResponse.from(projectEntity) : null;
         String bc = resolveBrandColor(jobEntity, projectEntity);
@@ -67,6 +69,7 @@ public record JobAnalysisDetailResponse(
             rubricGaps,
             scoreBreakdown,
             remediationTasks != null ? List.copyOf(remediationTasks) : List.of(),
+            aiRecognitionSummary,
             emotionalAlert);
     }
 

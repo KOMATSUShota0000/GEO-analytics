@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.AiRecognitionState;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.lang.StrictMath;
@@ -31,6 +32,7 @@ public record ResultDetailResponse(
     Double visibilityStageProgress,
     String calculationVersion,
     Boolean negativeAlert,
+    AiRecognitionState aiRecognitionState,
     Double modifiedZScore,
     String diagnosticMessage,
     List<String> recommendedActions,
@@ -58,6 +60,7 @@ public record ResultDetailResponse(
                 visibilityStageProgress,
                 calculationVersion,
                 negativeAlert,
+                aiRecognitionState,
                 modifiedZScore,
                 diagnosticMessage,
                 recommendedActions,
@@ -106,6 +109,7 @@ public record ResultDetailResponse(
             stageDef.progressRate(),
             auditHistoryEntity.getCalculationVersion(),
             Boolean.TRUE.equals(auditHistoryEntity.getNegativeAlert()),
+            auditHistoryEntity.getAiRecognitionState(),
             mz,
             insight.diagnosticMessage(),
             List.copyOf(insight.recommendedActions()),
