@@ -7,6 +7,5 @@ import java.util.List;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record AnalyticsSummaryResponse(
     @JsonProperty("trend_data") List<TrendDataPoint> trendData,
-    @JsonProperty("competitor_shares") List<CompetitorSharePoint> competitorShares,
     @JsonProperty("subscription_plan") SubscriptionPlan subscriptionPlan
 ) {}

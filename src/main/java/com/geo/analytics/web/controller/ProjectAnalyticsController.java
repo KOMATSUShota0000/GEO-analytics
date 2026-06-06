@@ -3,12 +3,10 @@ package com.geo.analytics.web.controller;
 import com.geo.analytics.application.service.AnalyticsAggregationService;
 import com.geo.analytics.application.service.GeoAssetSnapshotQueryService;
 import com.geo.analytics.application.service.ProjectSettingsService;
-import com.geo.analytics.application.service.RelativeBenchmarkService;
 import com.geo.analytics.web.dto.AnalyticsSummaryResponse;
 import com.geo.analytics.web.dto.AssetSnapshotsChartResponse;
 import com.geo.analytics.web.dto.ProjectSettingsPatchRequest;
 import com.geo.analytics.web.dto.ProjectSettingsResponse;
-import com.geo.analytics.web.dto.RelativeBenchmarkResponse;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -30,17 +28,14 @@ public class ProjectAnalyticsController {
     private final AnalyticsAggregationService analyticsAggregationService;
     private final ProjectSettingsService projectSettingsService;
     private final GeoAssetSnapshotQueryService geoAssetSnapshotQueryService;
-    private final RelativeBenchmarkService relativeBenchmarkService;
 
     public ProjectAnalyticsController(
             AnalyticsAggregationService analyticsAggregationService,
             ProjectSettingsService projectSettingsService,
-            GeoAssetSnapshotQueryService geoAssetSnapshotQueryService,
-            RelativeBenchmarkService relativeBenchmarkService) {
+            GeoAssetSnapshotQueryService geoAssetSnapshotQueryService) {
         this.analyticsAggregationService = analyticsAggregationService;
         this.projectSettingsService = projectSettingsService;
         this.geoAssetSnapshotQueryService = geoAssetSnapshotQueryService;
-        this.relativeBenchmarkService = relativeBenchmarkService;
     }
 
     @GetMapping("/{projectId}/analytics")
@@ -66,13 +61,6 @@ public class ProjectAnalyticsController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ResponseEntity.ok(geoAssetSnapshotQueryService.getChartData(projectId, from, to));
-    }
-
-    @GetMapping("/{projectId}/relative-benchmark")
-    @PreAuthorize("@tenantAccessEvaluator.canReadProjectAssetSnapshots(authentication, #projectId)")
-    public ResponseEntity<RelativeBenchmarkResponse> getRelativeBenchmark(
-            @PathVariable UUID projectId) {
-        return ResponseEntity.ok(relativeBenchmarkService.getBenchmark(projectId));
     }
 
     @PatchMapping("/{projectId}")
