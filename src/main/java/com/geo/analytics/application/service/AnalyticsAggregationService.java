@@ -1,8 +1,4 @@
 package com.geo.analytics.application.service;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.geo.analytics.application.dto.CompetitorShareEntry;
-import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -10,16 +6,12 @@ import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.JobRepository;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import com.geo.analytics.web.dto.AnalyticsSummaryResponse;
-import com.geo.analytics.web.dto.CompetitorSharePoint;
 import com.geo.analytics.web.dto.TrendDataPoint;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,16 +24,13 @@ public class AnalyticsAggregationService {
     private final JdbcTemplate jdbcTemplate;
     private final AuditHistoryRepository auditHistoryRepository;
     private final JobRepository jobRepository;
-    private final ObjectMapper objectMapper;
     public AnalyticsAggregationService(
             JdbcTemplate jdbcTemplate,
             AuditHistoryRepository auditHistoryRepository,
-            JobRepository jobRepository,
-            ObjectMapper objectMapper) {
+            JobRepository jobRepository) {
         this.jdbcTemplate = jdbcTemplate;
         this.auditHistoryRepository = auditHistoryRepository;
         this.jobRepository = jobRepository;
-        this.objectMapper = objectMapper;
     }
     public Optional<AnalyticsSummaryResponse> summarizeProject(UUID projectId) {
         List<String> rows = jdbcTemplate.query(
@@ -62,11 +51,7 @@ public class AnalyticsAggregationService {
         if (plan == null) {
             plan = SubscriptionPlan.STANDARD;
         }
-        List<CompetitorSharePoint> shares = List.of();
-        if (plan.usesProTierFeatures() && latestJob.isPresent()) {
-            shares = extractCompetitorShares(latestJob.get().getId());
-        }
-        return new AnalyticsSummaryResponse(trend, shares, plan);
+        return new AnalyticsSummaryResponse(trend, plan);
     }
     private List<TrendDataPoint> aggregateTrend(List<AuditHistoryEntity> histories) {
         return histories.stream()
@@ -96,33 +81,6 @@ public class AnalyticsAggregationService {
                     roundOneDecimal(somAvg),
                     overallAvg);
             })
-            .toList();
-    }
-    private List<CompetitorSharePoint> extractCompetitorShares(UUID jobId) {
-        List<AuditHistoryEntity> rows = auditHistoryRepository.findByJobId(jobId);
-        Map<String, List<Double>> acc = new HashMap<>();
-        for (AuditHistoryEntity row : rows) {
-            try {
-                ConsultantOutputData data = objectMapper.readValue(row.getRawResponse(), ConsultantOutputData.class);
-                if (data.competitorComparison() == null) {
-                    continue;
-                }
-                for (CompetitorShareEntry entry : data.competitorComparison()) {
-                    if (entry.competitorName() == null || entry.share() == null) {
-                        continue;
-                    }
-                    acc.computeIfAbsent(entry.competitorName(), k -> new ArrayList<>()).add(entry.share());
-                }
-            } catch (JsonProcessingException ignored) {
-            }
-        }
-        return acc.entrySet()
-            .stream()
-            .map(en -> new CompetitorSharePoint(
-                en.getKey(),
-                roundOneDecimal(
-                    en.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0d))))
-            .sorted(Comparator.comparing(CompetitorSharePoint::name))
             .toList();
     }
     private static double roundOneDecimal(double value) {
