@@ -5,6 +5,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -20,6 +21,40 @@ function computeReadinessYMin(values: number[]): number {
   }
   const min = Math.min(...finite);
   return Math.max(0.0, min - 5.0);
+}
+
+// 採点ロジック版を短縮表記にする（V13_GEO4AXIS→V13 等）。凡例・注記の誤読防止用。
+function shortVersion(v: string | null): string | null {
+  if (v === null || v.length === 0) {
+    return null;
+  }
+  if (v.startsWith("V13")) {
+    return "V13";
+  }
+  if (v.startsWith("V12")) {
+    return "V12";
+  }
+  return v;
+}
+
+interface VersionBoundary {
+  date: string;
+  label: string;
+}
+
+// 隣接スナップショットで calculationVersion が変化した点を切替境界として抽出する。
+// 両端が既知（非null）かつ異なるときのみ。null（版不明の旧データ）は境界に含めない。
+function findVersionBoundaries(data: AssetSnapshotChartPoint[]): VersionBoundary[] {
+  const out: VersionBoundary[] = [];
+  for (let i = 1; i < data.length; i++) {
+    const prev = data[i - 1].calculationVersion;
+    const cur = data[i].calculationVersion;
+    if (prev !== null && cur !== null && prev !== cur) {
+      const label = shortVersion(cur);
+      out.push({ date: data[i].snapshotDate, label: label ?? cur });
+    }
+  }
+  return out;
 }
 
 function ChartPlaceholder(): JSX.Element {
@@ -45,6 +80,7 @@ export function GrowthTrajectoryChart({
     () => computeReadinessYMin(data.map((d) => d.geoReadinessScore)),
     [data],
   );
+  const versionBoundaries = useMemo(() => findVersionBoundaries(data), [data]);
   const ok = data.length >= 1;
 
   return (
@@ -58,6 +94,11 @@ export function GrowthTrajectoryChart({
         </span>
         <h3 className="text-sm font-semibold tracking-tight text-slate-800">GEO Readiness の成長軌跡</h3>
       </div>
+      {versionBoundaries.length > 0 ? (
+        <p className="mb-3 text-xs font-light leading-relaxed text-slate-500">
+          縦の点線は採点ロジックの切替点です。線の前後でスコアの算出基準が異なるため、線をまたぐ増減はそのまま比較できません。
+        </p>
+      ) : null}
       {ok ? (
         <div className="h-[280px] w-full min-w-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -86,6 +127,20 @@ export function GrowthTrajectoryChart({
                 labelFormatter={(v: string) => formatAuditDate(String(v))}
               />
               <Legend wrapperStyle={{fontSize:"12px",paddingTop:"12px"}} />
+              {versionBoundaries.map((b) => (
+                <ReferenceLine
+                  key={b.date}
+                  x={b.date}
+                  stroke="#94a3b8"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: `${b.label} へ`,
+                    position: "insideTopRight",
+                    fontSize: 10,
+                    fill: "#64748b",
+                  }}
+                />
+              ))}
               <Line
                 type="monotone"
                 dataKey="geoReadinessScore"
