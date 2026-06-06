@@ -26,11 +26,9 @@ const AI_ADVICE_LOADING_MESSAGES = [
 ] as const;
 import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import {
-  competitorLabelsFromProject,
   formatAuditDate,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
-  resolveChartShareData,
   resolveChartTrendData,
   type JobAnalysisDetail,
   type JobProjectInfo,
@@ -128,63 +126,6 @@ function ProjectInfoBlock({
           {project.targetUrl}
         </a>
       </p>
-      {(() => {
-        const profiles = project.competitorProfiles ?? [];
-        // 旧ジョブ（プロファイル未保持）は空URLを除外して従来どおりURL表示にフォールバックする。
-        const fallbackUrls = project.competitorUrls.filter((u) => u != null && u.trim().length > 0);
-        if (profiles.length === 0 && fallbackUrls.length === 0) {
-          return null;
-        }
-        const allSynthetic = profiles.length > 0 && profiles.every((p) => p.synthetic);
-        return (
-          <div className="mt-2 text-sm text-slate-600">
-            <span className="font-medium text-slate-800">競合</span>
-            {allSynthetic && (
-              <p className="mt-1 text-xs text-slate-500">
-                実競合が十分に取得できなかったため、参考基準点を表示しています。
-              </p>
-            )}
-            <ul className="mt-1 space-y-1">
-              {profiles.length > 0
-                ? profiles.map((p, i) => (
-                    <li key={`prof-${i}-${p.name}`} className="break-all">
-                      {p.synthetic ? (
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          <span>{p.name}</span>
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
-                            参考基準点・実競合ではない
-                          </span>
-                        </span>
-                      ) : p.websiteUrl != null ? (
-                        <a
-                          href={p.websiteUrl}
-                          className="text-sky-700 underline hover:text-sky-900"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {p.name.trim().length > 0 ? p.name : p.websiteUrl}
-                        </a>
-                      ) : (
-                        <span>{p.name}</span>
-                      )}
-                    </li>
-                  ))
-                : fallbackUrls.map((url, i) => (
-                    <li key={`url-${i}-${url}`} className="break-all">
-                      <a
-                        href={url}
-                        className="text-sky-700 underline hover:text-sky-900"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {url}
-                      </a>
-                    </li>
-                  ))}
-            </ul>
-          </div>
-        );
-      })()}
     </div>
   );
 }
@@ -268,18 +209,9 @@ export function JobAnalysisPage(): JSX.Element {
     pdfRequestInFlight || (jobStatus?.pdfStatus != null && jobStatus.pdfStatus === PDF_GENERATING);
   const isPdfMode = searchParams.get("pdf") === "1";
   const brandForCharts = displayBrand ?? "自社";
-  const competitorPair = useMemo(
-    () => competitorLabelsFromProject(data?.project ?? null),
-    [data?.project],
-  );
   const chartTrendData = useMemo(
     () => resolveChartTrendData(resultRows, {}, false),
     [resultRows],
-  );
-  const chartShareData = useMemo(
-    () =>
-      resolveChartShareData(brandForCharts, competitorPair, resultRows, {}, false),
-    [brandForCharts, competitorPair, resultRows],
   );
   const showCharts =
     effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
@@ -774,7 +706,6 @@ export function JobAnalysisPage(): JSX.Element {
           <AnalysisCharts
             isPdfMode={isPdfMode}
             trendData={chartTrendData}
-            shareData={chartShareData}
             brandLabel={brandForCharts}
           />
         )}

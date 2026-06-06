@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
-import type { CompetitorShare, ScoreBreakdown, TrendData } from "../types/analysis";
+import type { ScoreBreakdown, TrendData } from "../types/analysis";
 
 // 公開デモは実処理を一切走らせない。説得力のため本番と同じUIコンポーネントに「事前用意のサンプルデータ」を流す。
 // 入力値には依存しない固定のデモ結果（誤認防止のため必ず「サンプル」と明示する）。
@@ -33,17 +33,10 @@ const SAMPLE_TREND: TrendData[] = [
   { date: "2026-05-01", somScore: 63, overallScore: 67 },
 ];
 
-const SAMPLE_SHARE: CompetitorShare[] = [
-  { name: SAMPLE_BRAND, value: 34 },
-  { name: "競合A", value: 27 },
-  { name: "競合B", value: 21 },
-  { name: "競合C", value: 18 },
-];
-
 const LOADING_STEPS = [
   "対象ページをクロール中…",
   "LLM回答内での言及を解析中…",
-  "競合のShare of Voiceを集計中…",
+  "第三者言及・権威シグナルを集計中…",
   "4人のAIペルソナが議論中…",
 ];
 
@@ -166,7 +159,6 @@ export default function PublicDemoPage(): JSX.Element {
             <AnalysisCharts
               isPdfMode={false}
               trendData={SAMPLE_TREND}
-              shareData={SAMPLE_SHARE}
               brandLabel={`${brand || SAMPLE_BRAND} のインサイト（サンプル）`}
             />
 

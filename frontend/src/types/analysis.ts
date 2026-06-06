@@ -126,10 +126,6 @@ export interface TrendData {
   somScore: number;
   overallScore: number;
 }
-export interface CompetitorShare {
-  name: string;
-  value: number;
-}
 export type SubscriptionPlanApi = "STANDARD" | "PRO" | "EXPERT";
 
 /** PRO・EXPERT を同一プロTier として正規化する。フロントはこの値で isProPlanUi を判定する。 */
@@ -139,7 +135,6 @@ export function normalizeToProTier(plan: SubscriptionPlanApi): boolean {
 
 export interface AnalyticsSummaryNormalized {
   trend: TrendData[];
-  share: CompetitorShare[];
   subscriptionPlan: SubscriptionPlanApi;
 }
 export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormalized | null {
@@ -148,9 +143,8 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
   }
   const r = raw as Record<string, unknown>;
   const trendRaw = r.trendData;
-  const shareRaw = r.competitorShares;
   const planRaw = r.subscriptionPlan;
-  if (!Array.isArray(trendRaw) || !Array.isArray(shareRaw) || typeof planRaw !== "string") {
+  if (!Array.isArray(trendRaw) || typeof planRaw !== "string") {
     return null;
   }
   if (planRaw !== "STANDARD" && planRaw !== "PRO" && planRaw !== "EXPERT") {
@@ -172,20 +166,7 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
       typeof ov === "number" && !Number.isNaN(ov) ? ov : som;
     trend.push({ date: ad.slice(0, 10), somScore: som, overallScore: overall });
   }
-  const share: CompetitorShare[] = [];
-  for (const item of shareRaw) {
-    if (item === null || typeof item !== "object") {
-      return null;
-    }
-    const o = item as Record<string, unknown>;
-    const nm = o.name;
-    const sh = o.share;
-    if (typeof nm !== "string" || typeof sh !== "number" || Number.isNaN(sh)) {
-      return null;
-    }
-    share.push({ name: nm, value: sh });
-  }
-  return { trend, share, subscriptionPlan: planRaw };
+  return { trend, subscriptionPlan: planRaw };
 }
 export interface CompetitorProfile {
   name: string;
@@ -349,57 +330,6 @@ export function averageLiveScoresFromParsed(
     overallScore: Math.round(overall * 10) / 10,
   };
 }
-export function competitorLabelsFromProject(project: JobProjectInfo | null): [string, string] {
-  const urls = project?.competitorUrls ?? [];
-  const profiles = project?.competitorProfiles ?? [];
-  // プロファイル名（実競合のホスト名／合成競合の参照ティア名）があればそれを優先する。
-  // 無い場合のみ従来どおり URL ホスト名から導出する。
-  const fromProfile = (idx: number, fallback: string): string => {
-    const nm = profiles[idx]?.name;
-    return typeof nm === "string" && nm.trim().length > 0 ? nm.trim() : fallback;
-  };
-  const a =
-    urls[0] !== undefined
-      ? (() => {
-          try {
-            const h = new URL(urls[0]).hostname.replace(/^www\./, "");
-            return h.length > 0 ? h : "競合A";
-          } catch {
-            return "競合A";
-          }
-        })()
-      : "競合A";
-  const b =
-    urls[1] !== undefined
-      ? (() => {
-          try {
-            const h = new URL(urls[1]).hostname.replace(/^www\./, "");
-            return h.length > 0 ? h : "競合B";
-          } catch {
-            return "競合B";
-          }
-        })()
-      : "競合B";
-  return [fromProfile(0, a), fromProfile(1, b)];
-}
-export function buildCompetitorShareData(
-  brandName: string,
-  competitorNames: [string, string],
-  anchorSomScore: number | null,
-): CompetitorShare[] {
-  if (anchorSomScore === null || Number.isNaN(anchorSomScore)) {
-    return [];
-  }
-  const self = Math.max(0, Math.min(100, Math.round(anchorSomScore)));
-  const rest = 100 - self;
-  const v1 = Math.round(rest * 0.52);
-  const v2 = rest - v1;
-  return [
-    { name: brandName, value: self },
-    { name: competitorNames[0], value: v1 },
-    { name: competitorNames[1], value: v2 },
-  ];
-}
 export function resolveChartTrendData(
   resultRows: ResultDetail[],
   parsedByQueryId: Record<string, unknown>,
@@ -437,26 +367,6 @@ export function resolveAverageSomScore(
     return live !== null ? live.somScore : null;
   }
   return null;
-}
-
-export function resolveChartShareData(
-  brandName: string,
-  competitorNames: [string, string],
-  resultRows: ResultDetail[],
-  parsedByQueryId: Record<string, unknown>,
-  isStreaming: boolean,
-): CompetitorShare[] {
-  let anchor: number | null = null;
-  if (resultRows.length > 0) {
-    const sum = resultRows.reduce((s, r) => s + r.somScore, 0);
-    anchor = sum / resultRows.length;
-  } else {
-    const live = averageLiveScoresFromParsed(parsedByQueryId);
-    if (live !== null && isStreaming) {
-      anchor = live.somScore;
-    }
-  }
-  return buildCompetitorShareData(brandName, competitorNames, anchor);
 }
 
 export interface VerifyStreamChunkPayload {
