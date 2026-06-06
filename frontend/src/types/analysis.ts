@@ -511,6 +511,35 @@ export interface ScoreBreakdown {
   calculationVersion: string | null;
 }
 
+// AI認識状況（V13 Sprint4a-2でBE露出）。スコア非算入の定性エビデンス。
+export type AiRecognitionState = "RECOGNIZED_CORRECTLY" | "MISIDENTIFIED" | "UNKNOWN";
+
+export interface AiRecognitionSummary {
+  dominant: AiRecognitionState;
+  recognizedCount: number;
+  misidentifiedCount: number;
+  unknownCount: number;
+  evaluatedCount: number;
+}
+
+export function parseAiRecognitionSummary(raw: unknown): AiRecognitionSummary | null {
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const dom = r.dominant;
+  if (dom !== "RECOGNIZED_CORRECTLY" && dom !== "MISIDENTIFIED" && dom !== "UNKNOWN") {
+    return null;
+  }
+  return {
+    dominant: dom,
+    recognizedCount: pickNum(r, "recognizedCount", "recognized_count") ?? 0,
+    misidentifiedCount: pickNum(r, "misidentifiedCount", "misidentified_count") ?? 0,
+    unknownCount: pickNum(r, "unknownCount", "unknown_count") ?? 0,
+    evaluatedCount: pickNum(r, "evaluatedCount", "evaluated_count") ?? 0,
+  };
+}
+
 export type RemediationTaskCategory = "SPIKE" | "SLAB";
 export type RemediationTaskPriority = "S" | "A" | "B";
 
@@ -572,6 +601,7 @@ export interface JobAnalysisDetail {
   factBasedScore?: number;
   rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
+  aiRecognitionSummary?: AiRecognitionSummary | null;
   remediationTasks?: RemediationTask[];
   emotionalAlert?: EmotionalAlertPayload | null;
 }
@@ -851,6 +881,9 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const rubricGaps =
     Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
+  const aiRecognitionSummary = parseAiRecognitionSummary(
+    r.aiRecognitionSummary ?? r.ai_recognition_summary,
+  );
   const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
   const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   return {
@@ -869,6 +902,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     factBasedScore,
     rubricGaps,
     scoreBreakdown,
+    aiRecognitionSummary,
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
   };
