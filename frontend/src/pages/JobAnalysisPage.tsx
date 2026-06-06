@@ -535,7 +535,7 @@ export function JobAnalysisPage(): JSX.Element {
     ) : null;
 
   const geoScoreSection =
-    data !== null && data.scoreBreakdown != null ? (
+    data !== null && isCompletedDisplay && data.scoreBreakdown != null ? (
       <div className="pdf-avoid-break mb-6">
         <GeoScoreBreakdown
           breakdown={data.scoreBreakdown}
@@ -546,7 +546,7 @@ export function JobAnalysisPage(): JSX.Element {
     ) : null;
 
   const aiRecognitionSection =
-    data !== null && data.aiRecognitionSummary != null ? (
+    data !== null && isCompletedDisplay && data.aiRecognitionSummary != null ? (
       <div className="pdf-avoid-break mb-6">
         <AiRecognitionSection summary={data.aiRecognitionSummary} />
       </div>
@@ -600,20 +600,20 @@ export function JobAnalysisPage(): JSX.Element {
           <pre className="mt-2 whitespace-pre-wrap break-words text-sm">{loadError}</pre>
         </div>
       )}
-      {displayJobId && isProcessingDisplay && displayBrand && (
-        <div className="pdf-avoid-break pdf-no-print mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-lg font-medium text-slate-900">解析中です。しばらくお待ちください。</p>
-          <p className="mt-2 text-sm text-slate-600">
-            ステータス: {resolvedStatus} / ブランド: {displayBrand}
-          </p>
-          <p className="mt-3 flex items-center gap-2 text-sm text-slate-600">
-            <span
-              className="inline-block h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-sky-600"
-              aria-hidden
-            />
-            解析結果は完了後に表示されます（ジョブ状態は自動更新されます）。
-          </p>
-          {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
+      {displayJobId && isProcessingDisplay && (
+        <div className="pdf-avoid-break pdf-no-print mb-4">
+          {/* 解析は数十秒かかる。静止画面で不安・退屈にさせないよう、紫ロボットのアニメ演出を主役にする。 */}
+          <LoadingCharacter />
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm text-slate-600">
+              ステータス: {resolvedStatus}
+              {displayBrand ? ` / ブランド: ${displayBrand}` : ""}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              解析結果は完了後に自動で表示されます（ジョブ状態は自動更新されます）。
+            </p>
+            {data?.project && <ProjectInfoBlock project={data.project} jobIdForReturn={effectiveJobId} />}
+          </div>
         </div>
       )}
       {resolvedStatus === "FAILED" && (jobStatus !== null || data !== null) && (
