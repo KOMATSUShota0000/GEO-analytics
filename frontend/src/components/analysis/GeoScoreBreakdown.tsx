@@ -1,28 +1,25 @@
 import { Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import type { ScoreBreakdown } from "../../types/analysis";
 
-const MAX_AI_AUDIT = 50;
-const MAX_MEO = 25;
-const MAX_MACHINE_READABILITY = 25;
+// V13_GEO4AXIS の3軸配点（バックエンドと一致）。MEO単独軸は「権威・エンティティ認知」へ昇華済み。
+const MAX_CONTENT = 50;
+const MAX_TECHNICAL = 20;
+const MAX_AUTHORITY = 30;
 const MAX_TOTAL = 100;
 
-// 非地域業種（全国BtoB・オンライン）は MEO を除外し AI×1.2／機械×1.6 へ再配分する（ADR-019 / バックエンドと一致）。
-const AI_WEIGHT_NON_LOCAL = 1.2;
-const MACHINE_WEIGHT_NON_LOCAL = 1.6;
-const MAX_AI_AUDIT_NON_LOCAL = MAX_AI_AUDIT * AI_WEIGHT_NON_LOCAL; // 60
-const MAX_MACHINE_NON_LOCAL = MAX_MACHINE_READABILITY * MACHINE_WEIGHT_NON_LOCAL; // 40
+// 権威軸(0-30)の内訳上限: 第三者言及の中核(0-20) + ローカル評判MEOサブ(0-10) + Wikipedia/KGボーナス(0-10)。
+const MAX_AUTHORITY_CORE = 20;
+const MAX_AUTHORITY_LOCAL_SUB = 10;
+const MAX_AUTHORITY_BONUS = 10;
 
-const AXIS_AI = "#6366F1";
-const AXIS_MEO = "#10B981";
-const AXIS_MR = "#F59E0B";
-
-function isNonLocalIndustry(mode: string | undefined): boolean {
-  return mode === "CORPORATE_SERVICE" || mode === "ONLINE_SERVICE";
-}
+const AXIS_CONTENT = "#6366F1";
+const AXIS_TECHNICAL = "#F59E0B";
+const AXIS_AUTHORITY = "#10B981";
 
 export interface GeoScoreBreakdownProps {
   breakdown: ScoreBreakdown | null | undefined;
   brandName?: string;
+  // 業種モード（現行の3軸表示では再配分に使わないが、呼び出し側互換のため受け取る）。
   industryMode?: string;
 }
 
@@ -92,16 +89,37 @@ function AxisRow({ label, value, max, color }: AxisRowProps): JSX.Element {
   );
 }
 
+interface SubRowProps {
+  label: string;
+  value: number;
+  max: number;
+}
+
+// 権威軸の内訳を控えめに見せる行（インデント・小さめ）。スコア本体ではなく構成の説明。
+function SubRow({ label, value, max }: SubRowProps): JSX.Element {
+  return (
+    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ pl: 2.5 }}>
+      <Typography variant="caption" sx={{ color: "#64748b" }}>
+        └ {label}
+      </Typography>
+      <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", color: "#64748b" }}>
+        {clamp(value, 0, max).toFixed(1)} / {max}
+      </Typography>
+    </Stack>
+  );
+}
+
 export function GeoScoreBreakdown({
   breakdown,
   brandName,
-  industryMode,
 }: GeoScoreBreakdownProps): JSX.Element | null {
   if (!breakdown) {
     return null;
   }
   const total = clamp(breakdown.finalScore, 0, MAX_TOTAL);
-  const nonLocal = isNonLocalIndustry(industryMode);
+  const core = breakdown.authorityThirdPartyCore;
+  const localSub = breakdown.authorityLocalMeoSub;
+  const bonus = breakdown.authorityWikipediaKgBonus;
   return (
     <Box
       sx={{
@@ -146,33 +164,33 @@ export function GeoScoreBreakdown({
         </Box>
         <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
           <Stack spacing={1.25}>
-            {nonLocal ? (
-              <>
-                <AxisRow
-                  label="AI 監査"
-                  value={breakdown.aiAuditTotal * AI_WEIGHT_NON_LOCAL}
-                  max={MAX_AI_AUDIT_NON_LOCAL}
-                  color={AXIS_AI}
-                />
-                <AxisRow
-                  label="機械可読性"
-                  value={breakdown.machineReadabilityTotal * MACHINE_WEIGHT_NON_LOCAL}
-                  max={MAX_MACHINE_NON_LOCAL}
-                  color={AXIS_MR}
-                />
-              </>
-            ) : (
-              <>
-                <AxisRow label="AI 監査" value={breakdown.aiAuditTotal} max={MAX_AI_AUDIT} color={AXIS_AI} />
-                <AxisRow label="MEO トラスト" value={breakdown.meoTotal} max={MAX_MEO} color={AXIS_MEO} />
-                <AxisRow
-                  label="機械可読性"
-                  value={breakdown.machineReadabilityTotal}
-                  max={MAX_MACHINE_READABILITY}
-                  color={AXIS_MR}
-                />
-              </>
-            )}
+            <AxisRow
+              label="コンテンツ素地"
+              value={breakdown.contentTotal}
+              max={MAX_CONTENT}
+              color={AXIS_CONTENT}
+            />
+            <AxisRow
+              label="技術素地"
+              value={breakdown.technicalTotal}
+              max={MAX_TECHNICAL}
+              color={AXIS_TECHNICAL}
+            />
+            <AxisRow
+              label="権威・エンティティ認知"
+              value={breakdown.authorityTotal}
+              max={MAX_AUTHORITY}
+              color={AXIS_AUTHORITY}
+            />
+            {core > 0 ? (
+              <SubRow label="第三者言及の広がり" value={core} max={MAX_AUTHORITY_CORE} />
+            ) : null}
+            {localSub > 0 ? (
+              <SubRow label="ローカル評判（クチコミ）" value={localSub} max={MAX_AUTHORITY_LOCAL_SUB} />
+            ) : null}
+            {bonus > 0 ? (
+              <SubRow label="Wikipedia / ナレッジグラフ" value={bonus} max={MAX_AUTHORITY_BONUS} />
+            ) : null}
           </Stack>
         </Box>
       </Stack>
