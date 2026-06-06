@@ -5,6 +5,8 @@ export type AssetSnapshotChartPoint = {
   snapshotDate: string;
   geoReadinessScore: number;
   localTrustCount: number;
+  // 採点ロジック版（V13_GEO4AXIS / V12_PWIM 等）。4a-3でBE露出。経時グラフの切替点描画に使う。
+  calculationVersion: string | null;
 };
 
 export type UseProjectAssetSnapshotsResult = {
@@ -49,6 +51,8 @@ export function useProjectAssetSnapshots(
           snapshotDate: String(o.snapshotDate ?? ""),
           geoReadinessScore: Number(o.geoReadinessScore ?? 0),
           localTrustCount: Number(o.localTrustCount ?? 0),
+          calculationVersion:
+            typeof o.calculationVersion === "string" ? o.calculationVersion : null,
         };
       });
       setData(next);

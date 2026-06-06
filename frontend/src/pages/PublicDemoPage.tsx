@@ -10,10 +10,19 @@ import type { CompetitorShare, ScoreBreakdown, TrendData } from "../types/analys
 const SAMPLE_BRAND = "あなたのブランド";
 
 const SAMPLE_BREAKDOWN: ScoreBreakdown = {
+  // 旧モデル（後方互換・表示には使わない）
   aiAuditTotal: 38.5,
   meoTotal: 17.0,
   machineReadabilityTotal: 19.5,
+  // V13新3軸: content38.5 + technical16.0 + authority12.5 = 67.0
   finalScore: 67.0,
+  contentTotal: 38.5,
+  technicalTotal: 16.0,
+  authorityTotal: 12.5,
+  authorityThirdPartyCore: 12.5,
+  authorityLocalMeoSub: 0,
+  authorityWikipediaKgBonus: 0,
+  calculationVersion: "V13_GEO4AXIS",
 };
 
 const SAMPLE_TREND: TrendData[] = [

@@ -496,10 +496,48 @@ export interface ResultDetail {
 }
 
 export interface ScoreBreakdown {
+  // 旧モデル（後方互換・バックエンドが当面併送）
   aiAuditTotal: number;
   meoTotal: number;
   machineReadabilityTotal: number;
   finalScore: number;
+  // V13_GEO4AXIS 新3軸（Sprint4a-1でBE露出）
+  contentTotal: number;
+  technicalTotal: number;
+  authorityTotal: number;
+  authorityThirdPartyCore: number;
+  authorityLocalMeoSub: number;
+  authorityWikipediaKgBonus: number;
+  calculationVersion: string | null;
+}
+
+// AI認識状況（V13 Sprint4a-2でBE露出）。スコア非算入の定性エビデンス。
+export type AiRecognitionState = "RECOGNIZED_CORRECTLY" | "MISIDENTIFIED" | "UNKNOWN";
+
+export interface AiRecognitionSummary {
+  dominant: AiRecognitionState;
+  recognizedCount: number;
+  misidentifiedCount: number;
+  unknownCount: number;
+  evaluatedCount: number;
+}
+
+export function parseAiRecognitionSummary(raw: unknown): AiRecognitionSummary | null {
+  if (raw === null || raw === undefined || typeof raw !== "object") {
+    return null;
+  }
+  const r = raw as JsonDict;
+  const dom = r.dominant;
+  if (dom !== "RECOGNIZED_CORRECTLY" && dom !== "MISIDENTIFIED" && dom !== "UNKNOWN") {
+    return null;
+  }
+  return {
+    dominant: dom,
+    recognizedCount: pickNum(r, "recognizedCount", "recognized_count") ?? 0,
+    misidentifiedCount: pickNum(r, "misidentifiedCount", "misidentified_count") ?? 0,
+    unknownCount: pickNum(r, "unknownCount", "unknown_count") ?? 0,
+    evaluatedCount: pickNum(r, "evaluatedCount", "evaluated_count") ?? 0,
+  };
 }
 
 export type RemediationTaskCategory = "SPIKE" | "SLAB";
@@ -563,6 +601,7 @@ export interface JobAnalysisDetail {
   factBasedScore?: number;
   rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
+  aiRecognitionSummary?: AiRecognitionSummary | null;
   remediationTasks?: RemediationTask[];
   emotionalAlert?: EmotionalAlertPayload | null;
 }
@@ -842,6 +881,9 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const rubricGaps =
     Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
+  const aiRecognitionSummary = parseAiRecognitionSummary(
+    r.aiRecognitionSummary ?? r.ai_recognition_summary,
+  );
   const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
   const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   return {
@@ -860,6 +902,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     factBasedScore,
     rubricGaps,
     scoreBreakdown,
+    aiRecognitionSummary,
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
   };
@@ -889,11 +932,27 @@ function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
   if (ai === undefined || meo === undefined || mr === undefined || finalScore === undefined) {
     return null;
   }
+  // V13新3軸。旧バックエンド互換のため未提供時は旧値から導出（content←AI監査, technical←機械可読性を20/25へ圧縮）。
+  const content = pickNum(r, "contentTotal", "content_total") ?? ai;
+  const technical = pickNum(r, "technicalTotal", "technical_total") ?? mr * (20 / 25);
+  const authority = pickNum(r, "authorityTotal", "authority_total") ?? 0;
+  const core = pickNum(r, "authorityThirdPartyCore", "authority_third_party_core") ?? 0;
+  const localSub = pickNum(r, "authorityLocalMeoSub", "authority_local_meo_sub") ?? 0;
+  const bonus = pickNum(r, "authorityWikipediaKgBonus", "authority_wikipedia_kg_bonus") ?? 0;
+  const cvRaw = r.calculationVersion !== undefined ? r.calculationVersion : r.calculation_version;
+  const calculationVersion = typeof cvRaw === "string" ? cvRaw : null;
   return {
     aiAuditTotal: ai,
     meoTotal: meo,
     machineReadabilityTotal: mr,
     finalScore,
+    contentTotal: content,
+    technicalTotal: technical,
+    authorityTotal: authority,
+    authorityThirdPartyCore: core,
+    authorityLocalMeoSub: localSub,
+    authorityWikipediaKgBonus: bonus,
+    calculationVersion,
   };
 }
 

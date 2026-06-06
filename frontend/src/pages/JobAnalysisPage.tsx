@@ -10,6 +10,7 @@ import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
 import { RubricGapAlertStack } from "../components/RubricGapAlertStack";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
+import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
@@ -544,6 +545,13 @@ export function JobAnalysisPage(): JSX.Element {
       </div>
     ) : null;
 
+  const aiRecognitionSection =
+    data !== null && data.aiRecognitionSummary != null ? (
+      <div className="pdf-avoid-break mb-6">
+        <AiRecognitionSection summary={data.aiRecognitionSummary} />
+      </div>
+    ) : null;
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
       <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
@@ -759,6 +767,7 @@ export function JobAnalysisPage(): JSX.Element {
         </div>
       ) : null}
       {geoScoreSection}
+      {aiRecognitionSection}
       {showCharts &&
         (isProcessingDisplay ||
           (data !== null && isCompletedJobStatus(data.jobStatus))) && (
