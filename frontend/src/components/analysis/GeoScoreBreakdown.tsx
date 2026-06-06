@@ -43,12 +43,14 @@ function ratio(value: number, max: number): number {
 
 interface AxisRowProps {
   label: string;
+  // 各軸が何を測るのかを平易に説明する一文（専門用語を避け、提案先の非専門家にも伝わるように）。
+  description: string;
   value: number;
   max: number;
   color: string;
 }
 
-function AxisRow({ label, value, max, color }: AxisRowProps): JSX.Element {
+function AxisRow({ label, description, value, max, color }: AxisRowProps): JSX.Element {
   const pct = ratio(value, max);
   return (
     <Stack spacing={0.5}>
@@ -72,6 +74,9 @@ function AxisRow({ label, value, max, color }: AxisRowProps): JSX.Element {
           <span style={{ color: "#94a3b8", fontWeight: 400 }}> / {max}</span>
         </Typography>
       </Stack>
+      <Typography variant="caption" sx={{ color: "#94a3b8", pl: 2.25, lineHeight: 1.4 }}>
+        {description}
+      </Typography>
       <LinearProgress
         variant="determinate"
         value={pct}
@@ -165,19 +170,22 @@ export function GeoScoreBreakdown({
         <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
           <Stack spacing={1.25}>
             <AxisRow
-              label="コンテンツ素地"
+              label="コンテンツの充実度"
+              description="AIが引用したくなる情報の質・量"
               value={breakdown.contentTotal}
               max={MAX_CONTENT}
               color={AXIS_CONTENT}
             />
             <AxisRow
-              label="技術素地"
+              label="AIが読みやすい構造"
+              description="Schema.org等でAIが正しく解釈できるか"
               value={breakdown.technicalTotal}
               max={MAX_TECHNICAL}
               color={AXIS_TECHNICAL}
             />
             <AxisRow
-              label="権威・エンティティ認知"
+              label="第三者からの評判・権威"
+              description="他サイト・口コミでどれだけ言及されるか"
               value={breakdown.authorityTotal}
               max={MAX_AUTHORITY}
               color={AXIS_AUTHORITY}
