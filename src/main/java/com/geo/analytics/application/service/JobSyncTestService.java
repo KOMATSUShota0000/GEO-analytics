@@ -101,7 +101,6 @@ public class JobSyncTestService {
             syncVerificationResult.calculationVersion(),
             modifiedZ,
             syncVerificationResult.gbvsNormalizedScore(),
-            syncVerificationResult.competitorScoreRows(),
             syncVerificationResult.modelInsightsJson());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         return jobPersistenceService.findJobById(jobId);

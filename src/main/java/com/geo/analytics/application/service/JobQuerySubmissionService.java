@@ -385,7 +385,6 @@ public class JobQuerySubmissionService {
                 syncVerificationResult.calculationVersion(),
                 modifiedZ,
                 gbvsNorm,
-                syncVerificationResult.competitorScoreRows(),
                 syncVerificationResult.modelInsightsJson());
     }
 

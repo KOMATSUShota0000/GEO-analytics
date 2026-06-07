@@ -1,5 +1,4 @@
 package com.geo.analytics.domain.entity;
-import jakarta.persistence.CascadeType;
 import com.geo.analytics.domain.enums.AiRecognitionState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -11,14 +10,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 @Entity
@@ -81,8 +78,6 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "model_insights")
     private String modelInsightsJson;
-    @OneToMany(mappedBy = "auditHistory", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<JobCompetitorScoreEntity> competitorScores = new ArrayList<>();
     @Column(name = "audit_date", nullable = false)
     private LocalDate auditDate;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -226,12 +221,6 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     }
     public void setModelInsightsJson(String modelInsightsJson) {
         this.modelInsightsJson = modelInsightsJson;
-    }
-    public List<JobCompetitorScoreEntity> getCompetitorScores() {
-        return competitorScores;
-    }
-    public void setCompetitorScores(List<JobCompetitorScoreEntity> competitorScores) {
-        this.competitorScores = competitorScores;
     }
     public LocalDate getAuditDate() {
         return auditDate;

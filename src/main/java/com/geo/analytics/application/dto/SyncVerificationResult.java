@@ -1,7 +1,5 @@
 package com.geo.analytics.application.dto;
 
-import java.util.List;
-
 public record SyncVerificationResult(
         String rawResponseJson,
         Double somScore,
@@ -16,7 +14,6 @@ public record SyncVerificationResult(
         Integer visibilityStage,
         Double modifiedZScore,
         String calculationVersion,
-        List<CompetitorScoreRow> competitorScoreRows,
         String modelInsightsJson,
         Double gbvsNormalizedScore,
         int analysisTextLength
