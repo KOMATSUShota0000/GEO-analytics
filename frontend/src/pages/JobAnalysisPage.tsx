@@ -472,6 +472,7 @@ export function JobAnalysisPage(): JSX.Element {
         <GeoScoreBreakdown
           breakdown={data.scoreBreakdown}
           brandName={data.brandName}
+          contentEvidence={data.contentEvidence}
           industryMode={data.project?.industryType}
         />
       </div>

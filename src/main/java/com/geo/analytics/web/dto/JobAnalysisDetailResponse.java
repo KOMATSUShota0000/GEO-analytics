@@ -24,6 +24,7 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("fact_based_score") Double factBasedScore,
     @JsonProperty("rubric_gaps") List<String> rubricGaps,
     @JsonProperty("score_breakdown") ScoreBreakdown scoreBreakdown,
+    @JsonProperty("content_evidence") List<ContentEvidenceItemResponse> contentEvidence,
     @JsonProperty("remediation_tasks") List<RemediationTaskResponse> remediationTasks,
     @JsonProperty("ai_recognition_summary") AiRecognitionSummaryResponse aiRecognitionSummary,
     @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert
@@ -32,6 +33,7 @@ public record JobAnalysisDetailResponse(
         jobSummaryRecommendedActions =
                 jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of();
         rubricGaps = rubricGaps != null ? List.copyOf(rubricGaps) : List.of();
+        contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
     }
     public static JobAnalysisDetailResponse from(
@@ -45,6 +47,7 @@ public record JobAnalysisDetailResponse(
             Double factBasedScore,
             List<String> rubricGaps,
             ScoreBreakdown scoreBreakdown,
+            List<ContentEvidenceItemResponse> contentEvidence,
             List<RemediationTaskResponse> remediationTasks,
             AiRecognitionSummaryResponse aiRecognitionSummary,
             ObjectMapper objectMapper) {
@@ -68,6 +71,7 @@ public record JobAnalysisDetailResponse(
             factBasedScore,
             rubricGaps,
             scoreBreakdown,
+            contentEvidence != null ? List.copyOf(contentEvidence) : List.of(),
             remediationTasks != null ? List.copyOf(remediationTasks) : List.of(),
             aiRecognitionSummary,
             emotionalAlert);

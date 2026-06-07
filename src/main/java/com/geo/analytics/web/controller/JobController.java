@@ -280,6 +280,7 @@ public class JobController {
             bench.factBasedScore(),
             bench.rubricGaps(),
             attachment.scoreBreakdown(),
+            attachment.contentEvidence(),
             remediationTasksMasked,
             aiRecognitionSummary,
             objectMapper));
