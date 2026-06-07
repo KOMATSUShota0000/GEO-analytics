@@ -88,6 +88,28 @@ class AsyncSgeMeasurementServiceDegradeTest {
         verify(persistence, never()).updateJobStatus(eq(JOB_ID), eq(JobStatus.FAILED), anyString());
     }
 
+    @Test
+    void serpApiCallFails_degradesToEmptyPlaceholder_andDoesNotFailJob() throws Exception {
+        SgeMeasurementPort port = mock(SgeMeasurementPort.class);
+        BatchPersistenceService persistence = mock(BatchPersistenceService.class);
+        PlanBasedQuotaManager quota = mock(PlanBasedQuotaManager.class);
+        SerpApiGlobalRequestGate gate = mock(SerpApiGlobalRequestGate.class);
+        // SerpAPI 呼び出しが接続タイムアウト等で失敗するケースを模す（キーは設定済み）。
+        when(gate.execute(any())).thenThrow(new IllegalStateException("connect timed out"));
+
+        AsyncSgeMeasurementService svc = new AsyncSgeMeasurementService(
+                port, persistence, quota, gate, propsWithKey("dummy-key"));
+
+        List<QueryEntity> queries = List.of(query("q1"), query("q2"));
+        svc.measureSgeForJob(job(), queries, 0);
+
+        // 各クエリは空プレースホルダ（"{}" / false / 0）へ降格して保存され、ジョブは FAILED にならない。
+        verify(persistence, times(2)).insertSgeResult(
+                eq(WORKSPACE_ID), eq(JOB_ID), any(UUID.class),
+                anyString(), eq("{}"), eq(false), eq(0));
+        verify(persistence, never()).updateJobStatus(eq(JOB_ID), eq(JobStatus.FAILED), anyString());
+    }
+
     private static boolean anyBoolean() {
         return org.mockito.ArgumentMatchers.anyBoolean();
     }
