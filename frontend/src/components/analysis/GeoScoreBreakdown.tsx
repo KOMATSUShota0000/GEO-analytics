@@ -19,10 +19,10 @@ const AXIS_AUTHORITY = "#10B981";
 
 // ルーブリックLLM10項目の人間可読ラベル（criterionId→日本語）。バックエンドのenum名に対応。
 const CRITERION_LABELS: Record<string, string> = {
-  DIRECT_ANSWER_FIRST: "冒頭の直接的な回答",
+  DIRECT_ANSWER_FIRST: "結論ファースト構成",
   ATOMIC_FACTS: "数値化された実績データ",
-  SOLUTION_SCENARIOS: "具体的な解決シナリオ",
-  VERIFIABLE_AUTHORITY: "検証可能な権威性・資格",
+  SOLUTION_SCENARIOS: "導入事例・活用シーン",
+  VERIFIABLE_AUTHORITY: "証明できる専門性",
   FAQ_PRESENCE: "FAQ（よくある質問）の記述",
   NUMBERED_PROCESS_FLOW: "番号付きの詳細な手順フロー",
   ENTITY_BIOGRAPHY: "具体的な経歴・バイオグラフィー",
