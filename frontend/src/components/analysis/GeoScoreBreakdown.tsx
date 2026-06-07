@@ -271,6 +271,7 @@ export function GeoScoreBreakdown({
   brandName,
   contentEvidence,
   technicalEvidence,
+  industryMode,
 }: GeoScoreBreakdownProps): JSX.Element | null {
   const [contentOpen, setContentOpen] = useState(false);
   const [technicalOpen, setTechnicalOpen] = useState(false);
@@ -284,6 +285,10 @@ export function GeoScoreBreakdown({
   const core = breakdown.authorityThirdPartyCore;
   const localSub = breakdown.authorityLocalMeoSub;
   const bonus = breakdown.authorityWikipediaKgBonus;
+  // 非地域業種(BtoB/SaaS/EC)はローカルMEO（クチコミ）を持たない。代わりに中核＝第三者言及が
+  // 権威軸0-30を単独で構成する（BE: authorityThirdPartyCore が業種で0-20→0-30に拡張）。
+  const isNonLocal = industryMode === "CORPORATE_SERVICE" || industryMode === "ONLINE_SERVICE";
+  const coreMax = isNonLocal ? MAX_AUTHORITY : MAX_AUTHORITY_CORE;
   return (
     <Box
       sx={{
@@ -364,9 +369,9 @@ export function GeoScoreBreakdown({
               color={AXIS_AUTHORITY}
             />
             {core > 0 ? (
-              <SubRow label="第三者言及の広がり" value={core} max={MAX_AUTHORITY_CORE} />
+              <SubRow label="第三者言及の広がり" value={core} max={coreMax} />
             ) : null}
-            {localSub > 0 ? (
+            {!isNonLocal && localSub > 0 ? (
               <SubRow label="ローカル評判（クチコミ）" value={localSub} max={MAX_AUTHORITY_LOCAL_SUB} />
             ) : null}
             {bonus > 0 ? (

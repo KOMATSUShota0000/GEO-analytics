@@ -87,8 +87,19 @@ public final class GeoVisibilityCalculatorService {
                 * (MAX_TECHNICAL / RAW_MACHINE_READABILITY_MAX);
     }
 
-    /** 権威軸の中核＝第三者言及の広がり(0-20)。combineAuthority と内訳露出の単一ソース。 */
-    public static double authorityThirdPartyCore(double thirdPartyCore) {
+    /**
+     * 権威軸の中核＝第三者言及の広がり。地域業種は 0-20（残り 0-10 はローカルMEOサブが担う）。
+     * 非地域業種(CORPORATE/ONLINE)は MEOサブを構造的に持たない（Googleマップに実体がなくAIも参照しない）ため、
+     * その死蔵枠を中核へ取り戻し 0-{@link #MAX_AUTHORITY} へ線形拡張する（同一カバレッジで地域の1.5倍）。
+     * GEO上、非地域は「第三者サイトでの言及」こそが権威の全てである、という因果に基づく。
+     * 素点(0-20)自体は業種非依存（DB保存の THIRD_PARTY_MENTIONS は不変＝後方互換）で、業種差はこの集約段階のみで生む。
+     * combineAuthority と内訳露出の単一ソース。
+     */
+    public static double authorityThirdPartyCore(double thirdPartyCore, CompetitorExtractionMode mode) {
+        if (isNonLocalMode(mode)) {
+            double scaled = thirdPartyCore * (MAX_AUTHORITY / ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
+            return clamp(scaled, 0.0d, MAX_AUTHORITY);
+        }
         return clamp(thirdPartyCore, 0.0d, ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
     }
 
@@ -105,7 +116,10 @@ public final class GeoVisibilityCalculatorService {
      */
     public static double combineAuthority(
             double thirdPartyCore, double meoRaw, CompetitorExtractionMode mode) {
-        return clamp(authorityThirdPartyCore(thirdPartyCore) + authorityLocalMeoSub(meoRaw, mode), 0.0d, MAX_AUTHORITY);
+        return clamp(
+                authorityThirdPartyCore(thirdPartyCore, mode) + authorityLocalMeoSub(meoRaw, mode),
+                0.0d,
+                MAX_AUTHORITY);
     }
 
     private static boolean isNonLocalMode(CompetitorExtractionMode mode) {

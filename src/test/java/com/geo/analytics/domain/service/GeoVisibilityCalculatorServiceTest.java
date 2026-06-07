@@ -43,10 +43,25 @@ class GeoVisibilityCalculatorServiceTest {
     }
 
     @Test
-    void authorityThirdPartyCore_clampsToTwenty() {
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(15.0)).isCloseTo(15.0, within(1e-9));
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(99.0)).isCloseTo(20.0, within(1e-9));
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(-1.0)).isEqualTo(0.0);
+    void authorityThirdPartyCore_localClampsToTwenty_nonLocalScalesToThirty() {
+        // 地域業種: 0-20でクランプ（残り0-10はローカルMEOサブが担う）。
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(15.0, CompetitorExtractionMode.LOCAL_STORE))
+                .isCloseTo(15.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(99.0, CompetitorExtractionMode.LOCAL_STORE))
+                .isCloseTo(20.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(-1.0, CompetitorExtractionMode.LOCAL_STORE))
+                .isEqualTo(0.0);
+        // 非地域業種: MEOサブの死蔵枠を回収し 0-30 へ1.5倍拡張。素点20満点→30、素点12→18。
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
+                        20.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                .isCloseTo(30.0, within(1e-9));
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
+                        12.0, CompetitorExtractionMode.ONLINE_SERVICE))
+                .isCloseTo(18.0, within(1e-9));
+        // 上限30でクランプ。
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
+                        99.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                .isCloseTo(30.0, within(1e-9));
     }
 
     @Test
@@ -64,7 +79,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void authoritySubScores_sumEqualsCombineAuthority() {
         var mode = CompetitorExtractionMode.LOCAL_STORE;
-        double core = GeoVisibilityCalculatorService.authorityThirdPartyCore(12.0);
+        double core = GeoVisibilityCalculatorService.authorityThirdPartyCore(12.0, mode);
         double sub = GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, mode);
         double combined = GeoVisibilityCalculatorService.combineAuthority(12.0, 25.0, mode);
         assertThat(core + sub).isCloseTo(combined, within(1e-9));
@@ -189,14 +204,22 @@ class GeoVisibilityCalculatorServiceTest {
     }
 
     @Test
-    void combineAuthority_nonLocal_ignoresMeo_coreOnly() {
-        // 非地域業種(CORPORATE/ONLINE)はMEOを加点せず中核のみ。
+    void combineAuthority_nonLocal_ignoresMeo_scalesCoreToThirty() {
+        // 非地域業種(CORPORATE/ONLINE)はMEOを加点せず、中核を0-30へ拡張（12*1.5=18）。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
                         12.0, 25.0, CompetitorExtractionMode.CORPORATE_SERVICE))
-                .isEqualTo(12.0);
+                .isCloseTo(18.0, within(1e-9));
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
                         12.0, 25.0, CompetitorExtractionMode.ONLINE_SERVICE))
-                .isEqualTo(12.0);
+                .isCloseTo(18.0, within(1e-9));
+    }
+
+    @Test
+    void combineAuthority_nonLocal_reachesThirtyCeiling_withoutMeo() {
+        // 非地域業種は第三者言及だけで権威軸の天井30に到達できる（死蔵していた10点の回収）。
+        assertThat(GeoVisibilityCalculatorService.combineAuthority(
+                        20.0, 0.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                .isEqualTo(30.0);
     }
 
     @Test

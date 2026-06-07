@@ -338,7 +338,7 @@ public class JobPersistenceService {
         // content + technical + authority = finalScore が整合する（権威=中核+ローカルMEOサブ、ボーナスは Sprint5 で当面0）。
         double content = StrictMath.max(0.0d, StrictMath.min(aiAuditTotal, ScoreBreakdown.MAX_CONTENT));
         double technical = GeoVisibilityCalculatorService.technicalSubScore(machineReadabilityTotal);
-        double thirdPartyCore = GeoVisibilityCalculatorService.authorityThirdPartyCore(thirdPartyCoreTotal);
+        double thirdPartyCore = GeoVisibilityCalculatorService.authorityThirdPartyCore(thirdPartyCoreTotal, mode);
         double localMeoSub = GeoVisibilityCalculatorService.authorityLocalMeoSub(meoTotal, mode);
         double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCoreTotal, meoTotal, mode);
         double wikipediaKgBonus = 0.0d;
