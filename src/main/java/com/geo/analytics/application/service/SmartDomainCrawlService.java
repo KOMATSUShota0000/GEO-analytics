@@ -20,6 +20,10 @@ public class SmartDomainCrawlService {
 
     private static final Logger log = LoggerFactory.getLogger(SmartDomainCrawlService.class);
     private static final int STACK_TRACE_LIMIT = 20_000;
+    // 監査対象として巡回する総ページ数（入口＋追従）。多くのサイトはトップが薄いハブ型で、
+    // こだわり/メニュー/店舗/会社概要/採用 等のサブページに実コンテンツが分散するため、
+    // 取りこぼしによるルーブリック過小評価を避けるべく入口＋最大5サブページまで広げる。
+    private static final int MAX_AUDIT_PAGES = 6;
 
     private final WebCrawlerPort webCrawlerPort;
     private final LinkHarvestingPort linkHarvestingPort;
@@ -49,10 +53,10 @@ public class SmartDomainCrawlService {
             discovered = List.of();
         }
         List<String> followUrls = CorePageLinkScorer.selectTopFollowUrls(discovered, canonicalEntryUrl);
-        ArrayList<SmartCrawlPage> pages = new ArrayList<>(3);
+        ArrayList<SmartCrawlPage> pages = new ArrayList<>(MAX_AUDIT_PAGES);
         pages.add(new SmartCrawlPage(canonicalEntryUrl, top, 0));
         int ordinal = 1;
-        for (int i = 0; i < followUrls.size() && pages.size() < 3; i++) {
+        for (int i = 0; i < followUrls.size() && pages.size() < MAX_AUDIT_PAGES; i++) {
             String follow = followUrls.get(i);
             if (follow == null || follow.isBlank()) {
                 continue;
