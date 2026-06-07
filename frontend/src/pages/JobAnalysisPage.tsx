@@ -485,6 +485,15 @@ export function JobAnalysisPage(): JSX.Element {
     ) : null;
 
   return (
+    // 結果画面の背景。真っ白で寂しい印象を避け、紫ロボットUIに寄せた「和の薄藤色」グラデにする。
+    // 派手さ（おもちゃ感）を出さないよう低彩度の藤色に抑える。PDF/印刷時は白を維持。
+    <div
+      className={
+        isPdfMode
+          ? "min-h-screen bg-white"
+          : "min-h-screen bg-gradient-to-b from-[#f5f2fb] via-[#eae3f4] to-[#f2eef9] print:bg-white"
+      }
+    >
     <div className="mx-auto max-w-5xl px-6 py-8 text-slate-900">
       <h1 className="pdf-avoid-break mb-6 text-2xl font-semibold tracking-tight text-slate-900">解析結果</h1>
       {data?.emotionalAlert != null ? (
@@ -834,6 +843,7 @@ export function JobAnalysisPage(): JSX.Element {
       )}
       {maintenancePhase ? remediationBoardSection : null}
       {showPdfReadyFlag && <div id="pdf-ready-flag" aria-hidden="true" />}
+    </div>
     </div>
   );
 }
