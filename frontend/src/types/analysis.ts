@@ -550,6 +550,8 @@ export interface JobAnalysisDetail {
   rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
   contentEvidence?: ContentEvidenceItem[];
+  // 「AIが読みやすい構造」軸のサイト固有エビデンス（Schema.org/H1/robots等の実クロール所見の要約文）。
+  technicalEvidence?: string;
   aiRecognitionSummary?: AiRecognitionSummary | null;
   remediationTasks?: RemediationTask[];
   emotionalAlert?: EmotionalAlertPayload | null;
@@ -831,6 +833,9 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
   const contentEvidence = parseContentEvidence(r.contentEvidence ?? r.content_evidence);
+  const techRaw = r.technicalEvidence ?? r.technical_evidence;
+  const technicalEvidence =
+    typeof techRaw === "string" && techRaw.trim().length > 0 ? techRaw : undefined;
   const aiRecognitionSummary = parseAiRecognitionSummary(
     r.aiRecognitionSummary ?? r.ai_recognition_summary,
   );
@@ -853,6 +858,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     rubricGaps,
     scoreBreakdown,
     contentEvidence,
+    ...(technicalEvidence !== undefined ? { technicalEvidence } : {}),
     aiRecognitionSummary,
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),

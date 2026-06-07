@@ -473,6 +473,7 @@ export function JobAnalysisPage(): JSX.Element {
           breakdown={data.scoreBreakdown}
           brandName={data.brandName}
           contentEvidence={data.contentEvidence}
+          technicalEvidence={data.technicalEvidence}
           industryMode={data.project?.industryType}
         />
       </div>

@@ -47,6 +47,8 @@ export interface GeoScoreBreakdownProps {
   brandName?: string;
   // コンテンツの充実度のサイト固有エビデンス（ルーブリック10項目・直接引用）。クリックで展開。
   contentEvidence?: ContentEvidenceItem[];
+  // 「AIが読みやすい構造」軸のサイト固有エビデンス（Schema.org/H1/robots等の実クロール所見の要約文）。
+  technicalEvidence?: string;
   // 業種モード（現行の3軸表示では再配分に使わないが、呼び出し側互換のため受け取る）。
   industryMode?: string;
 }
@@ -230,16 +232,54 @@ function ContentEvidencePanel({ items }: { items: ContentEvidenceItem[] }): JSX.
   );
 }
 
+// 技術評価の要約文（"Schema.org: 未実装, H1欠落, ..." 等）を読みやすく項目分割する。
+// バックエンドのクロール所見そのものなので、サイトごとに内容が異なる（定型文にならない）。
+function TechnicalEvidencePanel({ summary }: { summary: string }): JSX.Element {
+  const items = summary
+    .split(/[,、]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return (
+    <Box sx={{ mt: 1, borderTop: "1px dashed rgba(148,163,184,0.45)", pt: 1.25 }}>
+      <Typography variant="caption" sx={{ color: "#64748b" }}>
+        あなたのサイトを実際にクロールして得た、AI可読性の技術所見です。
+      </Typography>
+      {items.length > 0 ? (
+        <Stack spacing={0.5} sx={{ mt: 1 }}>
+          {items.map((it, i) => (
+            <Stack key={`${i}-${it}`} direction="row" spacing={1} alignItems="flex-start">
+              <Box
+                sx={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: AXIS_TECHNICAL, mt: "6px" }}
+              />
+              <Typography variant="body2" sx={{ color: "#334155" }}>
+                {it}
+              </Typography>
+            </Stack>
+          ))}
+        </Stack>
+      ) : (
+        <Typography variant="body2" sx={{ color: "#475569", mt: 1, whiteSpace: "pre-wrap" }}>
+          {summary}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 export function GeoScoreBreakdown({
   breakdown,
   brandName,
   contentEvidence,
+  technicalEvidence,
 }: GeoScoreBreakdownProps): JSX.Element | null {
   const [contentOpen, setContentOpen] = useState(false);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   if (!breakdown) {
     return null;
   }
   const hasContentEvidence = Array.isArray(contentEvidence) && contentEvidence.length > 0;
+  const hasTechnicalEvidence =
+    typeof technicalEvidence === "string" && technicalEvidence.trim().length > 0;
   const total = clamp(breakdown.finalScore, 0, MAX_TOTAL);
   const core = breakdown.authorityThirdPartyCore;
   const localSub = breakdown.authorityLocalMeoSub;
@@ -308,7 +348,14 @@ export function GeoScoreBreakdown({
               value={breakdown.technicalTotal}
               max={MAX_TECHNICAL}
               color={AXIS_TECHNICAL}
+              onToggle={hasTechnicalEvidence ? () => setTechnicalOpen((o) => !o) : undefined}
+              expanded={technicalOpen}
             />
+            {hasTechnicalEvidence ? (
+              <Collapse in={technicalOpen} unmountOnExit>
+                <TechnicalEvidencePanel summary={technicalEvidence ?? ""} />
+              </Collapse>
+            ) : null}
             <AxisRow
               label="第三者からの評判・権威"
               description="他サイト・口コミでどれだけ言及されるか"
