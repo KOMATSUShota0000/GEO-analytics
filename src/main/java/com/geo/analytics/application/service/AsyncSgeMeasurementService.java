@@ -83,28 +83,32 @@ public class AsyncSgeMeasurementService {
             }
             String brandName = job.getBrandName();
             List<StructuredTaskScope.Subtask<SgeMentionResult>> subtasks = new ArrayList<>(queryList.size());
-            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.awaitAllSuccessfulOrThrow())) {
+            // SerpAPI への各クエリ呼び出しは awaitAll で待ち、個別失敗ではジョブ全体を落とさない。
+            // 1件の接続タイムアウト等で解析全体が FAILED になるのを防ぎ（APIキー未設定時の降格と同じ思想）、
+            // 失敗クエリの SoM のみ空プレースホルダ（mentioned=false / count=0）へ降格して解析を完走させる。
+            try (var scope = StructuredTaskScope.open(StructuredTaskScope.Joiner.<SgeMentionResult>awaitAll())) {
                 for (QueryEntity queryEntity : queryList) {
                     final QueryEntity qe = queryEntity;
-                    subtasks.add(scope.fork(() -> {
-                        try {
-                            return serpApiGlobalRequestGate.execute(
-                                    () -> sgeMeasurementPort.checkSgeMention(qe.getQueryText(), brandName));
-                        } catch (Exception e) {
-                            throw new IllegalStateException(e);
-                        }
-                    }));
+                    subtasks.add(scope.fork(
+                            () -> serpApiGlobalRequestGate.execute(
+                                    () -> sgeMeasurementPort.checkSgeMention(qe.getQueryText(), brandName))));
                 }
                 scope.join();
             }
+            UUID wid = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
             for (int i = 0; i < queryList.size(); i++) {
                 QueryEntity queryEntity = queryList.get(i);
-                SgeMentionResult sgeMentionResult = subtasks.get(i).get();
+                StructuredTaskScope.Subtask<SgeMentionResult> subtask = subtasks.get(i);
+                SgeMentionResult sgeMentionResult =
+                        subtask.state() == StructuredTaskScope.Subtask.State.SUCCESS ? subtask.get() : null;
                 if (sgeMentionResult == null) {
-                    throw new IllegalStateException(
-                            "Adapter returned null for queryId=" + queryEntity.getId() + " queryText=" + queryEntity.getQueryText());
+                    log.warn(
+                            "SGE measurement degraded to empty (SerpAPI失敗/timeout等) jobId={} queryId={} state={}",
+                            jobId, queryEntity.getId(), subtask.state());
+                    batchPersistence.insertSgeResult(
+                            wid, jobId, queryEntity.getId(), queryEntity.getQueryText(), "{}", false, 0);
+                    continue;
                 }
-                UUID wid = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
                 batchPersistence.insertSgeResult(
                     wid, jobId, queryEntity.getId(),
                     queryEntity.getQueryText(),
