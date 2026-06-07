@@ -1,6 +1,5 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
@@ -123,15 +122,6 @@ public class SyncVerificationService {
         int analysisTextLength = content != null ? content.length() : 0;
         var consultantOutputData =
                 somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
-        var rows = verificationResponse.competitorResults().stream()
-                .map(cr -> new CompetitorScoreRow(
-                        cr.competitorLabel(),
-                        cr.somScore() != null ? cr.somScore() : 0.0,
-                        cr.aiCitationPosition(),
-                        cr.visibilityStage(),
-                        cr.matchStatus(),
-                        cr.nounCount()))
-                .toList();
         var insightsJson = serializeInsights(verificationResponse);
         return new SyncVerificationResult(
                 verificationResponse.rawResponseJson(),
@@ -147,7 +137,6 @@ public class SyncVerificationService {
                 verificationResponse.visibilityStage(),
                 verificationResponse.modifiedZScore(),
                 verificationResponse.calculationVersion(),
-                rows,
                 insightsJson,
                 verificationResponse.gbvsNormalizedScore(),
                 analysisTextLength);

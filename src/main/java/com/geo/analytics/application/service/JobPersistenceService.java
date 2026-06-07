@@ -1,7 +1,6 @@
 package com.geo.analytics.application.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.JobAnalysisAggregate;
 import com.geo.analytics.application.dto.PdfGenerationStartResult;
@@ -16,7 +15,6 @@ import com.geo.analytics.domain.service.AiRecognitionClassifier;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
-import com.geo.analytics.domain.entity.JobCompetitorScoreEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -424,7 +422,6 @@ public class JobPersistenceService {
             String calculationVersion,
             Double modifiedZScore,
             Double gbvsNormalizedScore,
-            List<CompetitorScoreRow> competitorScoreRows,
             String modelInsightsJson) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantPlanScope.executeWithTenant(tenantId, () -> {
@@ -467,7 +464,6 @@ public class JobPersistenceService {
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
                 existing.setModelInsightsJson(modelInsightsJson);
-                applyCompetitorScores(existing, competitorScoreRows);
                 auditHistoryRepository.save(existing);
             } else {
                 AuditHistoryEntity auditHistoryEntity = new AuditHistoryEntity();
@@ -494,7 +490,6 @@ public class JobPersistenceService {
                 auditHistoryEntity.setRecommendedActions(actions);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
-                applyCompetitorScores(auditHistoryEntity, competitorScoreRows);
                 auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
@@ -508,23 +503,6 @@ public class JobPersistenceService {
         return (position != null && position > 0) ? position : null;
     }
 
-    private static void applyCompetitorScores(AuditHistoryEntity audit, List<CompetitorScoreRow> rows) {
-        audit.getCompetitorScores().clear();
-        if (rows == null || rows.isEmpty()) {
-            return;
-        }
-        for (var row : rows) {
-            var entity = new JobCompetitorScoreEntity();
-            entity.setAuditHistory(audit);
-            entity.setCompetitorName(row.competitorName());
-            entity.setSomScore(row.somScore());
-            entity.setAiCitationPosition(normalizedAiCitationPosition(row.aiCitationPosition()));
-            entity.setVisibilityStage(row.visibilityStage());
-            entity.setMatchStatus(row.matchStatus());
-            entity.setNounCount(row.nounCount());
-            audit.getCompetitorScores().add(entity);
-        }
-    }
     @Transactional
     public void updateAuditStrategyInsights(
             UUID auditHistoryId,

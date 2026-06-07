@@ -175,7 +175,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 6,
                 0.0,
                 "V11_GEO_PURE",
-                List.of(),
                 "{}",
                 50.0,
                 0));
@@ -191,7 +190,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 projectAuditLifecyclePublisher);
         retryOnPgDeadlock(
                 () -> {
-                    jdbcTemplate.update("DELETE FROM job_competitor_scores");
                     auditHistoryRepository.deleteAllInBatch();
                     queryRepository.deleteAllInBatch();
                     sgeResultRepository.deleteAllInBatch();

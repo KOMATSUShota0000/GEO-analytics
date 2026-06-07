@@ -3,7 +3,6 @@ package com.geo.analytics.application.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.geo.analytics.application.dto.CompetitorScoreRow;
 import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -177,8 +176,7 @@ public class BatchPersistenceService {
                                    Integer visibilityStage, String calculationVersion,
                                    double modifiedZScore, boolean negativeAlert,
                                    String diagnosticMessage, List<String> recommendedActions,
-                                   String modelInsightsJson,
-                                   List<CompetitorScoreRow> competitorScoreRows) {
+                                   String modelInsightsJson) {
         Integer persistedAiCitationPosition = normalizedAiCitationPosition(aiCitationPosition);
         Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
         UUID auditId;
@@ -248,18 +246,6 @@ public class BatchPersistenceService {
                 ps.setObject(23, LocalDate.now());
                 return ps;
             });
-        }
-        jdbc.update("DELETE FROM job_competitor_scores WHERE audit_history_id = ?", auditId);
-        if (competitorScoreRows != null) {
-            for (CompetitorScoreRow row : competitorScoreRows) {
-                jdbc.update(
-                        "INSERT INTO job_competitor_scores (id, audit_history_id, competitor_name, "
-                        + "som_score, ai_citation_position, visibility_stage, match_status, noun_count) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        UUID.randomUUID(), auditId, row.competitorName(),
-                        row.somScore(), normalizedAiCitationPosition(row.aiCitationPosition()), row.visibilityStage(),
-                        row.matchStatus() != null ? row.matchStatus().name() : null, row.nounCount());
-            }
         }
         jdbc.update("UPDATE job_queries SET processed = true WHERE id = ?", queryId);
         return auditId;

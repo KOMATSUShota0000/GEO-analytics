@@ -149,8 +149,7 @@ public class GeminiResultProcessor {
                         gbvs.modifiedZScore(), negAlert,
                         insight.diagnosticMessage(),
                         new ArrayList<>(insight.recommendedActions()),
-                        null,
-                        List.of());
+                        null);
                     quotaSettled.add(line.queryId());
                 });
         }
