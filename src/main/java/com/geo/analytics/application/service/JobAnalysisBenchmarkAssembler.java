@@ -27,11 +27,11 @@ public class JobAnalysisBenchmarkAssembler {
 
     public BenchmarkAttach attach(JobEntity jobEntity) {
         if (jobEntity == null) {
-            return new BenchmarkAttach(null, List.of());
+            return new BenchmarkAttach(null, List.of(), null);
         }
         String selfJson = jobEntity.getSelfRubricAuditJson();
         if (selfJson == null || selfJson.isBlank()) {
-            return new BenchmarkAttach(null, List.of());
+            return new BenchmarkAttach(null, List.of(), null);
         }
         try {
             RubricAuditResult self = objectMapper.readValue(selfJson, RubricAuditResult.class);
@@ -48,9 +48,11 @@ public class JobAnalysisBenchmarkAssembler {
             double mr = MachineReadabilityScoreCalculator.score(jsonLd, headings);
             double total = FactBasedScoreAggregator.aggregate(ai, meo, mr);
             List<String> gaps = rubricBenchmarkGapService.extractGaps(self, competitors);
-            return new BenchmarkAttach(total, gaps);
+            // 「AIが読みやすい構造」軸のサイト固有エビデンス（Schema.org/H1/robots等の実クロール所見）。
+            String technicalEvidence = crawl != null ? crawl.seoTechnicalEvidenceSummary() : null;
+            return new BenchmarkAttach(total, gaps, technicalEvidence);
         } catch (JsonProcessingException ex) {
-            return new BenchmarkAttach(null, List.of());
+            return new BenchmarkAttach(null, List.of(), null);
         }
     }
 
@@ -79,5 +81,5 @@ public class JobAnalysisBenchmarkAssembler {
         return objectMapper.readValue(json, CrawledPageData.class);
     }
 
-    public record BenchmarkAttach(Double factBasedScore, List<String> rubricGaps) {}
+    public record BenchmarkAttach(Double factBasedScore, List<String> rubricGaps, String technicalEvidence) {}
 }
