@@ -255,6 +255,13 @@ export default function JobCreationPage(): JSX.Element {
   };
 
   return (
+    // 解析開始画面も結果画面と統一した「和の薄藤色」背景に（おもちゃ感を出さない低彩度）。
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(180deg, #f5f2fb 0%, #eae3f4 50%, #f2eef9 100%)",
+      }}
+    >
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
         {logoBlobUrl !== null ? (
@@ -572,5 +579,6 @@ export default function JobCreationPage(): JSX.Element {
         </Alert>
       </Snackbar>
     </Container>
+    </Box>
   );
 }
