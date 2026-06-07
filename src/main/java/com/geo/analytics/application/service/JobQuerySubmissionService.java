@@ -1,12 +1,9 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.dto.SelectedCompetitor;
-import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
@@ -48,7 +45,6 @@ public class JobQuerySubmissionService {
     private final ExecutorService realtimeParallelVirtualExecutor;
     private final ProjectRepository projectRepository;
     private final WorkspaceRepository workspaceRepository;
-    private final HybridCompetitorPipelineService hybridCompetitorPipelineService;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager quotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
@@ -65,7 +61,6 @@ public class JobQuerySubmissionService {
                     ExecutorService realtimeParallelVirtualExecutor,
             ProjectRepository projectRepository,
             WorkspaceRepository workspaceRepository,
-            HybridCompetitorPipelineService hybridCompetitorPipelineService,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager quotaManager,
             JobBenchmarkCaptureService jobBenchmarkCaptureService,
@@ -79,7 +74,6 @@ public class JobQuerySubmissionService {
         this.realtimeParallelVirtualExecutor = realtimeParallelVirtualExecutor;
         this.projectRepository = projectRepository;
         this.workspaceRepository = workspaceRepository;
-        this.hybridCompetitorPipelineService = hybridCompetitorPipelineService;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
         this.jobBenchmarkCaptureService = Objects.requireNonNull(jobBenchmarkCaptureService);
@@ -185,40 +179,15 @@ public class JobQuerySubmissionService {
             boolean realtime,
             long batchDeposit,
             UUID batchTenantId) {
+        // 競合抽出（表示専用の副次経路）は廃止。クエリ登録〜解析の本流へ直接進む。
         try {
-            JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-            UUID projectId = jobEntity.getProjectId();
-            if (projectId == null) {
-                log.warn("hybrid continuation requires projectId jobId={}", jobId);
-                throw new IllegalStateException("projectId");
-            }
-            String targetUrl = jobPersistenceService.loadTargetUrlForProject(projectId);
-            CompetitorExtractionMode competitorExtractionMode =
-                    Objects.requireNonNullElse(jobEntity.getCompetitorExtractionMode(), CompetitorExtractionMode.LOCAL_STORE);
-            List<SelectedCompetitor> selected =
-                    hybridCompetitorPipelineService.executePipeline(jobId, projectId, targetUrl, competitorExtractionMode);
-            List<String> urls = competitorUrlsFromSelected(selected);
-            jobPersistenceService.saveProjectCompetitorUrls(projectId, urls);
-            jobPersistenceService.saveProjectCompetitorProfiles(
-                    projectId, competitorProfilesFromSelected(selected));
             continueAfterCompetitorsPersisted(
                     jobId, queryTexts, planEnum, realtime, batchDeposit, batchTenantId);
         } catch (Throwable throwable) {
-            try {
-                JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-                UUID projectId = jobEntity.getProjectId();
-                if (projectId == null) {
-                    throw throwable;
-                }
-                jobPersistenceService.saveProjectCompetitorUrls(projectId, List.of("", "", ""));
-                continueAfterCompetitorsPersisted(
-                        jobId, queryTexts, planEnum, realtime, batchDeposit, batchTenantId);
-            } catch (Throwable throwable2) {
-                if (batchDeposit > 0L && batchTenantId != null) {
-                    quotaManager.addTokens(batchTenantId, batchDeposit);
-                }
-                jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable2));
+            if (batchDeposit > 0L && batchTenantId != null) {
+                quotaManager.addTokens(batchTenantId, batchDeposit);
             }
+            jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable));
         }
     }
 
@@ -249,47 +218,6 @@ public class JobQuerySubmissionService {
         JobEntity batchJobEntity = jobPersistenceService.findJobById(jobId);
         List<QueryEntity> batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, queryTexts.size());
-    }
-
-    private static List<CompetitorProfile> competitorProfilesFromSelected(List<SelectedCompetitor> selected) {
-        List<CompetitorProfile> out = new ArrayList<>();
-        if (selected != null) {
-            for (SelectedCompetitor competitor : selected) {
-                if (competitor == null) {
-                    continue;
-                }
-                String url = competitor.websiteUrl();
-                out.add(new CompetitorProfile(
-                        competitor.name(),
-                        url != null && !url.isBlank() ? url : null,
-                        competitor.synthetic()));
-                if (out.size() == 3) {
-                    return new ArrayList<>(out);
-                }
-            }
-        }
-        return new ArrayList<>(out);
-    }
-
-    private static List<String> competitorUrlsFromSelected(List<SelectedCompetitor> selected) {
-        List<String> out = new ArrayList<>();
-        if (selected != null) {
-            for (SelectedCompetitor competitor : selected) {
-                if (competitor == null) {
-                    out.add("");
-                } else {
-                    String u = competitor.websiteUrl();
-                    out.add(u != null && !u.isBlank() ? u : "");
-                }
-                if (out.size() == 3) {
-                    return new ArrayList<>(out);
-                }
-            }
-        }
-        while (out.size() < 3) {
-            out.add("");
-        }
-        return new ArrayList<>(out);
     }
 
     private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {

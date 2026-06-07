@@ -11,13 +11,10 @@ import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.AiRubricAuditService;
 import com.geo.analytics.application.service.JobBenchmarkCaptureService;
 import com.geo.analytics.application.service.PlanBasedQuotaManager;
-import com.geo.analytics.application.service.HybridCompetitorPipelineService;
 import com.geo.analytics.application.service.ProjectAuditLifecyclePublisher;
 import com.geo.analytics.application.service.SubscriptionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
-import com.geo.analytics.application.dto.SelectedCompetitor;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
 import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
@@ -138,9 +135,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
 
     @MockitoBean
-    private HybridCompetitorPipelineService hybridCompetitorPipelineService;
-
-    @MockitoBean
     private JobBenchmarkCaptureService jobBenchmarkCaptureService;
 
     @MockitoBean
@@ -185,34 +179,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "{}",
                 50.0,
                 0));
-        when(hybridCompetitorPipelineService.executePipeline(
-                        any(UUID.class),
-                        any(UUID.class),
-                        anyString(),
-                        nullable(CompetitorExtractionMode.class)))
-                .thenReturn(
-                        List.of(
-                                new SelectedCompetitor(
-                                        "SyntheticA",
-                                        "https://synthetic-a.example",
-                                        null,
-                                        null,
-                                        "test",
-                                        true),
-                                new SelectedCompetitor(
-                                        "SyntheticB",
-                                        "https://synthetic-b.example",
-                                        null,
-                                        null,
-                                        "test",
-                                        true),
-                                new SelectedCompetitor(
-                                        "SyntheticC",
-                                        "https://synthetic-c.example",
-                                        null,
-                                        null,
-                                        "test",
-                                        true)));
     }
 
     @AfterEach
@@ -220,7 +186,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         reset(
                 syncVerificationService,
                 geoCompetitorSearchAdapter,
-                hybridCompetitorPipelineService,
                 jobBenchmarkCaptureService,
                 aiRubricAuditService,
                 projectAuditLifecyclePublisher);
