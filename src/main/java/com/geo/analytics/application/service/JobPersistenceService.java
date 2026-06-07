@@ -29,6 +29,7 @@ import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.QueryRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.web.dto.RemediationTaskResponse;
+import com.geo.analytics.web.dto.ContentEvidenceItemResponse;
 import com.geo.analytics.web.dto.ScoreBreakdown;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
@@ -90,9 +91,13 @@ public class JobPersistenceService {
             return s.isEmpty() ? null : s;
         }
     }
-    public record JobAnalysisAttachment(ScoreBreakdown scoreBreakdown, List<RemediationTaskResponse> remediationTasks) {
+    public record JobAnalysisAttachment(
+            ScoreBreakdown scoreBreakdown,
+            List<RemediationTaskResponse> remediationTasks,
+            List<ContentEvidenceItemResponse> contentEvidence) {
         public JobAnalysisAttachment {
             remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
+            contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         }
     }
     private final JobRepository jobRepository;
@@ -215,10 +220,10 @@ public class JobPersistenceService {
     }
     public JobAnalysisAttachment loadJobAnalysisAttachment(UUID jobId, List<AuditHistoryEntity> audits) {
         if (jobId == null) {
-            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of(), List.of());
         }
         if (audits == null || audits.isEmpty()) {
-            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of(), List.of());
         }
         UUID tenantId = readWorkspaceIdForJob(jobId);
         return TenantPlanScope.executeWithTenant(tenantId, () -> buildAttachment(audits));
@@ -233,7 +238,7 @@ public class JobPersistenceService {
                                 AuditHistoryEntity::getCreatedAt, Comparator.nullsFirst(Comparator.naturalOrder())))
                 .orElse(null);
         if (latest == null || latest.getId() == null) {
-            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of());
+            return new JobAnalysisAttachment(ScoreBreakdown.empty(), List.of(), List.of());
         }
         UUID auditHistoryId = latest.getId();
         List<AuditRubricResultEntity> rubricRows;
@@ -252,7 +257,51 @@ public class JobPersistenceService {
                 .orElse(CompetitorExtractionMode.LOCAL_STORE);
         ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode, latest.getCalculationVersion());
         List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
-        return new JobAnalysisAttachment(breakdown, tasks);
+        return new JobAnalysisAttachment(breakdown, tasks, buildContentEvidence(rubricRows));
+    }
+
+    /**
+     * コンテンツの充実度（ルーブリックLLM10項目）のサイト固有エビデンスを組み立てる。
+     * 自社（is_self）のLLM項目のみを enum 定義順で並べ、各項目の判定＋本文直接引用＋スコアを露出する。
+     */
+    private static List<ContentEvidenceItemResponse> buildContentEvidence(List<AuditRubricResultEntity> rubricRows) {
+        if (rubricRows == null || rubricRows.isEmpty()) {
+            return List.of();
+        }
+        List<ContentEvidenceItemResponse> out = new ArrayList<>();
+        for (AuditRubricResultEntity row : rubricRows) {
+            if (row == null || !row.isSelf()) {
+                continue;
+            }
+            RubricCriterionId criterion = parseContentCriterion(row.getCriterionId());
+            if (criterion == null || criterion.source() != RubricCriterionId.Source.LLM) {
+                continue;
+            }
+            out.add(new ContentEvidenceItemResponse(
+                    row.getCriterionId(),
+                    row.getVerdict(),
+                    row.getEvidence() != null ? row.getEvidence() : "",
+                    row.getScore() != null ? row.getScore().doubleValue() : 0.0d,
+                    criterion.maxScore()));
+        }
+        out.sort(Comparator.comparingInt(e -> contentCriterionOrder(e.criterionId())));
+        return out;
+    }
+
+    private static RubricCriterionId parseContentCriterion(String criterionId) {
+        if (criterionId == null) {
+            return null;
+        }
+        try {
+            return RubricCriterionId.valueOf(criterionId);
+        } catch (IllegalArgumentException illegalArgumentException) {
+            return null;
+        }
+    }
+
+    private static int contentCriterionOrder(String criterionId) {
+        RubricCriterionId criterion = parseContentCriterion(criterionId);
+        return criterion != null ? criterion.ordinal() : Integer.MAX_VALUE;
     }
 
     private static ScoreBreakdown computeBreakdown(

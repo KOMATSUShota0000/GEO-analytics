@@ -450,6 +450,44 @@ export function parseAiRecognitionSummary(raw: unknown): AiRecognitionSummary | 
   };
 }
 
+// コンテンツの充実度のサイト固有エビデンス（V13 / 2026-06-07）。
+// ルーブリックLLM10項目それぞれの判定＋「サイト本文からの直接引用」＋スコア。
+export type RubricVerdict = "YES" | "PARTIAL" | "NO";
+export interface ContentEvidenceItem {
+  criterionId: string;
+  verdict: RubricVerdict | string;
+  evidence: string;
+  score: number;
+  maxScore: number;
+}
+export function parseContentEvidence(raw: unknown): ContentEvidenceItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: ContentEvidenceItem[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object") {
+      continue;
+    }
+    const r = item as JsonDict;
+    const criterionId =
+      typeof r.criterionId === "string"
+        ? r.criterionId
+        : typeof r.criterion_id === "string"
+          ? r.criterion_id
+          : undefined;
+    if (criterionId === undefined) {
+      continue;
+    }
+    const verdict = typeof r.verdict === "string" ? r.verdict : "NO";
+    const evidence = typeof r.evidence === "string" ? r.evidence : "";
+    const score = pickNum(r, "score", "score") ?? 0;
+    const maxScore = pickNum(r, "maxScore", "max_score") ?? 0;
+    out.push({ criterionId, verdict, evidence, score, maxScore });
+  }
+  return out;
+}
+
 export type RemediationTaskCategory = "SPIKE" | "SLAB";
 export type RemediationTaskPriority = "S" | "A" | "B";
 
@@ -511,6 +549,7 @@ export interface JobAnalysisDetail {
   factBasedScore?: number;
   rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
+  contentEvidence?: ContentEvidenceItem[];
   aiRecognitionSummary?: AiRecognitionSummary | null;
   remediationTasks?: RemediationTask[];
   emotionalAlert?: EmotionalAlertPayload | null;
@@ -791,6 +830,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const rubricGaps =
     Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
+  const contentEvidence = parseContentEvidence(r.contentEvidence ?? r.content_evidence);
   const aiRecognitionSummary = parseAiRecognitionSummary(
     r.aiRecognitionSummary ?? r.ai_recognition_summary,
   );
@@ -812,6 +852,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     factBasedScore,
     rubricGaps,
     scoreBreakdown,
+    contentEvidence,
     aiRecognitionSummary,
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
