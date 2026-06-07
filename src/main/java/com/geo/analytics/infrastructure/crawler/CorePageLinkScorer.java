@@ -9,7 +9,9 @@ import java.util.Locale;
 
 public final class CorePageLinkScorer {
 
-    public static final int MAX_FOLLOW = 2;
+    // 追従するサブページ数の上限。ハブ型サイト（トップが薄く実コンテンツがサブに分散）の
+    // 取りこぼしを減らすため、重要度上位5ページまで追従する（入口と合わせ最大6ページ）。
+    public static final int MAX_FOLLOW = 5;
 
     private static final int HIGH_WEIGHT = 80;
 
