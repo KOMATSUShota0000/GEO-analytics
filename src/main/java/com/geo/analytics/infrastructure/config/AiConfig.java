@@ -156,7 +156,9 @@ public class AiConfig {
                 .modelName(LlmModelNames.GEMINI_25_FLASH)
                 .temperature(0.2)
                 .timeout(Duration.ofSeconds(120))
-                .maxOutputTokens(4096)
+                // ルーブリックは10項目＋日本語evidenceを返すため4096では4項目目で
+                // 出力が打ち切られJSONが破損する。他の構造化出力モデルと同じ8192に統一。
+                .maxOutputTokens(8192)
                 .responseFormat(RubricAuditOutputSchema.rubricAuditResponseFormat())
                 .build();
     }
