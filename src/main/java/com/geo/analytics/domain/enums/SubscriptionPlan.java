@@ -40,6 +40,18 @@ public enum SubscriptionPlan {
     }
 
     /**
+     * 1解析あたり自動生成するデフォルトのクエリ本数。SoM 等の信頼性は多クエリで高まる。
+     * {@link #realtimeBatchMax} 以内に収め、上位プランほど多角的に測れる（アップセル）。
+     */
+    public int defaultQueryCount() {
+        return switch (this) {
+            case STANDARD -> 3;
+            case PRO -> 5;
+            case EXPERT -> 10;
+        };
+    }
+
+    /**
      * RAG で組み込む競合エビデンス（XML 換算文字数の目安／クリッピング上限）。
      */
     public int maxCompetitorEvidenceXmlChars() {

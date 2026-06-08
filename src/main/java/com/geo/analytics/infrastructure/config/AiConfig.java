@@ -12,6 +12,7 @@ import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
 import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
 import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
+import com.geo.analytics.infrastructure.ai.QueryGenerationOutputSchema;
 import com.geo.analytics.infrastructure.ai.RemediationTaskOutputSchema;
 import com.geo.analytics.infrastructure.ai.RubricAuditOutputSchema;
 import com.geo.analytics.infrastructure.ai.TargetAttributesOutputSchema;
@@ -40,6 +41,7 @@ public class AiConfig {
     /** 検閲専用 Flash（プロンプトインジェクション・ガード）。 */
     public static final String GEMINI_PROMPT_INJECTION_GUARD = "geminiPromptInjectionGuardModel";
     public static final String GEMINI_RUBRIC_AUDIT = "geminiRubricAuditModel";
+    public static final String GEMINI_QUERY_GENERATION = "geminiQueryGenerationModel";
     public static final String GEMINI_REMEDIATION_TASKS = "geminiRemediationTasksModel";
     public static final String GEMINI_TASK_TONE_REGENERATION = "geminiTaskToneRegenerationModel";
     public static final String GEMINI_25_FLASH = "gemini25Flash";
@@ -160,6 +162,19 @@ public class AiConfig {
                 // 出力が打ち切られJSONが破損する。他の構造化出力モデルと同じ8192に統一。
                 .maxOutputTokens(8192)
                 .responseFormat(RubricAuditOutputSchema.rubricAuditResponseFormat())
+                .build();
+    }
+
+    @Bean
+    @Qualifier(GEMINI_QUERY_GENERATION)
+    public ChatLanguageModel geminiQueryGenerationModel() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_FLASH)
+                .temperature(0.5)
+                .timeout(Duration.ofSeconds(60))
+                .maxOutputTokens(2048)
+                .responseFormat(QueryGenerationOutputSchema.queryGenerationResponseFormat())
                 .build();
     }
 
