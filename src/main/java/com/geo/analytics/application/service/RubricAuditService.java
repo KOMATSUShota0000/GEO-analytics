@@ -15,12 +15,22 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 @Service
 public class RubricAuditService {
+    private static final Logger log = LoggerFactory.getLogger(RubricAuditService.class);
+
+    /**
+     * LLM出力のトークン切れ・JSON破損に対するメソッド内リトライ回数。
+     * {@code @CreditReservation} はメソッド単位のため、リトライしてもチケット消費は1回。
+     */
+    private static final int MAX_ATTEMPTS = 2;
+
     private final RubricAuditService self;
     private final ChatLanguageModel rubricAuditChatModel;
     private final ObjectMapper objectMapper;
@@ -53,24 +63,36 @@ public class RubricAuditService {
     @CreditReservation
     public RubricAuditResult auditWithCreditReservation(
             UUID projectId, String websiteText, String jobContextBlock) {
-        try {
-            String rawJson =
-                    rubricAuditChatModel.chat(ChatRequest.builder()
-                                    .messages(
-                                            SystemMessage.from(RubricAuditPrompts.systemInstruction()),
-                                            UserMessage.from(
-                                                    RubricAuditPrompts.userPayload(websiteText, jobContextBlock)))
-                                    .build())
-                            .aiMessage()
-                            .text();
-            RubricAuditResult parsed = objectMapper.readValue(rawJson, RubricAuditResult.class);
-            validateTenDistinctCriteria(parsed);
-            return parsed;
-        } catch (RuntimeException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new IllegalStateException(ex);
+        RuntimeException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            // chat 成功後に確保し、parse 失敗時の診断ログに使う。chat 自体が落ちた場合は null。
+            Object finishReason = null;
+            try {
+                var response = rubricAuditChatModel.chat(ChatRequest.builder()
+                        .messages(
+                                SystemMessage.from(RubricAuditPrompts.systemInstruction()),
+                                UserMessage.from(
+                                        RubricAuditPrompts.userPayload(websiteText, jobContextBlock)))
+                        .build());
+                finishReason = response.finishReason();
+                String rawJson = response.aiMessage().text();
+                RubricAuditResult parsed = objectMapper.readValue(rawJson, RubricAuditResult.class);
+                validateTenDistinctCriteria(parsed);
+                return parsed;
+            } catch (Exception ex) {
+                // トークン切れ（finishReason=MAX_TOKENS）等で出力JSONが破損するとここに来る。
+                // finishReason は診断のため WARN に残し、最終試行でなければ1回だけ再試行する。
+                lastFailure = (ex instanceof RuntimeException re) ? re : new IllegalStateException(ex);
+                log.warn(
+                        "rubric_audit_attempt_failed attempt={}/{} projectId={} finishReason={} reason={}",
+                        attempt,
+                        MAX_ATTEMPTS,
+                        projectId,
+                        finishReason,
+                        ex.toString());
+            }
         }
+        throw lastFailure;
     }
 
     private static void validateTenDistinctCriteria(RubricAuditResult parsed) {
