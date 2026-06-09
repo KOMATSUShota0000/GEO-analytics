@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
+import { getAccessToken, tryRestoreSession } from "../auth/authSession";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import {
   formatAuditDate,
@@ -108,15 +109,22 @@ export default function ReportPrintPage(): JSX.Element {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
-    apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, { signal: controller.signal })
-      .then(async (response) => {
+    void (async () => {
+      try {
+        // 新しいタブ（window.open）で開かれた印刷ページは sessionStorage を引き継がず
+        // アクセストークンを持たない。HttpOnly リフレッシュ Cookie は同一オリジンの新タブにも
+        // 届くため、解析データ取得の前にセッションを復元して 401（未認証）を防ぐ。
+        if (getAccessToken() == null) {
+          await tryRestoreSession({ force: true });
+        }
+        const response = await apiFetch(`/api/v1/jobs/${effectiveJobId}/analysis`, {
+          signal: controller.signal,
+        });
         if (!response.ok) {
           const text = await response.text();
           throw new Error(text || `HTTP ${response.status}`);
         }
-        return responseJsonAsCamel(response);
-      })
-      .then((body: unknown) => {
+        const body = await responseJsonAsCamel(response);
         const p = parseJobAnalysisDetail(body);
         if (p === null) {
           setLoadError("解析データの形式が不正です");
@@ -124,14 +132,15 @@ export default function ReportPrintPage(): JSX.Element {
         } else {
           setData(mergeJobAnalysisWithPdfContext(p));
         }
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         const message = err instanceof Error ? err.message : String(err);
         setLoadError(message);
         setData(null);
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    })();
     return () => controller.abort();
   }, [effectiveJobId, tokenOk]);
 
