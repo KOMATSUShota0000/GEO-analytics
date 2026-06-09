@@ -6,8 +6,10 @@ import com.geo.analytics.application.service.JobKnowledgeIngestionService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.TaskRegenerationService;
 import com.geo.analytics.application.service.StrategyInsightService;
+import com.geo.analytics.application.service.JobQueryGenerationService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
 import com.geo.analytics.application.service.JobSyncTestService;
+import com.geo.analytics.application.service.WorkspacePlanResolver;
 import com.geo.analytics.domain.PdfJobStatusValues;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -52,7 +54,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -72,6 +73,8 @@ public class JobController {
     private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
     private final TaskRegenerationService taskRegenerationService;
     private final JobKnowledgeIngestionService jobKnowledgeIngestionService;
+    private final WorkspacePlanResolver workspacePlanResolver;
+    private final JobQueryGenerationService jobQueryGenerationService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -82,7 +85,9 @@ public class JobController {
             StrategyInsightService strategyInsightService,
             JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
             TaskRegenerationService taskRegenerationService,
-            JobKnowledgeIngestionService jobKnowledgeIngestionService) {
+            JobKnowledgeIngestionService jobKnowledgeIngestionService,
+            WorkspacePlanResolver workspacePlanResolver,
+            JobQueryGenerationService jobQueryGenerationService) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -92,6 +97,8 @@ public class JobController {
         this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
         this.taskRegenerationService = taskRegenerationService;
         this.jobKnowledgeIngestionService = jobKnowledgeIngestionService;
+        this.workspacePlanResolver = workspacePlanResolver;
+        this.jobQueryGenerationService = jobQueryGenerationService;
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -116,39 +123,23 @@ public class JobController {
         if (!outcome.created()) {
             return ResponseEntity.ok(JobStatusResponse.from(createdJobEntity));
         }
-        jobQuerySubmissionService.submitQueries(
-                createdJobEntity.getId(),
-                List.of(defaultInitialQuery(createJobRequest.brandName(), createJobRequest.targetUrl())),
-                SubscriptionPlan.STANDARD);
+        SubscriptionPlan plan = createdJobEntity.getWorkspaceId() != null
+                ? workspacePlanResolver.resolvePlan(createdJobEntity.getWorkspaceId())
+                : SubscriptionPlan.STANDARD;
+        List<String> initialQueries = jobQueryGenerationService.generate(
+                createJobRequest.brandName(),
+                createJobRequest.targetUrl(),
+                createJobRequest.businessSummary(),
+                createJobRequest.targetAudience(),
+                createJobRequest.focusPoints(),
+                plan.defaultQueryCount());
+        jobQuerySubmissionService.submitQueries(createdJobEntity.getId(), initialQueries, plan);
         JobEntity responseEntity = jobPersistenceService.findJobById(createdJobEntity.getId());
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()
             .path("/{jobId}")
             .buildAndExpand(responseEntity.getId())
             .toUri();
         return ResponseEntity.created(createdResourceLocation).body(JobStatusResponse.from(responseEntity));
-    }
-
-    private static String defaultInitialQuery(String brandName, String targetUrl) {
-        String b = brandName != null ? brandName.strip() : "";
-        String host = "";
-        try {
-            String tu = targetUrl != null ? targetUrl.strip() : "";
-            if (!tu.isEmpty()) {
-                URI uri = URI.create(tu);
-                String h = uri.getHost();
-                if (h != null && !h.isBlank()) {
-                    host = h.toLowerCase(Locale.ROOT).startsWith("www.") ? h.substring(4) : h;
-                }
-            }
-        } catch (RuntimeException ignored) {
-        }
-        if (!b.isEmpty() && !host.isEmpty()) {
-            return b + " " + host;
-        }
-        if (!b.isEmpty()) {
-            return b;
-        }
-        return !host.isEmpty() ? host : "GEO";
     }
 
     @GetMapping("/{jobId}")
