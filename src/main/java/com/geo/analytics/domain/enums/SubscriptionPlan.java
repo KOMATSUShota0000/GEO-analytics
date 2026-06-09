@@ -46,8 +46,8 @@ public enum SubscriptionPlan {
     public int defaultQueryCount() {
         return switch (this) {
             case STANDARD -> 3;
-            case PRO -> 5;
-            case EXPERT -> 10;
+            case PRO -> 10;
+            case EXPERT -> 30;
         };
     }
 
