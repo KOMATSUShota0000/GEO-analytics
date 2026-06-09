@@ -184,22 +184,12 @@ export function JobAnalysisPage(): JSX.Element {
     }
     return data?.jobSummaryRecommendedActions ?? [];
   }, [jobStatus?.recommendedActions, data?.jobSummaryRecommendedActions]);
-  const displayJobRollupMedZ = useMemo(() => {
-    if (jobStatus?.jobMedianModifiedZ != null && !Number.isNaN(jobStatus.jobMedianModifiedZ)) {
-      return jobStatus.jobMedianModifiedZ;
-    }
-    if (data?.jobMedianModifiedZ != null && !Number.isNaN(data.jobMedianModifiedZ)) {
-      return data.jobMedianModifiedZ;
-    }
-    return null;
-  }, [jobStatus?.jobMedianModifiedZ, data?.jobMedianModifiedZ]);
   const showJobStrategyBlock = useMemo(() => {
     return (
       (displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0) ||
-      displayJobRollupActions.length > 0 ||
-      displayJobRollupMedZ != null
+      displayJobRollupActions.length > 0
     );
-  }, [displayJobRollupDiagnostic, displayJobRollupActions, displayJobRollupMedZ]);
+  }, [displayJobRollupDiagnostic, displayJobRollupActions]);
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
   const analysisLocked = isProcessingDisplay;
@@ -482,7 +472,12 @@ export function JobAnalysisPage(): JSX.Element {
   const aiRecognitionSection =
     data !== null && isCompletedDisplay && data.aiRecognitionSummary != null ? (
       <div className="pdf-avoid-break mb-6">
-        <AiRecognitionSection summary={data.aiRecognitionSummary} />
+        <AiRecognitionSection
+          summary={data.aiRecognitionSummary}
+          queries={resultRows
+            .map((r) => r.query)
+            .filter((q): q is string => typeof q === "string" && q.trim().length > 0)}
+        />
       </div>
     ) : null;
 
@@ -675,11 +670,6 @@ export function JobAnalysisPage(): JSX.Element {
                 </span>
               ) : null}
             </div>
-            {displayJobRollupMedZ != null && (
-              <p className="mt-1 text-xs text-sky-900/80">
-                中央値ベースの改Z&apos;（ジョブ内）: {displayJobRollupMedZ.toFixed(2)}
-              </p>
-            )}
             {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
               <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
             ) : null}
@@ -731,19 +721,23 @@ export function JobAnalysisPage(): JSX.Element {
                 <tr className="border-b border-slate-200 bg-slate-50/80">
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">クエリ</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">解析日</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">改Z&apos;</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GBVS</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">SoMスコア</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">Stage</th>
                   <th className="min-w-[12rem] px-4 py-3 font-semibold text-slate-700">戦略診断・推奨</th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">言及状況</th>
-                  <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">GEO可視性ランク</th>
+                  <th
+                    className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700"
+                    title="AI回答の中で何番目に引用されたか"
+                  >
+                    AI引用順位
+                  </th>
                   <th className="whitespace-nowrap px-4 py-3 font-semibold text-slate-700">ネガティブ</th>
                 </tr>
               </thead>
               <tbody>
                 {resultRows.length === 0 ? (
                   <tr className="pdf-avoid-break">
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                       完了しましたが、保存された解析結果はまだありません。
                     </td>
                   </tr>
@@ -758,15 +752,6 @@ export function JobAnalysisPage(): JSX.Element {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell value={formatAuditDate(row.auditDate)} />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
-                        <CompletedScoreCell
-                          value={
-                            row.modifiedZScore != null && !Number.isNaN(row.modifiedZScore)
-                              ? row.modifiedZScore.toFixed(2)
-                              : "—"
-                          }
-                        />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell

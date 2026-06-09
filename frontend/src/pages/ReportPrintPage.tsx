@@ -328,12 +328,6 @@ export default function ReportPrintPage(): JSX.Element {
             </div>
           )}
           <div className="mt-10 grid gap-2 border-t border-slate-200 pt-6 text-xs text-slate-600">
-            {data.jobMedianModifiedZ != null && (
-              <p>
-                <span className="font-medium text-slate-800">ジョブ中央値（改Z&apos;）</span>{" "}
-                {data.jobMedianModifiedZ.toFixed(2)}
-              </p>
-            )}
             {data.jobMedianVisibilityStage != null && (
               <p>
                 <span className="font-medium text-slate-800">ジョブ中央 Stage</span>{" "}
@@ -419,7 +413,7 @@ export default function ReportPrintPage(): JSX.Element {
                               </p>
                               <p className="mt-2 text-xs text-slate-600">
                                 解析日 {formatAuditDate(row.auditDate)} / 言及
-                                {row.brandMentioned ? "あり" : "なし"} / GEO可視性ランク{" "}
+                                {row.brandMentioned ? "あり" : "なし"} / AI引用順位{" "}
                                 {row.mentionRank === null ? "—" : String(row.mentionRank)}
                               </p>
                               {row.diagnosticMessage != null && row.diagnosticMessage.trim().length > 0 ? (

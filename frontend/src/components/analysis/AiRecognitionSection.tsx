@@ -1,4 +1,5 @@
-import { Box, Chip, Stack, Typography } from "@mui/material";
+import { Box, Chip, Collapse, Link, Stack, Typography } from "@mui/material";
+import { useState } from "react";
 import type { AiRecognitionState, AiRecognitionSummary } from "../../types/analysis";
 
 // 各ステートの定性表現。色はステートのセマンティクス（肯定=緑/注意=橙/未認知=灰）で、
@@ -40,6 +41,8 @@ const STATE_VISUALS: Record<AiRecognitionState, StateVisual> = {
 
 export interface AiRecognitionSectionProps {
   summary: AiRecognitionSummary | null | undefined;
+  // この解析で実際に使用したクエリ一覧。クリックで開示し、解析の透明性（多角的に測った証跡）を示す。
+  queries?: string[];
 }
 
 interface CountChipProps {
@@ -65,11 +68,16 @@ function CountChip({ label, count, color }: CountChipProps): JSX.Element {
   );
 }
 
-export function AiRecognitionSection({ summary }: AiRecognitionSectionProps): JSX.Element | null {
+export function AiRecognitionSection({
+  summary,
+  queries,
+}: AiRecognitionSectionProps): JSX.Element | null {
+  const [showQueries, setShowQueries] = useState(false);
   // 評価対象クエリが無ければ何も表示しない（旧データ・未評価ジョブの過渡期対策）。
   if (!summary || summary.evaluatedCount <= 0) {
     return null;
   }
+  const hasQueries = queries != null && queries.length > 0;
   const v = STATE_VISUALS[summary.dominant];
   // dominantが肯定でも一部クエリで取り違え/未認識があれば件数でニュアンスを補足する。
   const nuance =
@@ -130,10 +138,44 @@ export function AiRecognitionSection({ summary }: AiRecognitionSectionProps): JS
         <CountChip label="正しく認識" count={summary.recognizedCount} color="#10B981" />
         <CountChip label="取り違え" count={summary.misidentifiedCount} color="#F59E0B" />
         <CountChip label="未認識" count={summary.unknownCount} color="#94A3B8" />
-        <Typography variant="caption" sx={{ color: "#94a3b8", ml: "auto" }}>
-          評価 {summary.evaluatedCount} クエリ
-        </Typography>
+        {hasQueries ? (
+          <Link
+            component="button"
+            type="button"
+            variant="caption"
+            underline="hover"
+            onClick={() => setShowQueries((prev) => !prev)}
+            sx={{ color: "#64748b", ml: "auto", fontWeight: 600 }}
+          >
+            評価 {summary.evaluatedCount} クエリ {showQueries ? "▲" : "▼"}
+          </Link>
+        ) : (
+          <Typography variant="caption" sx={{ color: "#94a3b8", ml: "auto" }}>
+            評価 {summary.evaluatedCount} クエリ
+          </Typography>
+        )}
       </Stack>
+      {hasQueries ? (
+        <Collapse in={showQueries}>
+          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px dashed rgba(148,163,184,0.45)" }}>
+            <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 600 }}>
+              この解析で使用したクエリ
+            </Typography>
+            <Box component="ol" sx={{ mt: 0.75, mb: 0, pl: 2.5 }}>
+              {queries!.map((q, i) => (
+                <Typography
+                  component="li"
+                  key={`${i}-${q}`}
+                  variant="body2"
+                  sx={{ color: "#334155", mb: 0.25 }}
+                >
+                  {q}
+                </Typography>
+              ))}
+            </Box>
+          </Box>
+        </Collapse>
+      ) : null}
     </Box>
   );
 }
