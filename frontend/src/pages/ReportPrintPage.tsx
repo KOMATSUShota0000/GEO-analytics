@@ -3,10 +3,14 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { getAccessToken, tryRestoreSession } from "../auth/authSession";
 import { AnalysisCharts } from "../components/AnalysisCharts";
+import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
+import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
+import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
 import {
   formatAuditDate,
   mergeJobAnalysisWithPdfContext,
   parseJobAnalysisDetail,
+  resolveAverageSomScore,
   resolveChartTrendData,
   type JobAnalysisDetail,
   type ResultDetail,
@@ -53,6 +57,13 @@ function pickBrandColor(d: JobAnalysisDetail): string {
   return b.length > 0 ? b : "#4F46E5";
 }
 
+// 解析結果一覧のSoMスコア表示。浮動小数点の生値（例: 11.999999999999998）を避け、
+// 画面と同じく gbvsNormalizedScore を優先したうえで小数第1位に整形する。
+function formatSomScore(row: ResultDetail): string {
+  const v = row.gbvsNormalizedScore ?? row.somScore;
+  return Number.isFinite(v) ? v.toFixed(1) : "—";
+}
+
 export default function ReportPrintPage(): JSX.Element {
   const { jobId: jobIdFromRoute } = useParams<{ jobId: string }>();
   const [searchParams] = useSearchParams();
@@ -78,6 +89,19 @@ export default function ReportPrintPage(): JSX.Element {
     () => resolveChartTrendData(resultRows, {}, false),
     [resultRows],
   );
+
+  // 市場ポジション診断（Tier）はジョブ全体のSoM平均で判定する。画面（JobAnalysisPage）と
+  // 同じ算出ロジックを用い、完了済みで結果が空のときだけ 0 にフォールバックする。
+  const somForTier = useMemo<number | null>(() => {
+    const avg = resolveAverageSomScore(resultRows, {}, false);
+    if (avg !== null) {
+      return avg;
+    }
+    if (data != null && isCompletedJobStatus(data.jobStatus) && resultRows.length === 0) {
+      return 0;
+    }
+    return null;
+  }, [resultRows, data]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -346,6 +370,42 @@ export default function ReportPrintPage(): JSX.Element {
           </div>
         </section>
       )}
+      {data && isCompletedJobStatus(data.jobStatus) && somForTier !== null && (
+        <section
+          className="pdf-inside-avoid mb-6"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          {/* 配布物のためアップセル枠は出さない。isProPlan=true で誘導を抑止する。 */}
+          <TierDiagnosisCard somScore={somForTier} isProPlan={true} />
+        </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && data.scoreBreakdown != null && (
+        <section
+          className="pdf-inside-avoid mb-6"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <GeoScoreBreakdown
+            breakdown={data.scoreBreakdown}
+            brandName={data.brandName}
+            contentEvidence={data.contentEvidence}
+            technicalEvidence={data.technicalEvidence}
+            industryMode={data.project?.industryType}
+          />
+        </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && data.aiRecognitionSummary != null && (
+        <section
+          className="pdf-inside-avoid mb-6"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <AiRecognitionSection
+            summary={data.aiRecognitionSummary}
+            queries={resultRows
+              .map((r) => r.query)
+              .filter((q): q is string => typeof q === "string" && q.trim().length > 0)}
+          />
+        </section>
+      )}
       {data && isProcessing && (
         <section
           className="pdf-inside-avoid mb-6 rounded-xl border border-slate-200 bg-slate-50 p-5"
@@ -408,7 +468,7 @@ export default function ReportPrintPage(): JSX.Element {
                         <tr className="border-b border-slate-100 last:border-0">
                           <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
                           <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
-                            {row.somScore}
+                            {formatSomScore(row)}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
                             {row.visibilityStage == null ? "—" : String(row.visibilityStage)}
