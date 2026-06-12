@@ -331,11 +331,8 @@ export default function ReportPrintPage(): JSX.Element {
         <section
           className="pdf-inside-avoid mb-6 bg-white px-8 py-12 text-slate-900"
           style={{
-            minHeight: "1123px",
             width: "794px",
             maxWidth: "100%",
-            breakAfter: "page",
-            pageBreakAfter: "always",
             breakInside: "avoid",
             pageBreakInside: "avoid",
           }}
@@ -360,14 +357,6 @@ export default function ReportPrintPage(): JSX.Element {
               </ul>
             </div>
           )}
-          <div className="mt-10 grid gap-2 border-t border-slate-200 pt-6 text-xs text-slate-600">
-            {data.jobMedianVisibilityStage != null && (
-              <p>
-                <span className="font-medium text-slate-800">ジョブ中央 Stage</span>{" "}
-                {data.jobMedianVisibilityStage}
-              </p>
-            )}
-          </div>
         </section>
       )}
       {data && isCompletedJobStatus(data.jobStatus) && somForTier !== null && (
