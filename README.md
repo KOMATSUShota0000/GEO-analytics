@@ -15,7 +15,7 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 | シーン | キャプチャ |
 |---|---|
 | 4ペルソナAI議論ビュー | `docs/screenshots/01-debate.png` |
-| SoM 円グラフ・GEO Readiness スコア | `docs/screenshots/02-som-chart.png` |
+| GEO Readiness スコアとSoMの推移 | `docs/screenshots/02-readiness-trend.png` |
 | Teaser UI — Proプラン誘導 | `docs/screenshots/03-teaser.png` |
 | 価格プラン | `docs/screenshots/04-pricing.png` |
 
@@ -25,9 +25,9 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 
 ## なぜ作ったか
 
-B2B SaaS に必要な要素を一通り自分の手で実装してみたくて始めました。マルチテナントのデータ隔離、二相課金、AIの議論オーケストレーション、ホワイトラベル、SSE配信——このあたりを、実際のSaaSに耐える品質で作ることを目標にしています。
+生成AIが一気に進化したことで、人々の行動が「検索エンジンで探す」から「AIに直接聞く」へシフトしていると感じたのがきっかけです。このまま進めば従来の「検索」の価値は下がり、企業は検索順位を上げるSEOだけでは情報を届けられなくなる。だからこそ今後は「AIの回答に自社の情報が参照されるための最適化（GEO）」のニーズが爆発すると考え、いち早くその課題を解決するツールを作ろうと開発を始めました。
 
-題材にGEOを選んだのは、生成AIが検索体験を変えつつあるなかで「自社がLLMにどう引用されているか」を可視化する、という問題設定が面白かったからです。AIとデータ可視化とマルチテナントを一つにまとめる題材として、ちょうどよかった。
+題材としても、AI・データ可視化・マルチテナントを一つに統合できる面白さがありました。マルチテナントのデータ隔離、二相課金、AIの議論オーケストレーション、ホワイトラベルといった、実際の B2B SaaS に必要な要素を、本物に近い品質で組み上げることを目標にしています。
 
 事業性については、既存のSEOツールに内製アドオンとして組み込んだ方が現実的、といった制約も承知しています。このプロジェクトはあくまで技術検証とポートフォリオが目的です。
 
@@ -40,7 +40,7 @@ B2B SaaS に必要な要素を一通り自分の手で実装してみたくて�
 | # | 価値 | 概要 |
 |---|------|------|
 | 1 | WOW体験 | 役割の異なる4人のAIペルソナ ANALYST / INNOVATOR / SKEPTIC / DIRECTOR が最大5ターン議論し、改善ロードマップを自動生成 |
-| 2 | 実利 | 完全ホワイトラベル対応で、SoM 円グラフと GEO Readiness スコアをレポート出力 |
+| 2 | 実利 | 完全ホワイトラベル対応で、SoM・GEO Readiness スコアをレポート出力 |
 | 3 | SaaSグロース | ぼかしと南京錠で見せる Teaser UI から Pro プランへ誘導 |
 | 4 | 高利益率 | 1解析につき1チケット消費。課金は reserve → settle / refund の二相方式 |
 
@@ -51,7 +51,7 @@ B2B SaaS に必要な要素を一通り自分の手で実装してみたくて�
 ### 動作する機能
 - 認証とセッション管理。JWT と HttpOnly リフレッシュクッキー方式
 - マルチテナント隔離を PostgreSQL の Row Level Security で実装
-- 4ペルソナのAI議論オーケストレーター。進捗はSSEで配信
+- 4ペルソナのAI議論オーケストレーター
 - スコア算出。AI回答内の言及度を表す SoM と、コンテンツ・技術・権威の3軸からなる GEO Readiness スコア
 - 競合スニペットをRAGの根拠として取得。SerpAPI に本接続
 - 二相課金。reserve → settle / refund を AOP で透過適用
@@ -82,8 +82,8 @@ B2B SaaS に必要な要素を一通り自分の手で実装してみたくて�
 `CreditVaultService` が reserve → settle / refund を `@CreditReservation` の AOP で透過的に適用します。二重課金は、DBの行ロック `findByIdForUpdate` と `existsByParentReservationId` の子チェックでDB層から防ぎます。JVMが異常終了して残った孤児の RESERVE は、毎時動く `StaleReservationSweeper` が自動で回収します。
 
 ### その他の構成
-- Java 25 の仮想スレッドを前提に、テナントコンテキストの伝播は `ScopedValue`、並列化が必要な場面は `StructuredTaskScope` を使用
-- 4ペルソナのAI議論オーケストレーター（`DebateOnboardingOrchestrator`）。業種別ペルソナで議論を生成し、進捗を `SseEmitter` で配信（指数バックオフ付き）
+- Java 25 の仮想スレッドを前提にした構成。テナントコンテキストの伝播は `ScopedValue` を使用
+- 4ペルソナのAIが多角的に議論し、改善案を提示
 - JWT と HttpOnly リフレッシュクッキー方式の認証（jjwt）
 - ホワイトラベルのロゴとブランドカラーが MUI テーマと Recharts まで連動
 - Flyway によるDBスキーマ管理。37マイグレーション、最新は V133
@@ -120,7 +120,7 @@ B2B SaaS に必要な要素を一通り自分の手で実装してみたくて�
 | 区分 | 採用 |
 |---|---|
 | 言語・ランタイム | Java 25。preview機能の `ScopedValue` を使用。フロントは Node 22 |
-| バックエンド | Spring Boot 3.5.13、Spring Security、Spring Data JPA、AOP、WebFlux、SSE |
+| バックエンド | Spring Boot 3.5.13、Spring Security、Spring Data JPA、AOP、WebFlux |
 | AI基盤 | LangChain4j 0.36.2、Google Gemini の `gemini-2.5-flash`、Apache Tika |
 | 形態素解析 | Sudachi。日本語の N-gram とエンティティ正規化に使用 |
 | DB | PostgreSQL 17 の Row Level Security、Flyway、HikariCP。プールは api と batch の2系統 |
