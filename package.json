@@ -6,7 +6,9 @@
     "predev:safe": "npx kill-port 8080",
     "dev:safe": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \"node scripts/mvnw.mjs clean test && node scripts/mvnw.mjs spring-boot:run\"",
     "predev:fast": "npx kill-port 8080",
-    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \"node scripts/mvnw.mjs clean spring-boot:run -DskipTests\""
+    "dev:fast": "concurrently --kill-others --prefix \"[{name}]\" --names \"VITE,SPRING\" --prefix-colors \"cyan,green\" \"cd frontend && npx vite --host 127.0.0.1\" \"node scripts/mvnw.mjs clean spring-boot:run -DskipTests\"",
+    "dbdoc": "node scripts/dbdoc.mjs",
+    "dbdoc:diff": "node scripts/dbdoc.mjs diff"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

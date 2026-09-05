@@ -1,0 +1,2767 @@
+{
+  "name": "geo_analytics",
+  "tables": [
+    {
+      "name": "public.plans",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(512)",
+          "nullable": false
+        },
+        {
+          "name": "monthly_price",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "monthly_credits",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "keyword_limit",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "plans_pkey",
+          "def": "CREATE UNIQUE INDEX plans_pkey ON public.plans USING btree (id)",
+          "table": "public.plans",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "plans_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.plans",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_plans_updated_at",
+          "def": "CREATE TRIGGER trg_plans_updated_at BEFORE UPDATE ON public.plans FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.organizations",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "name",
+          "type": "varchar(512)",
+          "nullable": false
+        },
+        {
+          "name": "plan_id",
+          "type": "varchar(20)",
+          "nullable": false
+        },
+        {
+          "name": "credit_balance",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "billing_cycle_anchor",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "logo_file_path",
+          "type": "varchar(1024)",
+          "nullable": true
+        },
+        {
+          "name": "brand_color",
+          "type": "varchar(64)",
+          "nullable": true
+        },
+        {
+          "name": "tool_name",
+          "type": "varchar(255)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "organizations_pkey",
+          "def": "CREATE UNIQUE INDEX organizations_pkey ON public.organizations USING btree (id)",
+          "table": "public.organizations",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_organizations_plan",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE RESTRICT",
+          "table": "public.organizations",
+          "referenced_table": "public.plans",
+          "columns": [
+            "plan_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "organizations_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.organizations",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_organizations_updated_at",
+          "def": "CREATE TRIGGER trg_organizations_updated_at BEFORE UPDATE ON public.organizations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.organization_users",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": "varchar(320)",
+          "nullable": false
+        },
+        {
+          "name": "password_hash",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "role",
+          "type": "varchar(32)",
+          "nullable": false,
+          "default": "'MEMBER'::character varying"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "organization_users_pkey",
+          "def": "CREATE UNIQUE INDEX organization_users_pkey ON public.organization_users USING btree (id)",
+          "table": "public.organization_users",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_organization_users_email",
+          "def": "CREATE UNIQUE INDEX uq_organization_users_email ON public.organization_users USING btree (email)",
+          "table": "public.organization_users",
+          "columns": [
+            "email"
+          ]
+        },
+        {
+          "name": "idx_organization_users_org_active",
+          "def": "CREATE INDEX idx_organization_users_org_active ON public.organization_users USING btree (organization_id) WHERE (deleted_at IS NULL)",
+          "table": "public.organization_users",
+          "columns": [
+            "organization_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_organization_users_organization",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.organization_users",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "organization_users_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.organization_users",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_organization_users_email",
+          "type": "UNIQUE",
+          "def": "UNIQUE (email)",
+          "table": "public.organization_users",
+          "referenced_table": "",
+          "columns": [
+            "email"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_organization_users_updated_at",
+          "def": "CREATE TRIGGER trg_organization_users_updated_at BEFORE UPDATE ON public.organization_users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.tenants",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(512)",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenants_pkey",
+          "def": "CREATE UNIQUE INDEX tenants_pkey ON public.tenants USING btree (id)",
+          "table": "public.tenants",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_tenants_organization_active",
+          "def": "CREATE INDEX idx_tenants_organization_active ON public.tenants USING btree (organization_id) WHERE (deleted_at IS NULL)",
+          "table": "public.tenants",
+          "columns": [
+            "organization_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_tenants_organization",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.tenants",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "tenants_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.tenants",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_tenants_updated_at",
+          "def": "CREATE TRIGGER trg_tenants_updated_at BEFORE UPDATE ON public.tenants FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.user_sessions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false,
+          "default": "gen_random_uuid()"
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "session_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "user_sessions_pkey",
+          "def": "CREATE UNIQUE INDEX user_sessions_pkey ON public.user_sessions USING btree (id)",
+          "table": "public.user_sessions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_user_sessions_session_id_active",
+          "def": "CREATE UNIQUE INDEX uq_user_sessions_session_id_active ON public.user_sessions USING btree (session_id) WHERE (deleted_at IS NULL)",
+          "table": "public.user_sessions",
+          "columns": [
+            "session_id"
+          ]
+        },
+        {
+          "name": "idx_user_sessions_user_active",
+          "def": "CREATE INDEX idx_user_sessions_user_active ON public.user_sessions USING btree (user_id) WHERE (deleted_at IS NULL)",
+          "table": "public.user_sessions",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "idx_user_sessions_expires_at_active",
+          "def": "CREATE INDEX idx_user_sessions_expires_at_active ON public.user_sessions USING btree (expires_at) WHERE (deleted_at IS NULL)",
+          "table": "public.user_sessions",
+          "columns": [
+            "expires_at"
+          ]
+        },
+        {
+          "name": "idx_user_sessions_organization_active",
+          "def": "CREATE INDEX idx_user_sessions_organization_active ON public.user_sessions USING btree (organization_id) WHERE (deleted_at IS NULL)",
+          "table": "public.user_sessions",
+          "columns": [
+            "organization_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_user_sessions_organization",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.user_sessions",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "fk_user_sessions_user",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES organization_users(id) ON DELETE RESTRICT",
+          "table": "public.user_sessions",
+          "referenced_table": "public.organization_users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "user_sessions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.user_sessions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_user_sessions_updated_at",
+          "def": "CREATE TRIGGER trg_user_sessions_updated_at BEFORE UPDATE ON public.user_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.workspaces",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(512)",
+          "nullable": false
+        },
+        {
+          "name": "subscription_plan",
+          "type": "varchar(16)",
+          "nullable": true
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "stripe_customer_id",
+          "type": "varchar(64)",
+          "nullable": true
+        },
+        {
+          "name": "stripe_subscription_id",
+          "type": "varchar(64)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "workspaces_pkey",
+          "def": "CREATE UNIQUE INDEX workspaces_pkey ON public.workspaces USING btree (id)",
+          "table": "public.workspaces",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_workspaces_stripe_subscription",
+          "def": "CREATE INDEX idx_workspaces_stripe_subscription ON public.workspaces USING btree (stripe_subscription_id) WHERE (stripe_subscription_id IS NOT NULL)",
+          "table": "public.workspaces",
+          "columns": [
+            "stripe_subscription_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_workspaces_organization",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.workspaces",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "workspaces_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.workspaces",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_workspaces_updated_at",
+          "def": "CREATE TRIGGER trg_workspaces_updated_at BEFORE UPDATE ON public.workspaces FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.projects",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "target_url",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "brand_color",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "logo_url",
+          "type": "varchar(2048)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "auto_audit_enabled",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "slack_webhook_url",
+          "type": "varchar(2048)",
+          "nullable": true
+        },
+        {
+          "name": "notification_email",
+          "type": "varchar(320)",
+          "nullable": true
+        },
+        {
+          "name": "last_audit_at",
+          "type": "timestamp without time zone",
+          "nullable": true
+        },
+        {
+          "name": "industry_type",
+          "type": "varchar(32)",
+          "nullable": false,
+          "default": "'OTHER'::character varying",
+          "comment": "業種分類（IndustryTypeの列挙子名。既存行はOTHER）"
+        },
+        {
+          "name": "extracted_strengths",
+          "type": "text",
+          "nullable": true,
+          "comment": "自社サイト解析等で抽出した強み"
+        },
+        {
+          "name": "target_audience",
+          "type": "text",
+          "nullable": true,
+          "comment": "想定ターゲット層"
+        },
+        {
+          "name": "minority_reports",
+          "type": "jsonb",
+          "nullable": false,
+          "default": "'[]'::jsonb"
+        },
+        {
+          "name": "competitor_profiles",
+          "type": "jsonb",
+          "nullable": false,
+          "default": "'[]'::jsonb"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "projects_pkey",
+          "def": "CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)",
+          "table": "public.projects",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "projects_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.projects",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_projects_updated_at",
+          "def": "CREATE TRIGGER trg_projects_updated_at BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        }
+      ]
+    },
+    {
+      "name": "public.project_competitors",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "competitor_url",
+          "type": "varchar(2048)",
+          "nullable": false
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_project_competitors_project",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
+          "table": "public.project_competitors",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.project_keywords",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "keyword_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "analysis_priority",
+          "type": "varchar(16)",
+          "nullable": false
+        },
+        {
+          "name": "preferred_engine",
+          "type": "varchar(32)",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "project_keywords_pkey",
+          "def": "CREATE UNIQUE INDEX project_keywords_pkey ON public.project_keywords USING btree (id)",
+          "table": "public.project_keywords",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uk_project_keywords_project_text",
+          "def": "CREATE UNIQUE INDEX uk_project_keywords_project_text ON public.project_keywords USING btree (project_id, keyword_text)",
+          "table": "public.project_keywords",
+          "columns": [
+            "project_id",
+            "keyword_text"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_project_keywords_project",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
+          "table": "public.project_keywords",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "project_keywords_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.project_keywords",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uk_project_keywords_project_text",
+          "type": "UNIQUE",
+          "def": "UNIQUE (project_id, keyword_text)",
+          "table": "public.project_keywords",
+          "referenced_table": "",
+          "columns": [
+            "project_id",
+            "keyword_text"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.jobs",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "job_status",
+          "type": "varchar(32)",
+          "nullable": false
+        },
+        {
+          "name": "subscription_plan",
+          "type": "varchar(16)",
+          "nullable": true
+        },
+        {
+          "name": "plan_limits_snapshot",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "brand_name",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "brand_color",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "logo_url",
+          "type": "varchar(2048)",
+          "nullable": true
+        },
+        {
+          "name": "gemini_job_name",
+          "type": "varchar(255)",
+          "nullable": true
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "pdf_status",
+          "type": "varchar(32)",
+          "nullable": true
+        },
+        {
+          "name": "pdf_file_path",
+          "type": "varchar(1024)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        },
+        {
+          "name": "job_diagnostic_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "job_recommended_actions",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "gap_batch_idempotency_key",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "create_idempotency_key",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "gap_analysis_gemini_job_name",
+          "type": "varchar(512)",
+          "nullable": true
+        },
+        {
+          "name": "gap_analysis_completed",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "self_rubric_audit_json",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "competitor_rubric_audits_json",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "self_crawled_page_json",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "meo_review_count",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "meo_average_stars",
+          "type": "double precision",
+          "nullable": true
+        },
+        {
+          "name": "emotional_alert",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "target_url",
+          "type": "varchar(2048)",
+          "nullable": false
+        },
+        {
+          "name": "business_summary",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "target_audience",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "focus_points",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "extracted_knowledge",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "industry_type",
+          "type": "varchar(32)",
+          "nullable": false,
+          "default": "'LOCAL_STORE'::character varying"
+        },
+        {
+          "name": "job_advice_source",
+          "type": "varchar(32)",
+          "nullable": true,
+          "comment": "ジョブ全体アドバイスの生成元（AdviceSource: AI / TEMPLATE_FALLBACK）"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "jobs_pkey",
+          "def": "CREATE UNIQUE INDEX jobs_pkey ON public.jobs USING btree (id)",
+          "table": "public.jobs",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "ux_jobs_tenant_create_idempotency_key",
+          "def": "CREATE UNIQUE INDEX ux_jobs_tenant_create_idempotency_key ON public.jobs USING btree (tenant_id, create_idempotency_key) WHERE (create_idempotency_key IS NOT NULL)",
+          "table": "public.jobs",
+          "columns": [
+            "tenant_id",
+            "create_idempotency_key"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_jobs_project",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+          "table": "public.jobs",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "jobs_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.jobs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_jobs_updated_at",
+          "def": "CREATE TRIGGER trg_jobs_updated_at BEFORE UPDATE ON public.jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+        },
+        {
+          "name": "trg_jobs_applied_plan_immutable",
+          "def": "CREATE TRIGGER trg_jobs_applied_plan_immutable BEFORE UPDATE ON public.jobs FOR EACH ROW EXECUTE FUNCTION jobs_prevent_applied_plan_change()"
+        }
+      ]
+    },
+    {
+      "name": "public.job_queries",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "job_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "query_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "processed",
+          "type": "boolean",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "job_queries_pkey",
+          "def": "CREATE UNIQUE INDEX job_queries_pkey ON public.job_queries USING btree (id)",
+          "table": "public.job_queries",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_job_queries_job",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE",
+          "table": "public.job_queries",
+          "referenced_table": "public.jobs",
+          "columns": [
+            "job_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "job_queries_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.job_queries",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.audit_histories",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "job_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "query",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "raw_response",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "som_score",
+          "type": "double precision",
+          "nullable": true
+        },
+        {
+          "name": "brand_mentioned",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "mention_rank",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "overall_score",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "resolved_entity_label",
+          "type": "varchar(512)",
+          "nullable": true
+        },
+        {
+          "name": "token_count",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "ai_citation_position",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "sentiment_intensity",
+          "type": "double precision",
+          "nullable": false
+        },
+        {
+          "name": "visibility_stage",
+          "type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "calculation_version",
+          "type": "varchar(32)",
+          "nullable": true
+        },
+        {
+          "name": "negative_alert",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "modified_z_score",
+          "type": "double precision",
+          "nullable": true
+        },
+        {
+          "name": "diagnostic_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "recommended_actions",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "model_insights",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "audit_date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "gbvs_normalized_score",
+          "type": "numeric",
+          "nullable": true
+        },
+        {
+          "name": "job_recommended_actions",
+          "type": "jsonb",
+          "nullable": true
+        },
+        {
+          "name": "ai_recognition_state",
+          "type": "varchar(32)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "audit_histories_pkey",
+          "def": "CREATE UNIQUE INDEX audit_histories_pkey ON public.audit_histories USING btree (id)",
+          "table": "public.audit_histories",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_audit_histories_tenant_project_date",
+          "def": "CREATE INDEX idx_audit_histories_tenant_project_date ON public.audit_histories USING btree (tenant_id, project_id, audit_date)",
+          "table": "public.audit_histories",
+          "columns": [
+            "tenant_id",
+            "project_id",
+            "audit_date"
+          ]
+        },
+        {
+          "name": "idx_audit_histories_job_id",
+          "def": "CREATE INDEX idx_audit_histories_job_id ON public.audit_histories USING btree (job_id)",
+          "table": "public.audit_histories",
+          "columns": [
+            "job_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "chk_audit_histories_ai_citation_position_geo",
+          "type": "CHECK",
+          "def": "CHECK (((ai_citation_position IS NULL) OR (ai_citation_position \u003e= 1)))",
+          "table": "public.audit_histories",
+          "referenced_table": "",
+          "columns": [
+            "ai_citation_position"
+          ]
+        },
+        {
+          "name": "fk_audit_histories_project",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
+          "table": "public.audit_histories",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "fk_audit_histories_job",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE",
+          "table": "public.audit_histories",
+          "referenced_table": "public.jobs",
+          "columns": [
+            "job_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "audit_histories_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.audit_histories",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.sge_results",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "job_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "query_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "query",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sge_raw_response",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "sge_mentioned",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "mention_count",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sge_results_pkey",
+          "def": "CREATE UNIQUE INDEX sge_results_pkey ON public.sge_results USING btree (id)",
+          "table": "public.sge_results",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_sge_results_job",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE",
+          "table": "public.sge_results",
+          "referenced_table": "public.jobs",
+          "columns": [
+            "job_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "sge_results_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.sge_results",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.rag_domain_rules",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "host_suffix",
+          "type": "varchar(255)",
+          "nullable": false
+        },
+        {
+          "name": "rule_kind",
+          "type": "varchar(32)",
+          "nullable": false
+        },
+        {
+          "name": "trust_boost",
+          "type": "double precision",
+          "nullable": true
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "nullable": false,
+          "default": "true"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "rag_domain_rules_pkey",
+          "def": "CREATE UNIQUE INDEX rag_domain_rules_pkey ON public.rag_domain_rules USING btree (id)",
+          "table": "public.rag_domain_rules",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_rag_domain_rules_host_suffix",
+          "def": "CREATE UNIQUE INDEX uq_rag_domain_rules_host_suffix ON public.rag_domain_rules USING btree (host_suffix)",
+          "table": "public.rag_domain_rules",
+          "columns": [
+            "host_suffix"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "rag_domain_rules_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.rag_domain_rules",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_rag_domain_rules_host_suffix",
+          "type": "UNIQUE",
+          "def": "UNIQUE (host_suffix)",
+          "table": "public.rag_domain_rules",
+          "referenced_table": "",
+          "columns": [
+            "host_suffix"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.unresolved_entity_queue",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "left_label",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "right_label",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "left_blocking_hash",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "right_blocking_hash",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "manual_review_required",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "calculation_version",
+          "type": "varchar(32)",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "unresolved_entity_queue_pkey",
+          "def": "CREATE UNIQUE INDEX unresolved_entity_queue_pkey ON public.unresolved_entity_queue USING btree (id)",
+          "table": "public.unresolved_entity_queue",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "unresolved_entity_queue_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.unresolved_entity_queue",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.wallet_transactions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "transaction_type",
+          "type": "varchar(32)",
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "parent_reservation_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "note",
+          "type": "varchar(2048)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "wallet_transactions_pkey",
+          "def": "CREATE UNIQUE INDEX wallet_transactions_pkey ON public.wallet_transactions USING btree (id)",
+          "table": "public.wallet_transactions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_parent_reservation",
+          "def": "CREATE UNIQUE INDEX uq_parent_reservation ON public.wallet_transactions USING btree (parent_reservation_id) WHERE (parent_reservation_id IS NOT NULL)",
+          "table": "public.wallet_transactions",
+          "columns": [
+            "parent_reservation_id"
+          ]
+        },
+        {
+          "name": "idx_wallet_tx_org",
+          "def": "CREATE INDEX idx_wallet_tx_org ON public.wallet_transactions USING btree (organization_id, created_at)",
+          "table": "public.wallet_transactions",
+          "columns": [
+            "organization_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "chk_wallet_tx_amount_pos",
+          "type": "CHECK",
+          "def": "CHECK ((amount \u003e= 0))",
+          "table": "public.wallet_transactions",
+          "referenced_table": "",
+          "columns": [
+            "amount"
+          ]
+        },
+        {
+          "name": "wallet_transactions_organization_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.wallet_transactions",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "wallet_transactions_project_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+          "table": "public.wallet_transactions",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "wallet_transactions_parent_reservation_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (parent_reservation_id) REFERENCES wallet_transactions(id) ON DELETE RESTRICT",
+          "table": "public.wallet_transactions",
+          "referenced_table": "public.wallet_transactions",
+          "columns": [
+            "parent_reservation_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "wallet_transactions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.wallet_transactions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.math_debate_audit_events",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "target_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "audit_data",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "math_debate_audit_events_pkey",
+          "def": "CREATE UNIQUE INDEX math_debate_audit_events_pkey ON public.math_debate_audit_events USING btree (id)",
+          "table": "public.math_debate_audit_events",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_math_debate_audit_events_target_created",
+          "def": "CREATE INDEX idx_math_debate_audit_events_target_created ON public.math_debate_audit_events USING btree (target_id, created_at)",
+          "table": "public.math_debate_audit_events",
+          "columns": [
+            "target_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "math_debate_audit_events_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.math_debate_audit_events",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.domain_analysis_snapshots",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "source_url",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "inferred_persona",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "queries",
+          "type": "jsonb",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "domain_analysis_snapshots_pkey",
+          "def": "CREATE UNIQUE INDEX domain_analysis_snapshots_pkey ON public.domain_analysis_snapshots USING btree (id)",
+          "table": "public.domain_analysis_snapshots",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_domain_analysis_snapshots_tenant_created",
+          "def": "CREATE INDEX idx_domain_analysis_snapshots_tenant_created ON public.domain_analysis_snapshots USING btree (tenant_id, created_at DESC)",
+          "table": "public.domain_analysis_snapshots",
+          "columns": [
+            "tenant_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "domain_analysis_snapshots_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.domain_analysis_snapshots",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.query_proposals",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "url",
+          "type": "varchar(2083)",
+          "nullable": false
+        },
+        {
+          "name": "business_description",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "target_audience",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "strategic_focus",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "inferred_persona",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp without time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "query_proposals_pkey",
+          "def": "CREATE UNIQUE INDEX query_proposals_pkey ON public.query_proposals USING btree (id)",
+          "table": "public.query_proposals",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_query_proposals_tenant_created",
+          "def": "CREATE INDEX idx_query_proposals_tenant_created ON public.query_proposals USING btree (tenant_id, created_at DESC)",
+          "table": "public.query_proposals",
+          "columns": [
+            "tenant_id",
+            "created_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "query_proposals_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.query_proposals",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.query_proposal_suggested_queries",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "proposal_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "query_text",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "intent",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sort_order",
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "query_proposal_suggested_queries_pkey",
+          "def": "CREATE UNIQUE INDEX query_proposal_suggested_queries_pkey ON public.query_proposal_suggested_queries USING btree (id)",
+          "table": "public.query_proposal_suggested_queries",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_query_proposal_suggested_queries_proposal",
+          "def": "CREATE INDEX idx_query_proposal_suggested_queries_proposal ON public.query_proposal_suggested_queries USING btree (proposal_id)",
+          "table": "public.query_proposal_suggested_queries",
+          "columns": [
+            "proposal_id"
+          ]
+        },
+        {
+          "name": "idx_query_proposal_suggested_queries_tenant_created",
+          "def": "CREATE INDEX idx_query_proposal_suggested_queries_tenant_created ON public.query_proposal_suggested_queries USING btree (tenant_id, proposal_id)",
+          "table": "public.query_proposal_suggested_queries",
+          "columns": [
+            "tenant_id",
+            "proposal_id"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_query_proposal_suggested_queries_proposal",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (proposal_id) REFERENCES query_proposals(id) ON DELETE CASCADE",
+          "table": "public.query_proposal_suggested_queries",
+          "referenced_table": "public.query_proposals",
+          "columns": [
+            "proposal_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "query_proposal_suggested_queries_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.query_proposal_suggested_queries",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.geo_asset_snapshots",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "snapshot_date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "readiness_score",
+          "type": "double precision",
+          "nullable": false
+        },
+        {
+          "name": "local_trust_count",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "calculation_version",
+          "type": "varchar(32)",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "name": "geo_asset_snapshots_pkey",
+          "def": "CREATE UNIQUE INDEX geo_asset_snapshots_pkey ON public.geo_asset_snapshots USING btree (id)",
+          "table": "public.geo_asset_snapshots",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_geo_asset_snapshots_org_snapshot_date",
+          "def": "CREATE INDEX idx_geo_asset_snapshots_org_snapshot_date ON public.geo_asset_snapshots USING btree (organization_id, snapshot_date DESC)",
+          "table": "public.geo_asset_snapshots",
+          "columns": [
+            "organization_id",
+            "snapshot_date"
+          ]
+        },
+        {
+          "name": "idx_geo_asset_snapshots_project_snapshot_date",
+          "def": "CREATE INDEX idx_geo_asset_snapshots_project_snapshot_date ON public.geo_asset_snapshots USING btree (project_id, snapshot_date DESC)",
+          "table": "public.geo_asset_snapshots",
+          "columns": [
+            "project_id",
+            "snapshot_date"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "fk_geo_asset_snapshots_organization",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
+          "table": "public.geo_asset_snapshots",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "fk_geo_asset_snapshots_project",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
+          "table": "public.geo_asset_snapshots",
+          "referenced_table": "public.projects",
+          "columns": [
+            "project_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "geo_asset_snapshots_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.geo_asset_snapshots",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.audit_rubric_results",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "audit_history_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "criterion_id",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "verdict",
+          "type": "varchar(16)",
+          "nullable": false
+        },
+        {
+          "name": "evidence",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "score",
+          "type": "numeric(7,3)",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "target_url",
+          "type": "varchar(2048)",
+          "nullable": false,
+          "default": "''::character varying"
+        },
+        {
+          "name": "is_self",
+          "type": "boolean",
+          "nullable": false,
+          "default": "false"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "audit_rubric_results_pkey",
+          "def": "CREATE UNIQUE INDEX audit_rubric_results_pkey ON public.audit_rubric_results USING btree (id)",
+          "table": "public.audit_rubric_results",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_audit_rubric_results_tenant_history",
+          "def": "CREATE INDEX idx_audit_rubric_results_tenant_history ON public.audit_rubric_results USING btree (tenant_id, audit_history_id)",
+          "table": "public.audit_rubric_results",
+          "columns": [
+            "tenant_id",
+            "audit_history_id"
+          ]
+        },
+        {
+          "name": "idx_audit_rubric_results_history_criterion",
+          "def": "CREATE INDEX idx_audit_rubric_results_history_criterion ON public.audit_rubric_results USING btree (audit_history_id, criterion_id)",
+          "table": "public.audit_rubric_results",
+          "columns": [
+            "audit_history_id",
+            "criterion_id"
+          ]
+        },
+        {
+          "name": "idx_audit_rubric_results_history_self",
+          "def": "CREATE INDEX idx_audit_rubric_results_history_self ON public.audit_rubric_results USING btree (audit_history_id, is_self)",
+          "table": "public.audit_rubric_results",
+          "columns": [
+            "audit_history_id",
+            "is_self"
+          ]
+        },
+        {
+          "name": "idx_audit_rubric_results_history_target",
+          "def": "CREATE INDEX idx_audit_rubric_results_history_target ON public.audit_rubric_results USING btree (audit_history_id, target_url)",
+          "table": "public.audit_rubric_results",
+          "columns": [
+            "audit_history_id",
+            "target_url"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_rubric_results_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.audit_rubric_results",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public.jobs_pdf_audit_logs",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "varchar(36)",
+          "nullable": false
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "job_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "actor_session_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "pdf_byte_size",
+          "type": "bigint",
+          "nullable": false,
+          "default": "0"
+        },
+        {
+          "name": "report_kind",
+          "type": "varchar(32)",
+          "nullable": false,
+          "default": "'JOB_REPORT'::character varying"
+        },
+        {
+          "name": "exported_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "jobs_pdf_audit_logs_pkey",
+          "def": "CREATE UNIQUE INDEX jobs_pdf_audit_logs_pkey ON public.jobs_pdf_audit_logs USING btree (id)",
+          "table": "public.jobs_pdf_audit_logs",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "idx_jobs_pdf_audit_tenant_job",
+          "def": "CREATE INDEX idx_jobs_pdf_audit_tenant_job ON public.jobs_pdf_audit_logs USING btree (tenant_id, job_id)",
+          "table": "public.jobs_pdf_audit_logs",
+          "columns": [
+            "tenant_id",
+            "job_id"
+          ]
+        },
+        {
+          "name": "idx_jobs_pdf_audit_tenant_exported_at",
+          "def": "CREATE INDEX idx_jobs_pdf_audit_tenant_exported_at ON public.jobs_pdf_audit_logs USING btree (tenant_id, exported_at DESC)",
+          "table": "public.jobs_pdf_audit_logs",
+          "columns": [
+            "tenant_id",
+            "exported_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "jobs_pdf_audit_logs_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.jobs_pdf_audit_logs",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        }
+      ],
+      "triggers": [
+        {
+          "name": "trg_jobs_pdf_audit_logs_no_update",
+          "def": "CREATE TRIGGER trg_jobs_pdf_audit_logs_no_update BEFORE UPDATE ON public.jobs_pdf_audit_logs FOR EACH ROW EXECUTE FUNCTION fn_jobs_pdf_audit_logs_worm()"
+        },
+        {
+          "name": "trg_jobs_pdf_audit_logs_no_delete",
+          "def": "CREATE TRIGGER trg_jobs_pdf_audit_logs_no_delete BEFORE DELETE ON public.jobs_pdf_audit_logs FOR EACH ROW EXECUTE FUNCTION fn_jobs_pdf_audit_logs_worm()"
+        }
+      ]
+    },
+    {
+      "name": "public.processed_stripe_events",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "organization_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "event_id",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "event_type",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "processed_at",
+          "type": "timestamp without time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "processed_stripe_events_pkey",
+          "def": "CREATE UNIQUE INDEX processed_stripe_events_pkey ON public.processed_stripe_events USING btree (id)",
+          "table": "public.processed_stripe_events",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_processed_stripe_event",
+          "def": "CREATE UNIQUE INDEX uq_processed_stripe_event ON public.processed_stripe_events USING btree (event_id)",
+          "table": "public.processed_stripe_events",
+          "columns": [
+            "event_id"
+          ]
+        },
+        {
+          "name": "idx_processed_stripe_events_org",
+          "def": "CREATE INDEX idx_processed_stripe_events_org ON public.processed_stripe_events USING btree (organization_id, processed_at)",
+          "table": "public.processed_stripe_events",
+          "columns": [
+            "organization_id",
+            "processed_at"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "processed_stripe_events_organization_id_fkey",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE",
+          "table": "public.processed_stripe_events",
+          "referenced_table": "public.organizations",
+          "columns": [
+            "organization_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "processed_stripe_events_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.processed_stripe_events",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_processed_stripe_event",
+          "type": "UNIQUE",
+          "def": "UNIQUE (event_id)",
+          "table": "public.processed_stripe_events",
+          "referenced_table": "",
+          "columns": [
+            "event_id"
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "table": "public.organizations",
+      "columns": [
+        "plan_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.plans",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.organization_users",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.tenants",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.user_sessions",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.user_sessions",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organization_users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES organization_users(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.workspaces",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.project_competitors",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.project_keywords",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.jobs",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.job_queries",
+      "columns": [
+        "job_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.jobs",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.audit_histories",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.audit_histories",
+      "columns": [
+        "job_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.jobs",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.sge_results",
+      "columns": [
+        "job_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.jobs",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.wallet_transactions",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.wallet_transactions",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "public.wallet_transactions",
+      "columns": [
+        "parent_reservation_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.wallet_transactions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (parent_reservation_id) REFERENCES wallet_transactions(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.query_proposal_suggested_queries",
+      "columns": [
+        "proposal_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.query_proposals",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (proposal_id) REFERENCES query_proposals(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.geo_asset_snapshots",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.geo_asset_snapshots",
+      "columns": [
+        "project_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.projects",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.processed_stripe_events",
+      "columns": [
+        "organization_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.organizations",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE"
+    }
+  ],
+  "functions": [
+    {
+      "name": "public.update_updated_at_column",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.jobs_prevent_applied_plan_change",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    },
+    {
+      "name": "public.fn_jobs_pdf_audit_logs_worm",
+      "return_type": "trigger",
+      "arguments": "",
+      "type": "FUNCTION"
+    }
+  ],
+  "driver": {
+    "name": "postgres",
+    "database_version": "PostgreSQL 17.11 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "meta": {
+      "current_schema": "public",
+      "search_paths": [
+        "postgres",
+        "public"
+      ],
+      "dict": {
+        "Functions": "Stored procedures and functions"
+      }
+    }
+  }
+}

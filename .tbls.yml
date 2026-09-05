@@ -1,0 +1,19 @@
+# DBスキーマドキュメント生成設定（tbls）
+# 生成: npm run dbdoc
+# 接続先ホストは実行環境で切り替わる。コンテナ経由なら geo-postgres、
+# ネイティブに tbls を入れて実行するなら GEO_DB_HOST=localhost を指定する。
+dsn: postgres://postgres:${FLYWAY_PASSWORD}@${GEO_DB_HOST}:5432/geo_analytics?sslmode=disable
+docPath: dbdoc
+
+er:
+  format: mermaid
+  comment: true
+  distance: 2
+
+exclude:
+  # Why: Hibernate Envers 由来の監査テーブル群。pom に envers 依存が無く、コードにも
+  #      @Audited が一件も無いため書き込まれることはない。ER図の可読性を優先して除外する。
+  - '*_aud'
+  - revinfo
+  # Why: Flyway の内部管理テーブル。スキーマ設計の理解には不要。
+  - flyway_schema_history
