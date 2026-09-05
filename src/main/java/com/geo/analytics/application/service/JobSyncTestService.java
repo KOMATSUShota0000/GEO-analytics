@@ -2,15 +2,10 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
-import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
-import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,18 +20,15 @@ public class JobSyncTestService {
     private final SyncVerificationService syncVerificationService;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
-    private final ProjectRepository projectRepository;
     public JobSyncTestService(
             JobPersistenceService jobPersistenceService,
             SyncVerificationService syncVerificationService,
             SomScoreParser somScoreParser,
-            JsonbOperations jsonbOperations,
-            ProjectRepository projectRepository) {
+            JsonbOperations jsonbOperations) {
         this.jobPersistenceService = jobPersistenceService;
         this.syncVerificationService = syncVerificationService;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
-        this.projectRepository = projectRepository;
     }
     @Transactional
     public JobEntity runSingleUnprocessedQuerySyncTest(UUID jobId) {
@@ -49,15 +41,13 @@ public class JobSyncTestService {
         QueryEntity queryEntity = pendingQueryEntities.getFirst();
         SubscriptionPlan subscriptionPlan =
             Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         SyncVerificationResult syncVerificationResult = syncVerificationService.verify(
             jobEntity.getBrandName(),
             queryEntity.getQueryText(),
             subscriptionPlan,
             null,
             null,
-            jobEntity.getBrandName(),
-            competitorHosts);
+            jobEntity.getBrandName());
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
         try {
@@ -104,19 +94,5 @@ public class JobSyncTestService {
             syncVerificationResult.modelInsightsJson());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         return jobPersistenceService.findJobById(jobId);
-    }
-    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        UUID projectId = jobEntity.getProjectId();
-        if (projectId == null) {
-            return List.of();
-        }
-        UUID wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantPlanScope.executeWithTenant(wid, () -> projectRepository.findById(projectId)
-            .map(ProjectEntity::getCompetitorUrls)
-            .orElse(List.of())
-            .stream()
-            .map(EntityNormalizer::hostLabelFromUrl)
-            .filter(s -> !s.isBlank())
-            .toList());
     }
 }

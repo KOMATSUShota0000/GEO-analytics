@@ -66,7 +66,6 @@ import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.lenient;
@@ -160,8 +159,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 any(SubscriptionPlan.class),
                 any(UUID.class),
                 any(UUID.class),
-                anyString(),
-                anyList())).thenReturn(new SyncVerificationResult(
+                anyString())).thenReturn(new SyncVerificationResult(
                 "{}",
                 50.0,
                 true,
@@ -299,12 +297,12 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();
-        long bucketCapacity = (long) limit * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
-        assertThat(planBasedQuotaManager.resolve(WID)
-                        .tryConsumeAndReturnRemaining(bucketCapacity - QuotaCreditCalculator.DEPOSIT_PER_KEYWORD)
-                        .isConsumed())
-                .isTrue();
         var jobId = createJob("SubscriptionB");
+        // Why: 「容量 - 1キーワード分」を先に消費する旧実装は、残量が同一クラス内の先行テストの
+        //      消費量に依存し、単独実行では 429 にならなかった（main でも再現する既存の脆さ）。
+        //      検証したいのは「バケット枯渇時に 429 と復旧時刻を返すこと」なので、ジョブ作成
+        //      （これ自体もクォータを消費する）を終えてから残量を 0 にして決定的にする。
+        planBasedQuotaManager.resolve(WID).tryConsumeAsMuchAsPossible();
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
                 .header(TENANT_HEADER, WID.toString())
@@ -371,7 +369,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 null,
                 null,
                 null,
-                List.of("御茶", "お茶"),
                 null,
                 null);
         var aggregated = informationTheoryBasedAggregator.aggregate(List.of(modelResponse), request);
@@ -437,7 +434,6 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 null,
                 null,
                 null,
-                List.of("A"),
                 null,
                 null);
         try (StructuredTaskScope<Void, Void> scope = StructuredTaskScope.open(

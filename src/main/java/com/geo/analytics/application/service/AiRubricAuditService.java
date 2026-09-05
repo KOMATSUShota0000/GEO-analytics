@@ -110,15 +110,6 @@ public class AiRubricAuditService {
             String trimmedTarget = targetUrl.trim();
             ArrayList<String> domainUrls = new ArrayList<>();
             domainUrls.add(trimmedTarget);
-            List<String> comps = project.getCompetitorUrls();
-            if (comps != null) {
-                for (int i = 0; i < comps.size(); i++) {
-                    String u = comps.get(i);
-                    if (u != null && !u.isBlank()) {
-                        domainUrls.add(u.trim());
-                    }
-                }
-            }
             String brand = job.getBrandName();
             String meoSearchQuery =
                     brand != null && !brand.isBlank()

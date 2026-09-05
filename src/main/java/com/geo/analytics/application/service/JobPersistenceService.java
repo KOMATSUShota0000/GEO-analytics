@@ -446,7 +446,7 @@ public class JobPersistenceService {
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             ProjectEntity projectEntity = null;
             if (jobEntity.getProjectId() != null) {
-                projectEntity = projectRepository.findByIdWithCompetitorUrls(jobEntity.getProjectId()).orElse(null);
+                projectEntity = projectRepository.findById(jobEntity.getProjectId()).orElse(null);
             }
             List<AuditHistoryEntity> auditHistories = auditHistoryRepository.findByJobId(jobId);
             return new JobAnalysisAggregate(jobEntity, projectEntity, auditHistories);
@@ -719,7 +719,6 @@ public class JobPersistenceService {
     public void persistJobBenchmarkSnapshot(
             UUID jobId,
             String selfRubricJson,
-            String competitorRubricsJson,
             String selfCrawlJson,
             Integer meoReviewCount,
             Double meoAverageStars) {
@@ -734,7 +733,6 @@ public class JobPersistenceService {
                             .findById(jobId)
                             .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             entity.setSelfRubricAuditJson(selfRubricJson);
-            entity.setCompetitorRubricAuditsJson(competitorRubricsJson);
             entity.setSelfCrawledPageJson(selfCrawlJson);
             entity.setMeoReviewCount(meoReviewCount);
             entity.setMeoAverageStars(meoAverageStars);

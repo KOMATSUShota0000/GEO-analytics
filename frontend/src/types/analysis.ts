@@ -168,17 +168,10 @@ export function normalizeAnalyticsSummary(raw: unknown): AnalyticsSummaryNormali
   }
   return { trend, subscriptionPlan: planRaw };
 }
-export interface CompetitorProfile {
-  name: string;
-  websiteUrl: string | null;
-  synthetic: boolean;
-}
 export interface JobProjectInfo {
   projectId: string;
   projectName: string;
   targetUrl: string;
-  competitorUrls: string[];
-  competitorProfiles: CompetitorProfile[];
   brandColor: string;
   logoUrl: string | null;
   industryType?: string;
@@ -194,23 +187,6 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
   if (projectId === undefined || projectName === undefined || targetUrl === undefined) {
     return null;
   }
-  const compRaw = p.competitorUrls;
-  const comp = Array.isArray(compRaw)
-    ? compRaw.filter((x): x is string => typeof x === "string")
-    : [];
-  const profRaw = p.competitor_profiles ?? p.competitorProfiles;
-  const profiles: CompetitorProfile[] = Array.isArray(profRaw)
-    ? profRaw.reduce<CompetitorProfile[]>((acc, x) => {
-        if (x !== null && typeof x === "object") {
-          const o = x as JsonDict;
-          const nm = typeof o.name === "string" ? o.name : "";
-          const wuRaw = o.websiteUrl ?? o.website_url;
-          const wu = typeof wuRaw === "string" && wuRaw.length > 0 ? wuRaw : null;
-          acc.push({ name: nm, websiteUrl: wu, synthetic: o.synthetic === true });
-        }
-        return acc;
-      }, [])
-    : [];
   const bcRaw = p.brandColor;
   const bc =
     typeof bcRaw === "string" && bcRaw.length > 0
@@ -229,8 +205,6 @@ export function parseJobProjectInfo(raw: unknown): JobProjectInfo | null {
     projectId,
     projectName,
     targetUrl,
-    competitorUrls: comp,
-    competitorProfiles: profiles,
     brandColor: bc,
     logoUrl: lu,
     industryType,

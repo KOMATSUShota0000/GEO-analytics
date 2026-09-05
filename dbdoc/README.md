@@ -10,8 +10,7 @@
 | [public.tenants](public.tenants.md) | 6 |  | BASE TABLE |
 | [public.user_sessions](public.user_sessions.md) | 8 |  | BASE TABLE |
 | [public.workspaces](public.workspaces.md) | 9 |  | BASE TABLE |
-| [public.projects](public.projects.md) | 17 |  | BASE TABLE |
-| [public.project_competitors](public.project_competitors.md) | 2 |  | BASE TABLE |
+| [public.projects](public.projects.md) | 16 |  | BASE TABLE |
 | [public.project_keywords](public.project_keywords.md) | 6 |  | BASE TABLE |
 | [public.jobs](public.jobs.md) | 34 |  | BASE TABLE |
 | [public.job_queries](public.job_queries.md) | 5 |  | BASE TABLE |
@@ -48,7 +47,6 @@ erDiagram
 "public.user_sessions" }o--|| "public.organizations" : "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
 "public.user_sessions" }o--|| "public.organization_users" : "FOREIGN KEY (user_id) REFERENCES organization_users(id) ON DELETE RESTRICT"
 "public.workspaces" }o--|| "public.organizations" : "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.job_queries" }o--|| "public.jobs" : "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
@@ -142,11 +140,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.project_keywords" {
   uuid id ""

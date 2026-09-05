@@ -84,24 +84,6 @@ public class JobBenchmarkCaptureService {
                 RubricAuditResult selfRubric =
                         rubricAuditService.executeAudit(
                                 projectId, selfBundle.mergedAuditText(), JobPromptContextFormatter.format(job));
-                ArrayList<RubricAuditResult> competitorRubrics = new ArrayList<>();
-                List<String> urls = project.getCompetitorUrls();
-                for (int i = 0; i < urls.size(); i++) {
-                    String u = urls.get(i);
-                    if (u == null || u.isBlank()) {
-                        continue;
-                    }
-                    try {
-                        var competitorBundle = smartDomainCrawlService.compileForAudit(u.trim());
-                        competitorRubrics.add(
-                                rubricAuditService.executeAudit(
-                                        projectId,
-                                        competitorBundle.mergedAuditText(),
-                                        JobPromptContextFormatter.format(job)));
-                    } catch (Throwable suppressed) {
-                        log.warn("competitor benchmark crawl skipped jobId={} url={}", jobId, u, suppressed);
-                    }
-                }
                 Integer meoCount = null;
                 Double meoStars = null;
                 try {
@@ -128,7 +110,6 @@ public class JobBenchmarkCaptureService {
                     jobPersistenceService.persistJobBenchmarkSnapshot(
                             jobId,
                             objectMapper.writeValueAsString(selfRubric),
-                            objectMapper.writeValueAsString(List.copyOf(competitorRubrics)),
                             objectMapper.writeValueAsString(selfBundle.primaryPage().crawled()),
                             meoCount,
                             meoStars);

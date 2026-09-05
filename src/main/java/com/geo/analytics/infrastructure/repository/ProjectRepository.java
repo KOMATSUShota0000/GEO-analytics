@@ -1,7 +1,6 @@
 package com.geo.analytics.infrastructure.repository;
 
 import com.geo.analytics.domain.entity.ProjectEntity;
-import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -17,10 +16,6 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, UUID> {
     Optional<ProjectEntity> findByTenantIdAndName(String tenantId, String name);
 
     List<ProjectEntity> findByAutoAuditEnabledIsTrue();
-
-    @EntityGraph(attributePaths = {"competitorUrls"})
-    @Query("SELECT p FROM ProjectEntity p WHERE p.id = :id")
-    Optional<ProjectEntity> findByIdWithCompetitorUrls(@Param("id") UUID id);
 
     @Transactional
     @Modifying(clearAutomatically = true)

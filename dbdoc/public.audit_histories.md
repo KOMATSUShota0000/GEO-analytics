@@ -36,6 +36,7 @@
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
 | chk_audit_histories_ai_citation_position_geo | CHECK | CHECK (((ai_citation_position IS NULL) OR (ai_citation_position >= 1))) |
+| chk_audit_histories_ai_recognition_state | CHECK | CHECK (((ai_recognition_state)::text = ANY ((ARRAY['RECOGNIZED_CORRECTLY'::character varying, 'MISIDENTIFIED'::character varying, 'UNKNOWN'::character varying])::text[]))) |
 | fk_audit_histories_project | FOREIGN KEY | FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE |
 | fk_audit_histories_job | FOREIGN KEY | FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE |
 | audit_histories_pkey | PRIMARY KEY | PRIMARY KEY (id) |
@@ -58,7 +59,6 @@ erDiagram
 "public.sge_results" }o--|| "public.jobs" : "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.audit_histories" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.wallet_transactions" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.geo_asset_snapshots" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
@@ -162,11 +162,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.project_keywords" {
   uuid id ""

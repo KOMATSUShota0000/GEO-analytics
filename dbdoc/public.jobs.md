@@ -43,6 +43,9 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_jobs_industry_type | CHECK | CHECK (((industry_type)::text = ANY ((ARRAY['LOCAL_STORE'::character varying, 'CORPORATE_SERVICE'::character varying, 'ONLINE_SERVICE'::character varying])::text[]))) |
+| chk_jobs_job_status | CHECK | CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'EXTRACTING_COMPETITORS'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[]))) |
+| chk_jobs_subscription_plan | CHECK | CHECK (((subscription_plan)::text = ANY ((ARRAY['STANDARD'::character varying, 'PRO'::character varying, 'EXPERT'::character varying])::text[]))) |
 | fk_jobs_project | FOREIGN KEY | FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL |
 | jobs_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 
@@ -70,7 +73,6 @@ erDiagram
 "public.audit_histories" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.sge_results" }o--|| "public.jobs" : "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.wallet_transactions" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.geo_asset_snapshots" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
@@ -163,7 +165,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
 }
 "public.sge_results" {
   uuid id ""
@@ -175,10 +176,6 @@ erDiagram
   boolean sge_mentioned ""
   integer mention_count ""
   timestamp_without_time_zone created_at ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.project_keywords" {
   uuid id ""

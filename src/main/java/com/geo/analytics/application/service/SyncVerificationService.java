@@ -35,7 +35,7 @@ public class SyncVerificationService {
     }
 
     public SyncVerificationResult verify(String brandName, String query, SubscriptionPlan subscriptionPlan) {
-        return verify(brandName, query, subscriptionPlan, null, null, null, null);
+        return verify(brandName, query, subscriptionPlan, null, null, null);
     }
 
     public SyncVerificationResult verify(
@@ -44,7 +44,7 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId) {
-        return verify(brandName, query, subscriptionPlan, jobId, queryId, null, null);
+        return verify(brandName, query, subscriptionPlan, jobId, queryId, null);
     }
 
     public SyncVerificationResult verify(
@@ -53,8 +53,7 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId,
-            String canonicalMainBrand,
-            List<String> registeredCompetitorBrands) {
+            String canonicalMainBrand) {
         var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
                 brandName,
                 query,
@@ -65,7 +64,6 @@ public class SyncVerificationService {
                 jobId,
                 queryId,
                 canonicalMainBrand,
-                registeredCompetitorBrands,
                 null,
                 null));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
@@ -77,7 +75,7 @@ public class SyncVerificationService {
             String query,
             String url,
             SubscriptionPlan subscriptionPlan) {
-        return verifyWithUrl(brandName, query, url, subscriptionPlan, null, null, null, null);
+        return verifyWithUrl(brandName, query, url, subscriptionPlan, null, null, null);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -87,7 +85,7 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId) {
-        return verifyWithUrl(brandName, query, url, subscriptionPlan, jobId, queryId, null, null);
+        return verifyWithUrl(brandName, query, url, subscriptionPlan, jobId, queryId, null);
     }
 
     public SyncVerificationResult verifyWithUrl(
@@ -97,8 +95,7 @@ public class SyncVerificationService {
             SubscriptionPlan subscriptionPlan,
             UUID jobId,
             UUID queryId,
-            String canonicalMainBrand,
-            List<String> registeredCompetitorBrands) {
+            String canonicalMainBrand) {
         var crawledPageData = webCrawlerPort.extractContent(url);
         var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
                 brandName,
@@ -110,7 +107,6 @@ public class SyncVerificationService {
                 jobId,
                 queryId,
                 canonicalMainBrand,
-                registeredCompetitorBrands,
                 null,
                 crawledPageData.seoTechnicalEvidenceSummary()));
         var verificationResponse = aiVerificationPort.verify(verificationRequest);

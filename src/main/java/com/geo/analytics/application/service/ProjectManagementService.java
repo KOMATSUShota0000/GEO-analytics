@@ -53,7 +53,6 @@ public class ProjectManagementService {
                         projectEntity.setWorkspaceId(workspaceId);
                         projectEntity.setName(brandName);
                         projectEntity.setTargetUrl(normalizeTargetUrl(targetUrl));
-                        projectEntity.setCompetitorUrls(new ArrayList<>());
                         return projectRepository.saveAndFlush(projectEntity);
                     });
         });
@@ -79,7 +78,6 @@ public class ProjectManagementService {
                     projectEntity.setWorkspaceId(workspaceId);
                     projectEntity.setName(brandName);
                     projectEntity.setTargetUrl(normalizeTargetUrl(targetUrl));
-                    projectEntity.setCompetitorUrls(new ArrayList<>());
                     return projectRepository.saveAndFlush(projectEntity);
                 }));
         return new DefaultProjectResolution(project, orgId);

@@ -321,12 +321,6 @@ public class BatchPersistenceService {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
-    public List<String> findCompetitorUrlsByProjectId(UUID projectId) {
-        return jdbc.query(
-                "SELECT competitor_url FROM project_competitors WHERE project_id = ?",
-                (rs, rn) -> rs.getString("competitor_url"), projectId);
-    }
-
     public Optional<UUID> findWorkspaceOrganizationId(UUID workspaceId) {
         List<UUID> rows = jdbc.query(
                 "SELECT organization_id FROM workspaces WHERE id = ?",

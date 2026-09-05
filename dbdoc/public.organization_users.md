@@ -17,6 +17,7 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_organization_users_role | CHECK | CHECK (((role)::text = ANY ((ARRAY['ADMIN'::character varying, 'MEMBER'::character varying, 'VIEWER'::character varying])::text[]))) |
 | fk_organization_users_organization | FOREIGN KEY | FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT |
 | organization_users_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 | uq_organization_users_email | UNIQUE | UNIQUE (email) |

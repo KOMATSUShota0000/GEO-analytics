@@ -86,10 +86,10 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
                 ORG_ID);
         jdbcTemplate.update(
                 "INSERT INTO projects (id, tenant_id, name, target_url, brand_color, created_at, updated_at,"
-                        + " auto_audit_enabled, industry_type, minority_reports, competitor_profiles,"
+                        + " auto_audit_enabled, industry_type, minority_reports,"
                         + " target_audience, extracted_strengths)"
                         + " VALUES (?, ?, 'IT Project', 'https://example.test', '#000000', now(), now(),"
-                        + " false, 'B2B', '[]'::jsonb, '[]'::jsonb, '中小企業のマーケ責任者', '独自データセット')",
+                        + " false, 'B2B', '[]'::jsonb, '中小企業のマーケ責任者', '独自データセット')",
                 projectId,
                 workspaceId.toString());
     }

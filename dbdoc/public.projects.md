@@ -4,7 +4,7 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | uuid |  | false | [public.project_competitors](public.project_competitors.md) [public.project_keywords](public.project_keywords.md) [public.jobs](public.jobs.md) [public.audit_histories](public.audit_histories.md) [public.wallet_transactions](public.wallet_transactions.md) [public.geo_asset_snapshots](public.geo_asset_snapshots.md) |  |  |
+| id | uuid |  | false | [public.project_keywords](public.project_keywords.md) [public.jobs](public.jobs.md) [public.audit_histories](public.audit_histories.md) [public.wallet_transactions](public.wallet_transactions.md) [public.geo_asset_snapshots](public.geo_asset_snapshots.md) |  |  |
 | tenant_id | varchar(36) |  | false |  |  |  |
 | name | varchar(255) |  | false |  |  |  |
 | target_url | varchar(255) |  | false |  |  |  |
@@ -20,12 +20,12 @@
 | extracted_strengths | text |  | true |  |  | 自社サイト解析等で抽出した強み |
 | target_audience | text |  | true |  |  | 想定ターゲット層 |
 | minority_reports | jsonb | '[]'::jsonb | false |  |  |  |
-| competitor_profiles | jsonb | '[]'::jsonb | false |  |  |  |
 
 ## Constraints
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_projects_industry_type | CHECK | CHECK (((industry_type)::text = ANY ((ARRAY['YMYL'::character varying, 'LOCAL'::character varying, 'B2B'::character varying, 'B2C'::character varying, 'EC'::character varying, 'OTHER'::character varying])::text[]))) |
 | projects_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 
 ## Indexes
@@ -45,7 +45,6 @@
 ```mermaid
 erDiagram
 
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.job_queries" }o--|| "public.jobs" : "FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE"
@@ -75,11 +74,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.project_keywords" {
   uuid id ""

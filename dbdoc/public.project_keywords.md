@@ -15,6 +15,8 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_project_keywords_analysis_priority | CHECK | CHECK (((analysis_priority)::text = ANY ((ARRAY['HIGH'::character varying, 'NORMAL'::character varying])::text[]))) |
+| chk_project_keywords_preferred_engine | CHECK | CHECK (((preferred_engine)::text = 'AI_OVERVIEW'::text)) |
 | fk_project_keywords_project | FOREIGN KEY | FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE |
 | project_keywords_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 | uk_project_keywords_project_text | UNIQUE | UNIQUE (project_id, keyword_text) |
@@ -32,7 +34,6 @@
 erDiagram
 
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.audit_histories" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.wallet_transactions" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
@@ -63,11 +64,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.jobs" {
   uuid id ""

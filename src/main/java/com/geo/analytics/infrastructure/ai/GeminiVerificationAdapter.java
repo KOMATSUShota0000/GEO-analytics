@@ -186,15 +186,12 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             && !verificationRequest.canonicalMainBrand().isBlank()
             ? verificationRequest.canonicalMainBrand()
             : verificationRequest.brandName();
-        List<String> comps = verificationRequest.registeredCompetitorBrands() != null
-            ? verificationRequest.registeredCompetitorBrands()
-            : List.of();
         boolean isProPlan = subscriptionPlan.usesProTierFeatures();
         String nlpSource = full.response() != null ? full.response().strip() : "";
         int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
         int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
         double stuffingDensity = 0.0;
-        String resolved = entityNormalizer.resolve(rawName, main, comps, isProPlan);
+        String resolved = entityNormalizer.resolve(rawName, main, isProPlan);
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         SomRawMetrics rawMetrics = metrics.toRawMetrics(
                 subscriptionPlan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, sourceWeight);
