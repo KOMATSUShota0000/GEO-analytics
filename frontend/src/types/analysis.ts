@@ -521,7 +521,6 @@ export interface JobAnalysisDetail {
   jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
   factBasedScore?: number;
-  rubricGaps?: string[];
   scoreBreakdown?: ScoreBreakdown | null;
   contentEvidence?: ContentEvidenceItem[];
   // 「AIが読みやすい構造」軸のサイト固有エビデンス（Schema.org/H1/robots等の実クロール所見の要約文）。
@@ -802,9 +801,6 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const fbsRaw = r.factBasedScore ?? r.fact_based_score;
   const factBasedScore =
     typeof fbsRaw === "number" && !Number.isNaN(fbsRaw) ? fbsRaw : undefined;
-  const rgRaw = r.rubricGaps ?? r.rubric_gaps;
-  const rubricGaps =
-    Array.isArray(rgRaw) && rgRaw.every((x): x is string => typeof x === "string") ? rgRaw : undefined;
   const scoreBreakdown = parseScoreBreakdown(r.scoreBreakdown ?? r.score_breakdown);
   const contentEvidence = parseContentEvidence(r.contentEvidence ?? r.content_evidence);
   const techRaw = r.technicalEvidence ?? r.technical_evidence;
@@ -829,7 +825,6 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     jobMedianVisibilityStage: jmvs,
     results,
     factBasedScore,
-    rubricGaps,
     scoreBreakdown,
     contentEvidence,
     ...(technicalEvidence !== undefined ? { technicalEvidence } : {}),

@@ -3,12 +3,10 @@ import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { fetchWorkspacePlan, type WorkspaceSubscriptionPlan } from "../api/workspace-api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { buildEmotionalAlerts } from "../lib/buildEmotionalAlerts";
 import { mergeBannerJobHint } from "../lib/bannerJobHint";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
-import { RubricGapAlertStack } from "../components/RubricGapAlertStack";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
@@ -643,14 +641,6 @@ export function JobAnalysisPage(): JSX.Element {
           </button>
         </div>
       )}
-      {data != null &&
-        isCompletedJobStatus(data.jobStatus) &&
-        data.rubricGaps != null &&
-        data.rubricGaps.length > 0 && (
-          <RubricGapAlertStack
-            alerts={buildEmotionalAlerts(data.rubricGaps, data.project?.industryType ?? "OTHER")}
-          />
-        )}
       <div id="next-action-section" className="scroll-mt-28 pdf-no-print">
         {!showJobStrategyBlock && isCompletedDisplay && (
           <div className="pdf-avoid-break mb-6 pdf-no-print">

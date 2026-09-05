@@ -26,7 +26,6 @@
 | gap_analysis_gemini_job_name | varchar(512) |  | true |  |  |  |
 | gap_analysis_completed | boolean |  | false |  |  |  |
 | self_rubric_audit_json | jsonb |  | true |  |  |  |
-| competitor_rubric_audits_json | jsonb |  | true |  |  |  |
 | self_crawled_page_json | jsonb |  | true |  |  |  |
 | meo_review_count | integer |  | true |  |  |  |
 | meo_average_stars | double precision |  | true |  |  |  |
@@ -44,7 +43,7 @@
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
 | chk_jobs_industry_type | CHECK | CHECK (((industry_type)::text = ANY ((ARRAY['LOCAL_STORE'::character varying, 'CORPORATE_SERVICE'::character varying, 'ONLINE_SERVICE'::character varying])::text[]))) |
-| chk_jobs_job_status | CHECK | CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'EXTRACTING_COMPETITORS'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[]))) |
+| chk_jobs_job_status | CHECK | CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[]))) |
 | chk_jobs_subscription_plan | CHECK | CHECK (((subscription_plan)::text = ANY ((ARRAY['STANDARD'::character varying, 'PRO'::character varying, 'EXPERT'::character varying])::text[]))) |
 | fk_jobs_project | FOREIGN KEY | FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL |
 | jobs_pkey | PRIMARY KEY | PRIMARY KEY (id) |
@@ -100,7 +99,6 @@ erDiagram
   varchar_512_ gap_analysis_gemini_job_name ""
   boolean gap_analysis_completed ""
   jsonb self_rubric_audit_json ""
-  jsonb competitor_rubric_audits_json ""
   jsonb self_crawled_page_json ""
   integer meo_review_count ""
   double_precision meo_average_stars ""

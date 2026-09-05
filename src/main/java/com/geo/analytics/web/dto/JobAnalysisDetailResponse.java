@@ -22,7 +22,6 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("job_median_visibility_stage") Integer jobMedianVisibilityStage,
     List<ResultDetailResponse> results,
     @JsonProperty("fact_based_score") Double factBasedScore,
-    @JsonProperty("rubric_gaps") List<String> rubricGaps,
     @JsonProperty("score_breakdown") ScoreBreakdown scoreBreakdown,
     @JsonProperty("content_evidence") List<ContentEvidenceItemResponse> contentEvidence,
     @JsonProperty("technical_evidence") String technicalEvidence,
@@ -33,7 +32,6 @@ public record JobAnalysisDetailResponse(
     public JobAnalysisDetailResponse {
         jobSummaryRecommendedActions =
                 jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of();
-        rubricGaps = rubricGaps != null ? List.copyOf(rubricGaps) : List.of();
         contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
     }
@@ -46,7 +44,6 @@ public record JobAnalysisDetailResponse(
             Double jobMedianModifiedZ,
             Integer jobMedianVisibilityStage,
             Double factBasedScore,
-            List<String> rubricGaps,
             ScoreBreakdown scoreBreakdown,
             List<ContentEvidenceItemResponse> contentEvidence,
             String technicalEvidence,
@@ -71,7 +68,6 @@ public record JobAnalysisDetailResponse(
             jobMedianVisibilityStage,
             resultDetails,
             factBasedScore,
-            rubricGaps,
             scoreBreakdown,
             contentEvidence != null ? List.copyOf(contentEvidence) : List.of(),
             technicalEvidence,

@@ -58,7 +58,7 @@ public class BatchPersistenceService {
                     + "error_message, pdf_status, pdf_file_path, created_at, updated_at, "
                     + "job_diagnostic_message, job_recommended_actions, job_advice_source, gap_batch_idempotency_key, "
                     + "create_idempotency_key, gap_analysis_gemini_job_name, gap_analysis_completed, "
-                    + "self_rubric_audit_json, competitor_rubric_audits_json, self_crawled_page_json, "
+                    + "self_rubric_audit_json, self_crawled_page_json, "
                     + "meo_review_count, meo_average_stars, emotional_alert, extracted_knowledge";
 
     public JobEntity findJobById(UUID jobId) {
@@ -432,7 +432,6 @@ public class BatchPersistenceService {
         job.setGapAnalysisGeminiJobName(rs.getString("gap_analysis_gemini_job_name"));
         job.setGapAnalysisCompleted(rs.getBoolean("gap_analysis_completed"));
         job.setSelfRubricAuditJson(rs.getString("self_rubric_audit_json"));
-        job.setCompetitorRubricAuditsJson(rs.getString("competitor_rubric_audits_json"));
         job.setSelfCrawledPageJson(rs.getString("self_crawled_page_json"));
         int mc = rs.getInt("meo_review_count");
         if (rs.wasNull()) {

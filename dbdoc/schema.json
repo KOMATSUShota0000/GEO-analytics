@@ -999,11 +999,6 @@
           "nullable": true
         },
         {
-          "name": "competitor_rubric_audits_json",
-          "type": "jsonb",
-          "nullable": true
-        },
-        {
           "name": "self_crawled_page_json",
           "type": "jsonb",
           "nullable": true
@@ -1094,7 +1089,7 @@
         {
           "name": "chk_jobs_job_status",
           "type": "CHECK",
-          "def": "CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'EXTRACTING_COMPETITORS'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[])))",
+          "def": "CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[])))",
           "table": "public.jobs",
           "referenced_table": "",
           "columns": [

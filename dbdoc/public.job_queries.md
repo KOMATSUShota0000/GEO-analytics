@@ -63,7 +63,6 @@ erDiagram
   varchar_512_ gap_analysis_gemini_job_name ""
   boolean gap_analysis_completed ""
   jsonb self_rubric_audit_json ""
-  jsonb competitor_rubric_audits_json ""
   jsonb self_crawled_page_json ""
   integer meo_review_count ""
   double_precision meo_average_stars ""

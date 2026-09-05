@@ -269,7 +269,6 @@ public class JobController {
             medZ,
             medSt,
             bench.factBasedScore(),
-            bench.rubricGaps(),
             attachment.scoreBreakdown(),
             attachment.contentEvidence(),
             bench.technicalEvidence(),
