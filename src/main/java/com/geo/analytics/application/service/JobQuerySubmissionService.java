@@ -99,7 +99,10 @@ public class JobQuerySubmissionService {
                         realtimeProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
             }
             UUID organizationId = resolveOrganizationId(workspaceId);
-            jobPersistenceService.updateJobStatus(jobId, JobStatus.EXTRACTING_COMPETITORS, null);
+            // Why: 新しいクエリ束の投入はジョブを再オープンする（完了済みジョブにも追加できる）。
+            //      旧実装はこれを EXTRACTING_COMPETITORS への巻き戻しで表現していたが、競合とは
+            //      無関係な仕組みなので CREATED へ戻す形に改める。
+            jobPersistenceService.updateJobStatus(jobId, JobStatus.CREATED, null);
             scheduleHybridContinuation(
                     jobId, queryTexts, planEnum, workspaceId, organizationId, true, realtimeDeposit, workspaceId);
             return;
@@ -119,7 +122,7 @@ public class JobQuerySubmissionService {
         }
         UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         UUID organizationId = resolveOrganizationId(workspaceId);
-        jobPersistenceService.updateJobStatus(jobId, JobStatus.EXTRACTING_COMPETITORS, null);
+        jobPersistenceService.updateJobStatus(jobId, JobStatus.CREATED, null);
         scheduleHybridContinuation(
                 jobId,
                 queryTexts,
@@ -180,6 +183,8 @@ public class JobQuerySubmissionService {
             if (batchDeposit > 0L && batchTenantId != null) {
                 quotaManager.addTokens(batchTenantId, batchDeposit);
             }
+            // Why: 失敗理由が error_message にしか残らず、障害調査時にスタックトレースを失っていた。
+            log.warn("hybrid_continuation_failed jobId={}", jobId, throwable);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable));
         }
     }

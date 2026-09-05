@@ -84,9 +84,6 @@ public class JobEntity extends BaseTenantEntity {
     @Column(name = "self_rubric_audit_json", columnDefinition = "jsonb")
     private String selfRubricAuditJson;
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "competitor_rubric_audits_json", columnDefinition = "jsonb")
-    private String competitorRubricAuditsJson;
-    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "self_crawled_page_json", columnDefinition = "jsonb")
     private String selfCrawledPageJson;
     @Column(name = "meo_review_count")
@@ -272,12 +269,6 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setSelfRubricAuditJson(String selfRubricAuditJson) {
         this.selfRubricAuditJson = selfRubricAuditJson;
-    }
-    public String getCompetitorRubricAuditsJson() {
-        return competitorRubricAuditsJson;
-    }
-    public void setCompetitorRubricAuditsJson(String competitorRubricAuditsJson) {
-        this.competitorRubricAuditsJson = competitorRubricAuditsJson;
     }
     public String getSelfCrawledPageJson() {
         return selfCrawledPageJson;

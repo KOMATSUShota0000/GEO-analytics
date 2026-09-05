@@ -676,9 +676,9 @@ public class JobPersistenceService {
             JobEntity jobEntity = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             JobStatus currentStatus = jobEntity.getJobStatus();
-            if (currentStatus != JobStatus.CREATED && currentStatus != JobStatus.EXTRACTING_COMPETITORS) {
+            if (currentStatus != JobStatus.CREATED) {
                 throw new IllegalStateException(
-                    "Queries can only be added to a CREATED or EXTRACTING_COMPETITORS job. Current status: "
+                    "Queries can only be added to a CREATED job. Current status: "
                             + jobEntity.getJobStatus());
             }
             normalizedQueryTexts.forEach(queryText -> {

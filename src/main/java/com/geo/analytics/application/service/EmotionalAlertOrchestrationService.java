@@ -63,7 +63,7 @@ public class EmotionalAlertOrchestrationService {
             String brand = job.getBrandName() != null ? job.getBrandName() : "";
             EmotionalAlertLevel level = EmotionalAlertLevelRule.classify(factScore);
             EmotionalAlertFacts facts =
-                    new EmotionalAlertFacts(level, factScore, bench.rubricGaps(), industry, brand);
+                    new EmotionalAlertFacts(level, factScore, industry, brand);
             String message;
             boolean usedFallback;
             if (projectId == null) {

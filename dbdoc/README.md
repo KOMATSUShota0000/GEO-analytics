@@ -12,7 +12,7 @@
 | [public.workspaces](public.workspaces.md) | 9 |  | BASE TABLE |
 | [public.projects](public.projects.md) | 16 |  | BASE TABLE |
 | [public.project_keywords](public.project_keywords.md) | 6 |  | BASE TABLE |
-| [public.jobs](public.jobs.md) | 34 |  | BASE TABLE |
+| [public.jobs](public.jobs.md) | 33 |  | BASE TABLE |
 | [public.job_queries](public.job_queries.md) | 5 |  | BASE TABLE |
 | [public.audit_histories](public.audit_histories.md) | 26 |  | BASE TABLE |
 | [public.sge_results](public.sge_results.md) | 9 |  | BASE TABLE |
@@ -172,7 +172,6 @@ erDiagram
   varchar_512_ gap_analysis_gemini_job_name ""
   boolean gap_analysis_completed ""
   jsonb self_rubric_audit_json ""
-  jsonb competitor_rubric_audits_json ""
   jsonb self_crawled_page_json ""
   integer meo_review_count ""
   double_precision meo_average_stars ""
