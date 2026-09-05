@@ -1,5 +1,7 @@
 # GEO Analytics — プロジェクトルール
 
+@.cursorrules
+
 ## 言語
 
 - すべての対話と説明は**日本語**で行うこと
@@ -23,6 +25,35 @@ GEO（Generative Engine Optimization）特化 B2B SaaS。Web制作会社・代�
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, MUI (Emotion), Recharts
 - **Security**: JWT + HttpOnly リフレッシュクッキー
 
+## どこに何があるか
+
+`application/service` は67ファイルがフラットに並ぶ。ディレクトリでは絞れないため、以下を入口にすること。
+
+| やりたいこと | 場所 |
+|------|------|
+| 解析ジョブの生成・永続化 | `application/service/Job*Service.java` |
+| AIペルソナ議論・オンボーディング | `application/service/Debate*.java`、`infrastructure/ai/` |
+| LLMプロンプト定義 | `infrastructure/ai/*Prompts.java` |
+| LLM構造化出力の型 | `infrastructure/ai/*OutputSchema.java` |
+| スコア算出ロジック | `domain/service/*Calculator*.java`、`domain/logic/` |
+| テナント隔離（アプリ層） | `infrastructure/tenant/`（`ScopedValue` 伝搬） |
+| テナント隔離（DB層） | RLSポリシーは各マイグレーション内のテーブル定義に同梱 |
+| 課金（Stripe） | `application/billing/` |
+| チケット消費・予約 | `application/credit/`（`CreditReservationAspect`） |
+| クロール・本文抽出 | `infrastructure/crawler/` |
+| 画面 | `frontend/src/pages/`、共通部品は `frontend/src/components/` |
+
+## 触ってはいけない場所
+
+`.claude/settings.json` で機械的にも禁止しているが、理由を以下に明記する。
+
+| 対象 | 理由 |
+|------|------|
+| `.env` | APIキー・JWT秘密鍵・DBパスワードの実値。読み取りも禁止（`.env.example` を見ること） |
+| `src/main/resources/db/migration/` の既存ファイル | 適用済みFlywayの**編集はチェックサム破壊で起動不能になる**。スキーマ変更は必ず新しい `V{次番号}__*.sql` を追加する |
+| `docs/adr/` の既存ADR | 過去の決定記録は書き換えない。決定が覆ったら新しい日付のADRを追加する |
+| `target/` / `node_modules/` | ビルド生成物。編集しても無意味で、検索対象にも含めない |
+
 ## SEO基盤とGEO残骸の扱い
 
 GEOの土台にはSEOがある。すべてのSEO関連コードを消すのではなく、以下の基準で判断すること。
@@ -37,7 +68,7 @@ GEOの土台にはSEOがある。すべてのSEO関連コードを消すので�
 
 ## アーキテクチャ絶対禁止事項
 
-詳細は `.cursorrules` を参照。主要な禁止事項を以下に要約する:
+全文はこのファイル冒頭で読み込んでいる `.cursorrules` にある。主要な禁止事項の要約:
 
 | 禁止 | 代替 |
 |------|------|
@@ -51,19 +82,31 @@ GEOの土台にはSEOがある。すべてのSEO関連コードを消すので�
 ## 作業前の必須手順
 
 1. `Grep` / `Glob` / `Read` で既存コードを検索・熟読してから実装する（空想実装厳禁）
-2. 実装完了後、ADR（技術決定記録）を `docs/adr/` に残す
-3. テスト: `./mvnw clean test`（バックエンド）、`npm run build`（フロントエンド）
+2. 実装完了後、ADR（技術決定記録）を `docs/adr/{YYYY-MM-DD}-{slug}.md` に残す
 
-## 実装完了後の必須手順（dev-status 更新）
+## 検証コマンド
 
-コーダーがスプリントを完了したら、秘書へ報告する前に必ず以下を実行すること:
+```bash
+# バックエンド（公式Maven Wrapper。Windows は mvnw.cmd）
+./mvnw clean test
 
-1. `C:\cursor\company\.company\secretary\notes\dev-status.md` を開く
-2. 実装した機能を「✅ 実装済み」テーブルに追記する
-3. 部分実装・変更した項目を「🔧 実装中」テーブルで更新する
-4. 解消した懸念点を「🚨 重要な懸念点」から削除または取り消し線で済ませる
-5. 新たに発見した懸念点を追記する
-6. `最終更新:` 日付を更新する
+# フロントエンド（ルートには build スクリプトが無いので frontend/ で実行する）
+cd frontend && npm run build
+
+# 開発サーバー（Vite + Spring Boot を同時起動）
+npm run dev
+```
+
+`scripts/mvnw.mjs` は npm スクリプト内から呼ぶためのシェル差異吸収ラッパー。
+ターミナルから直接叩くときは `./mvnw` を使うこと。
+
+**統合テストには Docker が必要。** `PostgresTestBase` / `PostgresSuperuserTestBase`
+の派生テスト（18件）は Testcontainers が使い捨てコンテナを自前で起動するため、
+Docker さえ動いていれば通る（開発用DBは不要）。
+Docker 未導入なら `sudo bash scripts/setup-docker-wsl.sh` で導入する。
+アプリを起動するときの開発用DBは `bash scripts/db.sh up`。
+
+環境構築の全手順・ハマりどころは `docs/DEVELOPMENT_SETUP.md` にまとめてある。
 
 ## 品質基準
 

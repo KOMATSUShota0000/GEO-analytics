@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Edit(./src/main/resources/db/migration/**)",
+      "Read(./target/**)",
+      "Read(./node_modules/**)",
+      "Read(./frontend/node_modules/**)"
+    ]
+  }
+}
