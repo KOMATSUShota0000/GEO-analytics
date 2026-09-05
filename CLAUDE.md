@@ -101,9 +101,12 @@ npm run dev
 ターミナルから直接叩くときは `./mvnw` を使うこと。
 
 **統合テストには Docker が必要。** `PostgresTestBase` / `PostgresSuperuserTestBase`
-の派生テスト（18件）は Testcontainers で PostgreSQL 17 を起動する。
-Docker 未導入なら `sudo bash scripts/setup-docker-wsl.sh` で導入し、
-開発用DBは `bash ~/geo-analytics-db.sh up` で起動する。
+の派生テスト（18件）は Testcontainers が使い捨てコンテナを自前で起動するため、
+Docker さえ動いていれば通る（開発用DBは不要）。
+Docker 未導入なら `sudo bash scripts/setup-docker-wsl.sh` で導入する。
+アプリを起動するときの開発用DBは `bash scripts/db.sh up`。
+
+環境構築の全手順・ハマりどころは `docs/DEVELOPMENT_SETUP.md` にまとめてある。
 
 ## 品質基準
 
