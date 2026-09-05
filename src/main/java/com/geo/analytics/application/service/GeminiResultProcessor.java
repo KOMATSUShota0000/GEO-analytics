@@ -67,7 +67,6 @@ public class GeminiResultProcessor {
     @Transactional("batchTransactionManager")
     public void processOutputJsonlAndUpsertResults(JobEntity jobEntity, String outputJsonlContent) {
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        List<String> competitorHosts = loadCompetitorHosts(jobEntity);
         boolean isProPlan = plan.usesProTierFeatures();
         String mainBrand = jobEntity.getBrandName();
         UUID tid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
@@ -97,7 +96,7 @@ public class GeminiResultProcessor {
                 int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
                 double stuffingDensity = 0.0;
-                String resolved = entityNormalizer.resolve(rawName, mainBrand, competitorHosts, isProPlan);
+                String resolved = entityNormalizer.resolve(rawName, mainBrand, isProPlan);
                 SomRawMetrics rawMetrics =
                         metrics.toRawMetrics(plan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
@@ -169,17 +168,6 @@ public class GeminiResultProcessor {
         ConsultantOutputData consultantOutputData,
         SomRawMetrics rawMetrics,
         String resolved) {
-    }
-    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        UUID projectId = jobEntity.getProjectId();
-        if (projectId == null) {
-            return List.of();
-        }
-        return batchPersistence.findCompetitorUrlsByProjectId(projectId)
-            .stream()
-            .map(EntityNormalizer::hostLabelFromUrl)
-            .filter(s -> !s.isBlank())
-            .toList();
     }
     private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
         if (key == null || key.isBlank()) {

@@ -261,6 +261,16 @@
       ],
       "constraints": [
         {
+          "name": "chk_organization_users_role",
+          "type": "CHECK",
+          "def": "CHECK (((role)::text = ANY ((ARRAY['ADMIN'::character varying, 'MEMBER'::character varying, 'VIEWER'::character varying])::text[])))",
+          "table": "public.organization_users",
+          "referenced_table": "",
+          "columns": [
+            "role"
+          ]
+        },
+        {
           "name": "fk_organization_users_organization",
           "type": "FOREIGN KEY",
           "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
@@ -594,6 +604,16 @@
       ],
       "constraints": [
         {
+          "name": "chk_workspaces_subscription_plan",
+          "type": "CHECK",
+          "def": "CHECK (((subscription_plan)::text = ANY ((ARRAY['STANDARD'::character varying, 'PRO'::character varying, 'EXPERT'::character varying])::text[])))",
+          "table": "public.workspaces",
+          "referenced_table": "",
+          "columns": [
+            "subscription_plan"
+          ]
+        },
+        {
           "name": "fk_workspaces_organization",
           "type": "FOREIGN KEY",
           "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT",
@@ -712,12 +732,6 @@
           "type": "jsonb",
           "nullable": false,
           "default": "'[]'::jsonb"
-        },
-        {
-          "name": "competitor_profiles",
-          "type": "jsonb",
-          "nullable": false,
-          "default": "'[]'::jsonb"
         }
       ],
       "indexes": [
@@ -731,6 +745,16 @@
         }
       ],
       "constraints": [
+        {
+          "name": "chk_projects_industry_type",
+          "type": "CHECK",
+          "def": "CHECK (((industry_type)::text = ANY ((ARRAY['YMYL'::character varying, 'LOCAL'::character varying, 'B2B'::character varying, 'B2C'::character varying, 'EC'::character varying, 'OTHER'::character varying])::text[])))",
+          "table": "public.projects",
+          "referenced_table": "",
+          "columns": [
+            "industry_type"
+          ]
+        },
         {
           "name": "projects_pkey",
           "type": "PRIMARY KEY",
@@ -746,37 +770,6 @@
         {
           "name": "trg_projects_updated_at",
           "def": "CREATE TRIGGER trg_projects_updated_at BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
-        }
-      ]
-    },
-    {
-      "name": "public.project_competitors",
-      "type": "BASE TABLE",
-      "columns": [
-        {
-          "name": "project_id",
-          "type": "uuid",
-          "nullable": false
-        },
-        {
-          "name": "competitor_url",
-          "type": "varchar(2048)",
-          "nullable": false
-        }
-      ],
-      "constraints": [
-        {
-          "name": "fk_project_competitors_project",
-          "type": "FOREIGN KEY",
-          "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
-          "table": "public.project_competitors",
-          "referenced_table": "public.projects",
-          "columns": [
-            "project_id"
-          ],
-          "referenced_columns": [
-            "id"
-          ]
         }
       ]
     },
@@ -835,6 +828,26 @@
         }
       ],
       "constraints": [
+        {
+          "name": "chk_project_keywords_analysis_priority",
+          "type": "CHECK",
+          "def": "CHECK (((analysis_priority)::text = ANY ((ARRAY['HIGH'::character varying, 'NORMAL'::character varying])::text[])))",
+          "table": "public.project_keywords",
+          "referenced_table": "",
+          "columns": [
+            "analysis_priority"
+          ]
+        },
+        {
+          "name": "chk_project_keywords_preferred_engine",
+          "type": "CHECK",
+          "def": "CHECK (((preferred_engine)::text = 'AI_OVERVIEW'::text))",
+          "table": "public.project_keywords",
+          "referenced_table": "",
+          "columns": [
+            "preferred_engine"
+          ]
+        },
         {
           "name": "fk_project_keywords_project",
           "type": "FOREIGN KEY",
@@ -1068,6 +1081,36 @@
         }
       ],
       "constraints": [
+        {
+          "name": "chk_jobs_industry_type",
+          "type": "CHECK",
+          "def": "CHECK (((industry_type)::text = ANY ((ARRAY['LOCAL_STORE'::character varying, 'CORPORATE_SERVICE'::character varying, 'ONLINE_SERVICE'::character varying])::text[])))",
+          "table": "public.jobs",
+          "referenced_table": "",
+          "columns": [
+            "industry_type"
+          ]
+        },
+        {
+          "name": "chk_jobs_job_status",
+          "type": "CHECK",
+          "def": "CHECK (((job_status)::text = ANY ((ARRAY['CREATED'::character varying, 'EXTRACTING_COMPETITORS'::character varying, 'REALTIME_PROCESSING'::character varying, 'FILE_UPLOADED'::character varying, 'SUBMITTED'::character varying, 'RUNNING'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying])::text[])))",
+          "table": "public.jobs",
+          "referenced_table": "",
+          "columns": [
+            "job_status"
+          ]
+        },
+        {
+          "name": "chk_jobs_subscription_plan",
+          "type": "CHECK",
+          "def": "CHECK (((subscription_plan)::text = ANY ((ARRAY['STANDARD'::character varying, 'PRO'::character varying, 'EXPERT'::character varying])::text[])))",
+          "table": "public.jobs",
+          "referenced_table": "",
+          "columns": [
+            "subscription_plan"
+          ]
+        },
         {
           "name": "fk_jobs_project",
           "type": "FOREIGN KEY",
@@ -1344,6 +1387,16 @@
           ]
         },
         {
+          "name": "chk_audit_histories_ai_recognition_state",
+          "type": "CHECK",
+          "def": "CHECK (((ai_recognition_state)::text = ANY ((ARRAY['RECOGNIZED_CORRECTLY'::character varying, 'MISIDENTIFIED'::character varying, 'UNKNOWN'::character varying])::text[])))",
+          "table": "public.audit_histories",
+          "referenced_table": "",
+          "columns": [
+            "ai_recognition_state"
+          ]
+        },
+        {
           "name": "fk_audit_histories_project",
           "type": "FOREIGN KEY",
           "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE",
@@ -1518,6 +1571,16 @@
       ],
       "constraints": [
         {
+          "name": "chk_rag_domain_rules_rule_kind",
+          "type": "CHECK",
+          "def": "CHECK (((rule_kind)::text = ANY ((ARRAY['TRUST_BOOST'::character varying, 'BLOCK_ANALYSIS'::character varying, 'ALLOW_NON_JP'::character varying])::text[])))",
+          "table": "public.rag_domain_rules",
+          "referenced_table": "",
+          "columns": [
+            "rule_kind"
+          ]
+        },
+        {
           "name": "rag_domain_rules_pkey",
           "type": "PRIMARY KEY",
           "def": "PRIMARY KEY (id)",
@@ -1686,6 +1749,16 @@
         }
       ],
       "constraints": [
+        {
+          "name": "chk_wallet_transactions_transaction_type",
+          "type": "CHECK",
+          "def": "CHECK (((transaction_type)::text = ANY ((ARRAY['RESERVE'::character varying, 'SETTLE'::character varying, 'REFUND'::character varying])::text[])))",
+          "table": "public.wallet_transactions",
+          "referenced_table": "",
+          "columns": [
+            "transaction_type"
+          ]
+        },
         {
           "name": "chk_wallet_tx_amount_pos",
           "type": "CHECK",
@@ -2546,19 +2619,6 @@
       ],
       "parent_cardinality": "exactly_one",
       "def": "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
-    },
-    {
-      "table": "public.project_competitors",
-      "columns": [
-        "project_id"
-      ],
-      "cardinality": "zero_or_more",
-      "parent_table": "public.projects",
-      "parent_columns": [
-        "id"
-      ],
-      "parent_cardinality": "exactly_one",
-      "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
     },
     {
       "table": "public.project_keywords",

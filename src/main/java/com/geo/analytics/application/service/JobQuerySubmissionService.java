@@ -1,7 +1,6 @@
 package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.JobStatus;
@@ -11,10 +10,8 @@ import com.geo.analytics.domain.exception.RateLimitExceededException;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
 import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
-import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.infrastructure.config.StreamingExecutorConfig;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
-import com.geo.analytics.infrastructure.repository.ProjectRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.ContextPropagator;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
@@ -25,7 +22,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -43,7 +39,6 @@ public class JobQuerySubmissionService {
     private final JsonbOperations jsonbOperations;
     private final ExecutorService streamDeliveryVirtualExecutor;
     private final ExecutorService realtimeParallelVirtualExecutor;
-    private final ProjectRepository projectRepository;
     private final WorkspaceRepository workspaceRepository;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager quotaManager;
@@ -59,7 +54,6 @@ public class JobQuerySubmissionService {
             @Qualifier(StreamingExecutorConfig.STREAM_DELIVERY_VIRTUAL_EXECUTOR) ExecutorService streamDeliveryVirtualExecutor,
             @Qualifier(StreamingExecutorConfig.REALTIME_PARALLEL_VIRTUAL_EXECUTOR)
                     ExecutorService realtimeParallelVirtualExecutor,
-            ProjectRepository projectRepository,
             WorkspaceRepository workspaceRepository,
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager quotaManager,
@@ -72,7 +66,6 @@ public class JobQuerySubmissionService {
         this.jsonbOperations = jsonbOperations;
         this.streamDeliveryVirtualExecutor = streamDeliveryVirtualExecutor;
         this.realtimeParallelVirtualExecutor = realtimeParallelVirtualExecutor;
-        this.projectRepository = projectRepository;
         this.workspaceRepository = workspaceRepository;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
@@ -236,7 +229,6 @@ public class JobQuerySubmissionService {
         var jobEntity = jobPersistenceService.findJobById(jobId);
         var brandName = jobEntity.getBrandName();
         var targetUrl = jobEntity.getTargetUrl();
-        var competitorHosts = loadCompetitorHosts(jobEntity);
         var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
@@ -247,7 +239,7 @@ public class JobQuerySubmissionService {
                                 () -> {
                                     try {
                                         processOneQueryRealtimeCore(
-                                                jobId, tenantId, brandName, targetUrl, competitorHosts, qe, appliedPlan);
+                                                jobId, tenantId, brandName, targetUrl, qe, appliedPlan);
                                     } catch (Throwable x) {
                                         quotaManager.addTokens(
                                                 tenantId,
@@ -290,27 +282,11 @@ public class JobQuerySubmissionService {
         }
     }
 
-    private List<String> loadCompetitorHosts(JobEntity jobEntity) {
-        var projectId = jobEntity.getProjectId();
-        if (projectId == null) {
-            return List.of();
-        }
-        var wid = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
-        return TenantPlanScope.executeWithTenant(wid, () -> projectRepository.findByIdWithCompetitorUrls(projectId)
-                .map(ProjectEntity::getCompetitorUrls)
-                .orElse(List.of())
-                .stream()
-                .map(EntityNormalizer::hostLabelFromUrl)
-                .filter(s -> !s.isBlank())
-                .toList());
-    }
-
     private void processOneQueryRealtimeCore(
             UUID jobId,
             UUID tenantId,
             String brandName,
             String targetUrl,
-            List<String> competitorHosts,
             QueryEntity queryEntity,
             SubscriptionPlan appliedPlan) {
         // target_url がある場合は自社ページをクロールして実コンテンツで SoM 解析する。
@@ -323,16 +299,14 @@ public class JobQuerySubmissionService {
                         appliedPlan,
                         jobId,
                         queryEntity.getId(),
-                        brandName,
-                        competitorHosts)
+                        brandName)
                 : syncVerificationService.verify(
                         brandName,
                         queryEntity.getQueryText(),
                         appliedPlan,
                         jobId,
                         queryEntity.getId(),
-                        brandName,
-                        competitorHosts);
+                        brandName);
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
         try {

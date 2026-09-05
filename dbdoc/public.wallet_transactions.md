@@ -17,6 +17,7 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_wallet_transactions_transaction_type | CHECK | CHECK (((transaction_type)::text = ANY ((ARRAY['RESERVE'::character varying, 'SETTLE'::character varying, 'REFUND'::character varying])::text[]))) |
 | chk_wallet_tx_amount_pos | CHECK | CHECK ((amount >= 0)) |
 | wallet_transactions_organization_id_fkey | FOREIGN KEY | FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT |
 | wallet_transactions_project_id_fkey | FOREIGN KEY | FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL |
@@ -46,7 +47,6 @@ erDiagram
 "public.geo_asset_snapshots" }o--|| "public.organizations" : "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT"
 "public.processed_stripe_events" }o--|| "public.organizations" : "FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE"
 "public.organizations" }o--|| "public.plans" : "FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE RESTRICT"
-"public.project_competitors" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.project_keywords" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
 "public.jobs" }o--o| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
 "public.audit_histories" }o--|| "public.projects" : "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
@@ -92,7 +92,6 @@ erDiagram
   text extracted_strengths "自社サイト解析等で抽出した強み"
   text target_audience "想定ターゲット層"
   jsonb minority_reports ""
-  jsonb competitor_profiles ""
 }
 "public.organization_users" {
   uuid id ""
@@ -158,10 +157,6 @@ erDiagram
   timestamp_with_time_zone created_at ""
   timestamp_with_time_zone updated_at ""
   timestamp_with_time_zone deleted_at ""
-}
-"public.project_competitors" {
-  uuid project_id FK ""
-  varchar_2048_ competitor_url ""
 }
 "public.project_keywords" {
   uuid id ""

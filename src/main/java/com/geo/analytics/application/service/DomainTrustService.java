@@ -73,7 +73,6 @@ public class DomainTrustService {
             request.jobId(),
             request.queryId(),
             request.canonicalMainBrand(),
-            request.registeredCompetitorBrands(),
             trust,
             request.technicalSeoEvidenceSummary());
     }
@@ -89,7 +88,6 @@ public class DomainTrustService {
             request.jobId(),
             request.queryId(),
             request.canonicalMainBrand(),
-            request.registeredCompetitorBrands(),
             null,
             null);
     }

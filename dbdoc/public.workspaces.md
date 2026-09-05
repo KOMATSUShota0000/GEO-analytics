@@ -18,6 +18,7 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_workspaces_subscription_plan | CHECK | CHECK (((subscription_plan)::text = ANY ((ARRAY['STANDARD'::character varying, 'PRO'::character varying, 'EXPERT'::character varying])::text[]))) |
 | fk_workspaces_organization | FOREIGN KEY | FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT |
 | workspaces_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 

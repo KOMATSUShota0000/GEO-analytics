@@ -1,7 +1,5 @@
 package com.geo.analytics.domain.entity;
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
 import com.geo.analytics.domain.enums.IndustryType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -9,14 +7,11 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import jakarta.validation.constraints.Size;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import com.geo.analytics.domain.model.CompetitorProfile;
 import com.geo.analytics.domain.model.MinorityReport;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -36,11 +31,6 @@ public class ProjectEntity extends BaseTenantEntity {
     private String brandColor = "#4F46E5";
     @Column(name = "logo_url", length = 2048)
     private String logoUrl;
-    @ElementCollection
-    @CollectionTable(name = "project_competitors", joinColumns = @JoinColumn(name = "project_id"))
-    @Column(name = "competitor_url")
-    @Size(max = 3)
-    private List<String> competitorUrls = new ArrayList<>();
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -63,9 +53,6 @@ public class ProjectEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
     private List<MinorityReport> minorityReports = new ArrayList<>();
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "competitor_profiles", nullable = false, columnDefinition = "jsonb")
-    private List<CompetitorProfile> competitorProfiles = new ArrayList<>();
     public ProjectEntity() {
     }
     public UUID getId() {
@@ -97,12 +84,6 @@ public class ProjectEntity extends BaseTenantEntity {
     }
     public void setLogoUrl(String logoUrl) {
         this.logoUrl = logoUrl;
-    }
-    public List<String> getCompetitorUrls() {
-        return competitorUrls;
-    }
-    public void setCompetitorUrls(List<String> competitorUrls) {
-        this.competitorUrls = competitorUrls != null ? competitorUrls : new ArrayList<>();
     }
     public LocalDateTime getCreatedAt() {
         return createdAt;
@@ -164,12 +145,6 @@ public class ProjectEntity extends BaseTenantEntity {
     public void setMinorityReports(List<MinorityReport> minorityReports) {
         this.minorityReports = minorityReports != null ? minorityReports : new ArrayList<>();
     }
-    public List<CompetitorProfile> getCompetitorProfiles() {
-        return competitorProfiles;
-    }
-    public void setCompetitorProfiles(List<CompetitorProfile> competitorProfiles) {
-        this.competitorProfiles = competitorProfiles != null ? competitorProfiles : new ArrayList<>();
-    }
     @PrePersist
     protected void onCreate() {
         LocalDateTime now = LocalDateTime.now();
@@ -183,9 +158,6 @@ public class ProjectEntity extends BaseTenantEntity {
         }
         if (minorityReports == null) {
             minorityReports = new ArrayList<>();
-        }
-        if (competitorProfiles == null) {
-            competitorProfiles = new ArrayList<>();
         }
     }
     @PreUpdate

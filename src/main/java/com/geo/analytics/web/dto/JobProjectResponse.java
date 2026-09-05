@@ -4,16 +4,12 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.enums.IndustryType;
-import com.geo.analytics.domain.model.CompetitorProfile;
-import java.util.List;
 import java.util.UUID;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record JobProjectResponse(
     UUID projectId,
     String projectName,
     String targetUrl,
-    List<String> competitorUrls,
-    List<CompetitorProfile> competitorProfiles,
     @JsonProperty("brand_color") String brandColor,
     @JsonProperty("logo_url") String logoUrl,
     IndustryType industryType
@@ -31,8 +27,6 @@ public record JobProjectResponse(
             projectEntity.getId(),
             projectEntity.getName(),
             projectEntity.getTargetUrl(),
-            List.copyOf(projectEntity.getCompetitorUrls()),
-            List.copyOf(projectEntity.getCompetitorProfiles()),
             bc,
             projectEntity.getLogoUrl(),
             ind);

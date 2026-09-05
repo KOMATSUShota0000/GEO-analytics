@@ -14,6 +14,7 @@
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
+| chk_rag_domain_rules_rule_kind | CHECK | CHECK (((rule_kind)::text = ANY ((ARRAY['TRUST_BOOST'::character varying, 'BLOCK_ANALYSIS'::character varying, 'ALLOW_NON_JP'::character varying])::text[]))) |
 | rag_domain_rules_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 | uq_rag_domain_rules_host_suffix | UNIQUE | UNIQUE (host_suffix) |
 

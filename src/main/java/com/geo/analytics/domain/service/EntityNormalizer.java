@@ -42,10 +42,9 @@ public final class EntityNormalizer {
     }
 
     @SuppressWarnings("unused")
-    public String resolve(String rawName, String mainBrand, List<String> competitorBrands, boolean isProPlan) {
+    public String resolve(String rawName, String mainBrand, boolean isProPlan) {
         String raw = rawName == null ? "" : rawName;
         String main = mainBrand == null ? "" : mainBrand;
-        List<String> comps = competitorBrands == null ? List.of() : competitorBrands;
         String strippedRaw = prepareForSudachi(raw);
         if (strippedRaw.isBlank()) {
             return UNMATCHED;
@@ -62,15 +61,6 @@ public final class EntityNormalizer {
                 main,
                 japaneseNlpService.normalizedKey(sm),
                 japaneseNlpService.readingKey(sm)));
-        }
-        for (String c : comps) {
-            if (c != null && !c.isBlank()) {
-                String sc = prepareForSudachi(c);
-                cands.add(new NameCandidate(
-                    c,
-                    japaneseNlpService.normalizedKey(sc),
-                    japaneseNlpService.readingKey(sc)));
-            }
         }
         for (NameCandidate cand : cands) {
             if (!cand.normSudachi.isBlank() && rawNorm.equals(cand.normSudachi)) {
