@@ -1,12 +1,30 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(./mvnw test *)",
+      "Bash(./mvnw clean test *)"
+    ],
     "deny": [
       "Read(./.env)",
       "Edit(./.env)",
-      "Edit(./src/main/resources/db/migration/**)",
       "Read(./target/**)",
       "Read(./node_modules/**)",
       "Read(./frontend/node_modules/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-flyway-migrations.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Flyway マイグレーションの保護を確認中"
+          }
+        ]
+      }
     ]
   }
 }
