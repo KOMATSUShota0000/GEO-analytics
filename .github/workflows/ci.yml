@@ -1,0 +1,73 @@
+name: CI
+
+# main への push と、すべての PR で走らせる。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Why: 同一ブランチに連続 push したとき、古い実行を打ち切って課金分を節約する。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Why: 既定の write 権限は不要。最小権限に絞る。
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: バックエンド（テスト230件）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 25 をセットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          # ~/.m2/repository をキャッシュする。依存解決は初回で約226MB。
+          cache: maven
+
+      # Why: Testcontainers が PostgreSQL コンテナを起動するため Docker が要る。
+      #      ubuntu-latest には標準搭載されているので、動作していることの確認のみ行う。
+      - name: Docker が使えることを確認
+        run: docker version --format 'Server {{.Server.Version}}'
+
+      # .env は CI に存在しないが、application-test.yml と application-rls-it.yml が
+      # ダミー値を持つため解決できる。秘密情報の登録は不要。
+      - name: テスト実行
+        run: ./mvnw -B clean test
+
+      # Why: 失敗時に原因を追えるよう、surefire のレポートを残す。
+      - name: テストレポートを保存
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
+
+  frontend:
+    name: フロントエンド（ビルド）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 22 をセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 依存をインストール
+        working-directory: frontend
+        run: npm ci
+
+      - name: ビルド
+        working-directory: frontend
+        run: npm run build
