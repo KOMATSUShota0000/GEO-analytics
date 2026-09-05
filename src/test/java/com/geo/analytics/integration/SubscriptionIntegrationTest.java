@@ -153,13 +153,31 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         lenient()
                 .when(geoCompetitorSearchAdapter.checkSgeMention(anyString(), anyString()))
                 .thenReturn(new SgeMentionResult(false, 0, "{}"));
+        // Why: target_url を持つジョブの実処理は verifyWithUrl を通る。ここを未スタブにすると
+        //      mock が null を返して非同期処理が例外になり、catch 節の addTokens による
+        //      クォータ返却が他テストのバケットへ不定のタイミングで流れ込む。レート制限系の
+        //      検証が状態依存になる原因だったため、両方をスタブして副作用を断つ。
+        lenient()
+                .when(syncVerificationService.verifyWithUrl(
+                        anyString(),
+                        anyString(),
+                        anyString(),
+                        any(SubscriptionPlan.class),
+                        any(UUID.class),
+                        any(UUID.class),
+                        anyString()))
+                .thenReturn(stubbedVerificationResult());
         when(syncVerificationService.verify(
                 anyString(),
                 anyString(),
                 any(SubscriptionPlan.class),
                 any(UUID.class),
                 any(UUID.class),
-                anyString())).thenReturn(new SyncVerificationResult(
+                anyString())).thenReturn(stubbedVerificationResult());
+    }
+
+    private static SyncVerificationResult stubbedVerificationResult() {
+        return new SyncVerificationResult(
                 "{}",
                 50.0,
                 true,
@@ -175,7 +193,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "V11_GEO_PURE",
                 "{}",
                 50.0,
-                0));
+                0);
     }
 
     @AfterEach
