@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.domain.enums.AiRecognitionState;
 import com.geo.analytics.domain.enums.AnalysisPriority;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
@@ -62,7 +62,7 @@ class EnumCheckConstraintSyncTest extends PostgresTestBase {
         return List.of(
                 new EnumColumn(OrganizationUserRole.class, "organization_users", "role"),
                 new EnumColumn(JobStatus.class, "jobs", "job_status"),
-                new EnumColumn(CompetitorExtractionMode.class, "jobs", "industry_type"),
+                new EnumColumn(BusinessModelType.class, "jobs", "industry_type"),
                 new EnumColumn(SubscriptionPlan.class, "jobs", "subscription_plan"),
                 new EnumColumn(SubscriptionPlan.class, "workspaces", "subscription_plan"),
                 new EnumColumn(IndustryType.class, "projects", "industry_type"),

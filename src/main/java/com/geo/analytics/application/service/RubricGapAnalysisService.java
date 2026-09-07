@@ -3,7 +3,7 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.enums.RubricVerdictStatus;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
@@ -150,9 +150,9 @@ public class RubricGapAnalysisService {
                 case AUTHORITY -> thirdPartyCoreTotal = StrictMath.fma(score, 1.0d, thirdPartyCoreTotal);
             }
         }
-        CompetitorExtractionMode mode = jobRepository.findById(history.getJobId())
-                .map(JobEntity::getCompetitorExtractionMode)
-                .orElse(CompetitorExtractionMode.LOCAL_STORE);
+        BusinessModelType mode = jobRepository.findById(history.getJobId())
+                .map(JobEntity::getBusinessModelType)
+                .orElse(BusinessModelType.LOCAL_STORE);
         double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCoreTotal, meoTotal, mode);
         double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
                 aiAuditTotal, machineReadabilityTotal, authority);

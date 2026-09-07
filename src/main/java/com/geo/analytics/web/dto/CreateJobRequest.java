@@ -1,7 +1,7 @@
 package com.geo.analytics.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -20,7 +20,7 @@ public record CreateJobRequest(
     String targetAudience,
     @Size(max = 16000)
     String focusPoints,
-    @JsonProperty("industryType") CompetitorExtractionMode competitorExtractionMode,
+    @JsonProperty("industryType") BusinessModelType businessModelType,
     @JsonProperty("idempotency_key") UUID idempotencyKey
 ) {
     public CreateJobRequest {
@@ -29,8 +29,8 @@ public record CreateJobRequest(
         businessSummary = optionalText(businessSummary);
         targetAudience = optionalText(targetAudience);
         focusPoints = optionalText(focusPoints);
-        if (competitorExtractionMode == null) {
-            competitorExtractionMode = CompetitorExtractionMode.LOCAL_STORE;
+        if (businessModelType == null) {
+            businessModelType = BusinessModelType.LOCAL_STORE;
         }
     }
 

@@ -1,9 +1,9 @@
-export type CompetitorExtractionMode = "LOCAL_STORE" | "CORPORATE_SERVICE" | "ONLINE_SERVICE";
+export type BusinessModelType = "LOCAL_STORE" | "CORPORATE_SERVICE" | "ONLINE_SERVICE";
 
 export type CreateJobRequestPayload = {
   brandName: string;
   targetUrl: string;
-  industryType?: CompetitorExtractionMode;
+  industryType?: BusinessModelType;
   businessSummary?: string;
   targetAudience?: string;
   focusPoints?: string;

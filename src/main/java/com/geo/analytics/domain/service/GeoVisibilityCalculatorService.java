@@ -1,6 +1,6 @@
 package com.geo.analytics.domain.service;
 
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import java.util.ArrayList;
@@ -95,7 +95,7 @@ public final class GeoVisibilityCalculatorService {
      * 素点(0-20)自体は業種非依存（DB保存の THIRD_PARTY_MENTIONS は不変＝後方互換）で、業種差はこの集約段階のみで生む。
      * combineAuthority と内訳露出の単一ソース。
      */
-    public static double authorityThirdPartyCore(double thirdPartyCore, CompetitorExtractionMode mode) {
+    public static double authorityThirdPartyCore(double thirdPartyCore, BusinessModelType mode) {
         if (isNonLocalMode(mode)) {
             double scaled = thirdPartyCore * (MAX_AUTHORITY / ThirdPartyMentionScorer.MAX_AUTHORITY_CORE);
             return clamp(scaled, 0.0d, MAX_AUTHORITY);
@@ -104,7 +104,7 @@ public final class GeoVisibilityCalculatorService {
     }
 
     /** 権威軸のローカルMEOサブ指標(0-10)。非地域業種は MEO を持たないため0。combineAuthority と内訳露出の単一ソース。 */
-    public static double authorityLocalMeoSub(double meoRaw, CompetitorExtractionMode mode) {
+    public static double authorityLocalMeoSub(double meoRaw, BusinessModelType mode) {
         return isNonLocalMode(mode)
                 ? 0.0d
                 : clamp(meoRaw, 0.0d, RAW_MEO_MAX) * (MAX_MEO_LOCAL_SUB / RAW_MEO_MAX);
@@ -115,16 +115,16 @@ public final class GeoVisibilityCalculatorService {
      * サブ指標として 0-10 加点する。非地域業種は MEO を持たないため中核のみ（Wikipedia/KG ボーナスは別途）。
      */
     public static double combineAuthority(
-            double thirdPartyCore, double meoRaw, CompetitorExtractionMode mode) {
+            double thirdPartyCore, double meoRaw, BusinessModelType mode) {
         return clamp(
                 authorityThirdPartyCore(thirdPartyCore, mode) + authorityLocalMeoSub(meoRaw, mode),
                 0.0d,
                 MAX_AUTHORITY);
     }
 
-    private static boolean isNonLocalMode(CompetitorExtractionMode mode) {
-        return mode == CompetitorExtractionMode.CORPORATE_SERVICE
-                || mode == CompetitorExtractionMode.ONLINE_SERVICE;
+    private static boolean isNonLocalMode(BusinessModelType mode) {
+        return mode == BusinessModelType.CORPORATE_SERVICE
+                || mode == BusinessModelType.ONLINE_SERVICE;
     }
 
     public static GbvsResult compute(SomRawMetrics metrics, double lAvgJob) {
