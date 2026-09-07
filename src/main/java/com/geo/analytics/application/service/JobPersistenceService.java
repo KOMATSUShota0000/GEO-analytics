@@ -15,7 +15,7 @@ import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
@@ -67,7 +67,7 @@ public class JobPersistenceService {
             String businessSummary,
             String targetAudience,
             String focusPoints,
-            CompetitorExtractionMode competitorExtractionMode) {
+            BusinessModelType businessModelType) {
         public JobCreateFields {
             brandName = TextWhitespaceNormalizer.normalize(brandName);
             targetUrl = TextWhitespaceNormalizer.normalize(targetUrl);
@@ -77,8 +77,8 @@ public class JobPersistenceService {
             businessSummary = optionalText(businessSummary);
             targetAudience = optionalText(targetAudience);
             focusPoints = optionalText(focusPoints);
-            if (competitorExtractionMode == null) {
-                competitorExtractionMode = CompetitorExtractionMode.LOCAL_STORE;
+            if (businessModelType == null) {
+                businessModelType = BusinessModelType.LOCAL_STORE;
             }
         }
 
@@ -251,9 +251,9 @@ public class JobPersistenceService {
                     truncateStackTrace(runtimeException));
             rubricRows = List.of();
         }
-        CompetitorExtractionMode mode = jobRepository.findById(latest.getJobId())
-                .map(JobEntity::getCompetitorExtractionMode)
-                .orElse(CompetitorExtractionMode.LOCAL_STORE);
+        BusinessModelType mode = jobRepository.findById(latest.getJobId())
+                .map(JobEntity::getBusinessModelType)
+                .orElse(BusinessModelType.LOCAL_STORE);
         ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode, latest.getCalculationVersion());
         List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
         return new JobAnalysisAttachment(breakdown, tasks, buildContentEvidence(rubricRows));
@@ -304,7 +304,7 @@ public class JobPersistenceService {
     }
 
     private static ScoreBreakdown computeBreakdown(
-            List<AuditRubricResultEntity> rubricRows, CompetitorExtractionMode mode, String calculationVersion) {
+            List<AuditRubricResultEntity> rubricRows, BusinessModelType mode, String calculationVersion) {
         if (rubricRows == null || rubricRows.isEmpty()) {
             return ScoreBreakdown.empty();
         }
@@ -642,7 +642,7 @@ public class JobPersistenceService {
         jobEntity.setBusinessSummary(fields.businessSummary());
         jobEntity.setTargetAudience(fields.targetAudience());
         jobEntity.setFocusPoints(fields.focusPoints());
-        jobEntity.setCompetitorExtractionMode(fields.competitorExtractionMode());
+        jobEntity.setBusinessModelType(fields.businessModelType());
         jobEntity.setWorkspaceId(workspaceId);
         jobEntity.setProjectId(projectId);
         jobEntity.setCreateIdempotencyKey(idempotencyKey);

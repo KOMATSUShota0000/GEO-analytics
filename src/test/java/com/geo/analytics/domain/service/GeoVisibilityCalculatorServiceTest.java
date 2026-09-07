@@ -3,7 +3,7 @@ package com.geo.analytics.domain.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,40 +45,40 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void authorityThirdPartyCore_localClampsToTwenty_nonLocalScalesToThirty() {
         // 地域業種: 0-20でクランプ（残り0-10はローカルMEOサブが担う）。
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(15.0, CompetitorExtractionMode.LOCAL_STORE))
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(15.0, BusinessModelType.LOCAL_STORE))
                 .isCloseTo(15.0, within(1e-9));
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(99.0, CompetitorExtractionMode.LOCAL_STORE))
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(99.0, BusinessModelType.LOCAL_STORE))
                 .isCloseTo(20.0, within(1e-9));
-        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(-1.0, CompetitorExtractionMode.LOCAL_STORE))
+        assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(-1.0, BusinessModelType.LOCAL_STORE))
                 .isEqualTo(0.0);
         // 非地域業種: MEOサブの死蔵枠を回収し 0-30 へ1.5倍拡張。素点20満点→30、素点12→18。
         assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
-                        20.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                        20.0, BusinessModelType.CORPORATE_SERVICE))
                 .isCloseTo(30.0, within(1e-9));
         assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
-                        12.0, CompetitorExtractionMode.ONLINE_SERVICE))
+                        12.0, BusinessModelType.ONLINE_SERVICE))
                 .isCloseTo(18.0, within(1e-9));
         // 上限30でクランプ。
         assertThat(GeoVisibilityCalculatorService.authorityThirdPartyCore(
-                        99.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                        99.0, BusinessModelType.CORPORATE_SERVICE))
                 .isCloseTo(30.0, within(1e-9));
     }
 
     @Test
     void authorityLocalMeoSub_localScalesNonLocalIsZero() {
         // ローカル業種: MEO素点25 → サブ10へ圧縮
-        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.LOCAL_STORE))
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, BusinessModelType.LOCAL_STORE))
                 .isCloseTo(10.0, within(1e-9));
         // 非地域業種: 常に0
-        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, BusinessModelType.CORPORATE_SERVICE))
                 .isEqualTo(0.0);
-        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, CompetitorExtractionMode.ONLINE_SERVICE))
+        assertThat(GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, BusinessModelType.ONLINE_SERVICE))
                 .isEqualTo(0.0);
     }
 
     @Test
     void authoritySubScores_sumEqualsCombineAuthority() {
-        var mode = CompetitorExtractionMode.LOCAL_STORE;
+        var mode = BusinessModelType.LOCAL_STORE;
         double core = GeoVisibilityCalculatorService.authorityThirdPartyCore(12.0, mode);
         double sub = GeoVisibilityCalculatorService.authorityLocalMeoSub(25.0, mode);
         double combined = GeoVisibilityCalculatorService.combineAuthority(12.0, 25.0, mode);
@@ -88,7 +88,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void breakdownAxes_reconcileWithFinalScore() {
         // 内訳バー（content + technical + authority）が総合点と整合することを保証する（レポート4a-1の核）。
-        var mode = CompetitorExtractionMode.LOCAL_STORE;
+        var mode = BusinessModelType.LOCAL_STORE;
         double aiAudit = 40.0;
         double machineRaw = 20.0;
         double thirdPartyCore = 12.0;
@@ -195,11 +195,11 @@ class GeoVisibilityCalculatorServiceTest {
     void combineAuthority_local_addsMeoSubToCore() {
         // 中核満点20 + ローカルMEOサブ(25*0.4=10) = 30（cap）。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        20.0, 25.0, CompetitorExtractionMode.LOCAL_STORE))
+                        20.0, 25.0, BusinessModelType.LOCAL_STORE))
                 .isEqualTo(30.0);
         // 中核10 + MEOサブ(10*0.4=4) = 14。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        10.0, 10.0, CompetitorExtractionMode.LOCAL_STORE))
+                        10.0, 10.0, BusinessModelType.LOCAL_STORE))
                 .isCloseTo(14.0, within(1e-9));
     }
 
@@ -207,10 +207,10 @@ class GeoVisibilityCalculatorServiceTest {
     void combineAuthority_nonLocal_ignoresMeo_scalesCoreToThirty() {
         // 非地域業種(CORPORATE/ONLINE)はMEOを加点せず、中核を0-30へ拡張（12*1.5=18）。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        12.0, 25.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                        12.0, 25.0, BusinessModelType.CORPORATE_SERVICE))
                 .isCloseTo(18.0, within(1e-9));
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        12.0, 25.0, CompetitorExtractionMode.ONLINE_SERVICE))
+                        12.0, 25.0, BusinessModelType.ONLINE_SERVICE))
                 .isCloseTo(18.0, within(1e-9));
     }
 
@@ -218,7 +218,7 @@ class GeoVisibilityCalculatorServiceTest {
     void combineAuthority_nonLocal_reachesThirtyCeiling_withoutMeo() {
         // 非地域業種は第三者言及だけで権威軸の天井30に到達できる（死蔵していた10点の回収）。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        20.0, 0.0, CompetitorExtractionMode.CORPORATE_SERVICE))
+                        20.0, 0.0, BusinessModelType.CORPORATE_SERVICE))
                 .isEqualTo(30.0);
     }
 
@@ -226,7 +226,7 @@ class GeoVisibilityCalculatorServiceTest {
     void combineAuthority_capsAt30_andClampsCore() {
         // 中核は20で頭打ち、合算も30でcap。
         assertThat(GeoVisibilityCalculatorService.combineAuthority(
-                        30.0, 25.0, CompetitorExtractionMode.LOCAL_STORE))
+                        30.0, 25.0, BusinessModelType.LOCAL_STORE))
                 .isEqualTo(30.0);
     }
 

@@ -37,7 +37,7 @@ import {
 } from "../api/workspace-api";
 import { useBranding } from "../branding/useBranding";
 import { LoadingCharacter } from "../components/LoadingCharacter";
-import type { CompetitorExtractionMode } from "../types/createJobRequest";
+import type { BusinessModelType } from "../types/createJobRequest";
 
 const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_KNOWLEDGE_EXTENSIONS = [".pdf", ".docx", ".txt", ".csv"] as const;
@@ -129,7 +129,7 @@ function formatJobCreateFailure(e: unknown): string {
 }
 
 const INDUSTRY_OPTIONS: {
-  value: CompetitorExtractionMode;
+  value: BusinessModelType;
   title: string;
   description: string;
   Icon: typeof StorefrontIcon;
@@ -160,7 +160,7 @@ export default function JobCreationPage(): JSX.Element {
   const { toolName, logoBlobUrl } = useBranding();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [brandName, setBrandName] = useState("");
-  const [industryType, setIndustryType] = useState<CompetitorExtractionMode>("LOCAL_STORE");
+  const [industryType, setIndustryType] = useState<BusinessModelType>("LOCAL_STORE");
   const [targetUrl, setTargetUrl] = useState("");
   const [businessSummary, setBusinessSummary] = useState("");
   const [targetAudience, setTargetAudience] = useState("");
@@ -343,11 +343,11 @@ export default function JobCreationPage(): JSX.Element {
                 クライアントの事業タイプ
               </FormLabel>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                競合の探し方を最適化するために、エンドクライアントに近い形を選んでください。
+                スコア配分を最適化するために、エンドクライアントに近い形を選んでください。
               </Typography>
               <RadioGroup
                 value={industryType}
-                onChange={(_, v) => setIndustryType(v as CompetitorExtractionMode)}
+                onChange={(_, v) => setIndustryType(v as BusinessModelType)}
               >
                 <Stack spacing={1.5}>
                   {INDUSTRY_OPTIONS.map((opt) => {

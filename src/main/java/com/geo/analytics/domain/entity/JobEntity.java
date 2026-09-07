@@ -1,5 +1,5 @@
 package com.geo.analytics.domain.entity;
-import com.geo.analytics.domain.enums.CompetitorExtractionMode;
+import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import jakarta.persistence.Column;
@@ -27,7 +27,7 @@ public class JobEntity extends BaseTenantEntity {
     private UUID projectId;
     @Enumerated(EnumType.STRING)
     @Column(name = "industry_type", nullable = false, length = 32)
-    private CompetitorExtractionMode competitorExtractionMode = CompetitorExtractionMode.LOCAL_STORE;
+    private BusinessModelType businessModelType = BusinessModelType.LOCAL_STORE;
     @Enumerated(EnumType.STRING)
     @Column(name = "job_status", nullable = false, length = 32)
     private JobStatus jobStatus;
@@ -107,11 +107,11 @@ public class JobEntity extends BaseTenantEntity {
     public void setProjectId(UUID projectId) {
         this.projectId = projectId;
     }
-    public CompetitorExtractionMode getCompetitorExtractionMode() {
-        return competitorExtractionMode;
+    public BusinessModelType getBusinessModelType() {
+        return businessModelType;
     }
-    public void setCompetitorExtractionMode(CompetitorExtractionMode competitorExtractionMode) {
-        this.competitorExtractionMode = competitorExtractionMode;
+    public void setBusinessModelType(BusinessModelType businessModelType) {
+        this.businessModelType = businessModelType;
     }
     public JobStatus getJobStatus() {
         return jobStatus;
@@ -298,8 +298,8 @@ public class JobEntity extends BaseTenantEntity {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        if (competitorExtractionMode == null) {
-            competitorExtractionMode = CompetitorExtractionMode.LOCAL_STORE;
+        if (businessModelType == null) {
+            businessModelType = BusinessModelType.LOCAL_STORE;
         }
         if (jobStatus == null) {
             jobStatus = JobStatus.CREATED;

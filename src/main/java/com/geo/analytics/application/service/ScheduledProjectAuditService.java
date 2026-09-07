@@ -25,7 +25,7 @@ public class ScheduledProjectAuditService {
     private final JobRepository jobRepository;
     private final JobPersistenceService jobPersistenceService;
     private final JobQuerySubmissionService jobQuerySubmissionService;
-    private final IndustryTypeCompetitorExtractionModeMapper industryTypeCompetitorExtractionModeMapper;
+    private final IndustryTypeBusinessModelMapper industryTypeBusinessModelMapper;
 
     public ScheduledProjectAuditService(
             JdbcTemplate jdbcTemplate,
@@ -34,14 +34,14 @@ public class ScheduledProjectAuditService {
             JobRepository jobRepository,
             JobPersistenceService jobPersistenceService,
             JobQuerySubmissionService jobQuerySubmissionService,
-            IndustryTypeCompetitorExtractionModeMapper industryTypeCompetitorExtractionModeMapper) {
+            IndustryTypeBusinessModelMapper industryTypeBusinessModelMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.projectRepository = projectRepository;
         this.projectKeywordRepository = projectKeywordRepository;
         this.jobRepository = jobRepository;
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
-        this.industryTypeCompetitorExtractionModeMapper = industryTypeCompetitorExtractionModeMapper;
+        this.industryTypeBusinessModelMapper = industryTypeBusinessModelMapper;
     }
 
     public void executeMonthlyAuditForProject(UUID projectId) {
@@ -73,7 +73,7 @@ public class ScheduledProjectAuditService {
                             null,
                             null,
                             null,
-                            industryTypeCompetitorExtractionModeMapper.fromIndustryType(projectEntity.getIndustryType()));
+                            industryTypeBusinessModelMapper.fromIndustryType(projectEntity.getIndustryType()));
             JobEntity jobEntity = jobPersistenceService.createJob(jobFields);
             List<String> texts = keywords.stream().map(ProjectKeywordEntity::getKeywordText).distinct().toList();
             jobQuerySubmissionService.submitQueries(jobEntity.getId(), texts, subscriptionPlan);
