@@ -2,6 +2,8 @@ package com.geo.analytics.infrastructure.api;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.port.SgeMeasurementPort;
@@ -135,9 +137,13 @@ public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
         if (serpApiKey.isBlank()) {
             throw new IllegalStateException("AI visibility provider API key is not configured (app.serpapi.api-key)");
         }
-        String searchQuery = GeoCompetitorQueryBuilder.build(brandName, query);
-        if (searchQuery.isBlank()) {
-            log.warn("AI visibility request skipped: empty query after build brand=\"{}\" userKeyword=\"{}\"", brandName, query);
+        // Why: 旧実装は GeoCompetitorQueryBuilder で「ブランド名 + クエリ」を検索していた。検索語にブランド名を
+        //      入れれば AI 回答へ自社が出るのは当たり前で、測定が自作自演になる。実測でもブランド名を混ぜた
+        //      場合は page_token のみが返り本文が取れず、クエリのみなら text_blocks が直接返った（ADR-039）。
+        //      ユーザーが実際に打つクエリのみで検索する。
+        String searchQuery = TextWhitespaceNormalizer.normalize(query);
+        if (searchQuery == null || searchQuery.isBlank()) {
+            log.warn("AI visibility request skipped: empty query brand=\"{}\" userKeyword=\"{}\"", brandName, query);
             throw new IllegalArgumentException("AI visibility query must not be blank");
         }
         URI uri = buildSerpUri(searchQuery, null);
@@ -208,9 +214,72 @@ public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
                     organicCount);
             return new SgeMentionResult(false, 0, body);
         }
-        int mentionCount = jsonTreeCountBrandOccurrences(root, brandName);
-        boolean mentioned = mentionCount > 0;
-        return new SgeMentionResult(mentioned, mentionCount, body);
+        JsonNode resolvedRoot = resolveAiOverviewBody(root, searchQuery);
+        String overviewBody = AiOverviewPayload.bodyText(resolvedRoot);
+        if (overviewBody.isEmpty()) {
+            log.info(
+                    "AI Overview body unavailable for searchQuery=\"{}\" (no text_blocks and no resolvable page_token)",
+                    searchQuery);
+        }
+        int mentionCount = AiOverviewPayload.countBrandMentions(overviewBody, brandName);
+        return new SgeMentionResult(mentionCount > 0, mentionCount, writeJsonOrFallback(resolvedRoot, body));
+    }
+
+    /**
+     * AI Overview 本文が page_token でしか返らない場合、google_ai_overview エンジンへ2回目を投げて
+     * 解決済みの ai_overview で差し替える。
+     *
+     * <p>Why: SerpAPI は AI Overview を本文（text_blocks）で返す場合と、引換券（page_token）で返す場合がある。
+     * 旧実装は page_token を扱わず1回目のレスポンスしか見ていなかったため、後者では本文を取得できていなかった。
+     * トークンは1分で失効するため即座に使う。失敗しても測定全体は落とさず、本文なしとして続行する。
+     */
+    private JsonNode resolveAiOverviewBody(JsonNode root, String searchQuery) {
+        if (AiOverviewPayload.hasTextBlocks(root)) {
+            return root;
+        }
+        String pageToken = AiOverviewPayload.pageTokenOrNull(root);
+        if (pageToken == null) {
+            return root;
+        }
+        try {
+            String followUp = restClient.get().uri(buildAiOverviewUri(pageToken)).retrieve().body(String.class);
+            if (followUp == null || followUp.isBlank()) {
+                return root;
+            }
+            JsonNode followUpRoot = objectMapper.readTree(followUp);
+            JsonNode aiOverview = followUpRoot.get("ai_overview");
+            if (aiOverview == null || aiOverview.isNull()) {
+                return root;
+            }
+            if (root instanceof ObjectNode objectRoot) {
+                objectRoot.set("ai_overview", aiOverview);
+            }
+            return root;
+        } catch (RuntimeException | JsonProcessingException exception) {
+            log.warn(
+                    "AI Overview page_token follow-up failed searchQuery=\"{}\" reason={}",
+                    searchQuery,
+                    exception.toString());
+            return root;
+        }
+    }
+
+    private URI buildAiOverviewUri(String pageToken) {
+        return UriComponentsBuilder.fromUriString(SERPAPI_SEARCH_URL)
+                .queryParam("engine", "google_ai_overview")
+                .queryParam("page_token", pageToken)
+                .queryParam("api_key", serpApiKey)
+                .encode(StandardCharsets.UTF_8)
+                .build()
+                .toUri();
+    }
+
+    private String writeJsonOrFallback(JsonNode node, String fallback) {
+        try {
+            return objectMapper.writeValueAsString(node);
+        } catch (JsonProcessingException exception) {
+            return fallback;
+        }
     }
 
     private static int countOrganicResults(JsonNode root) {
@@ -249,41 +318,4 @@ public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
         return node.isTextual() && !node.asText().isBlank();
     }
 
-    private static int jsonTreeCountBrandOccurrences(JsonNode node, String brandName) {
-        if (node == null || node.isNull() || brandName == null || brandName.isBlank()) {
-            return 0;
-        }
-        String needle = brandName.toLowerCase(Locale.ROOT);
-        if (needle.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        if (node.isTextual()) {
-            String t = node.asText().toLowerCase(Locale.ROOT);
-            int idx = 0;
-            int n = needle.length();
-            while (idx <= t.length() - n) {
-                int found = t.indexOf(needle, idx);
-                if (found < 0) {
-                    break;
-                }
-                count++;
-                idx = found + StrictMath.max(1, n);
-            }
-            return count;
-        }
-        if (node.isArray()) {
-            for (JsonNode child : node) {
-                count += jsonTreeCountBrandOccurrences(child, brandName);
-            }
-            return count;
-        }
-        if (node.isObject()) {
-            var iterator = node.fields();
-            while (iterator.hasNext()) {
-                count += jsonTreeCountBrandOccurrences(iterator.next().getValue(), brandName);
-            }
-        }
-        return count;
-    }
 }
