@@ -22,6 +22,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class JobBenchmarkCaptureService {
@@ -57,11 +58,22 @@ public class JobBenchmarkCaptureService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Why: RLS の GUC（app.current_org_id / app.current_tenant_id）は {@code RlsConnectionInterceptor} が
+     * トランザクション内でのみ設定する。本メソッドに @Transactional が無かったため GUC が未設定のまま
+     * projects を読み、RLS に弾かれて project_not_found で静かに早期 return していた。その結果
+     * jobs.self_rubric_audit_json が永久に NULL となり、基礎スコアが算出されず改善タスクが常時ロックされていた。
+     * クロールと LLM 監査を含むため readOnly ではなく、外側で長時間トランザクションを張らないよう
+     * 読み取り境界のみをここで確保する。
+     */
+    @Transactional
     public void capture(UUID jobId) {
+        log.info("benchmark_capture_started jobId={}", jobId);
         try {
             JobEntity job = batchPersistence.findJobById(jobId);
             UUID projectId = job.getProjectId();
             if (projectId == null) {
+                log.warn("benchmark_capture_skipped reason=project_id_null jobId={}", jobId);
                 return;
             }
             UUID wsId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
@@ -73,10 +85,12 @@ public class JobBenchmarkCaptureService {
             TenantPlanScope.executeWithTenantOrganizationAndPlan(wsId, orgId, plan, () -> {
                 ProjectEntity project = projectRepository.findById(projectId).orElse(null);
                 if (project == null) {
+                    log.warn("benchmark_capture_skipped reason=project_not_found jobId={} projectId={}", jobId, projectId);
                     return;
                 }
                 String targetUrl = project.getTargetUrl();
                 if (targetUrl == null || targetUrl.isBlank()) {
+                    log.warn("benchmark_capture_skipped reason=target_url_blank jobId={} projectId={}", jobId, projectId);
                     return;
                 }
                 String trimmedTarget = targetUrl.trim();
@@ -113,6 +127,7 @@ public class JobBenchmarkCaptureService {
                             objectMapper.writeValueAsString(selfBundle.primaryPage().crawled()),
                             meoCount,
                             meoStars);
+                    log.info("benchmark_capture_persisted jobId={} meoCount={} meoStars={}", jobId, meoCount, meoStars);
                     emotionalAlertOrchestrationService.materializeAndPersist(jobId);
                 } catch (JsonProcessingException ex) {
                     throw new IllegalStateException(ex);
