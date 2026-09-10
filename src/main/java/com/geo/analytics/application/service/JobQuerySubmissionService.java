@@ -44,6 +44,7 @@ public class JobQuerySubmissionService {
     private final PlanBasedQuotaManager quotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
     private final AiRubricAuditService aiRubricAuditService;
+    private final RemediationTaskOrchestrationService remediationTaskOrchestrationService;
 
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
@@ -58,7 +59,8 @@ public class JobQuerySubmissionService {
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager quotaManager,
             JobBenchmarkCaptureService jobBenchmarkCaptureService,
-            AiRubricAuditService aiRubricAuditService) {
+            AiRubricAuditService aiRubricAuditService,
+            RemediationTaskOrchestrationService remediationTaskOrchestrationService) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -71,6 +73,7 @@ public class JobQuerySubmissionService {
         this.quotaManager = Objects.requireNonNull(quotaManager, "planBasedQuotaManager");
         this.jobBenchmarkCaptureService = Objects.requireNonNull(jobBenchmarkCaptureService);
         this.aiRubricAuditService = Objects.requireNonNull(aiRubricAuditService);
+        this.remediationTaskOrchestrationService = Objects.requireNonNull(remediationTaskOrchestrationService);
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -258,6 +261,8 @@ public class JobQuerySubmissionService {
             CompletableFuture.allOf(futures).join();
             jobBenchmarkCaptureService.capture(jobId);
             aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
+            // ルーブリック監査の行が永続化された後でしかギャップを判定できないため、この順序を保つこと。
+            remediationTaskOrchestrationService.generateForCompletedJob(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);

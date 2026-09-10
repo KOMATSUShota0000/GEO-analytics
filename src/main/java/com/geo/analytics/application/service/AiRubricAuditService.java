@@ -99,7 +99,7 @@ public class AiRubricAuditService {
                 return;
             }
             List<AuditHistoryEntity> audits = agg.auditHistories();
-            AuditHistoryEntity latest = pickLatestAuditHistory(audits);
+            AuditHistoryEntity latest = LatestAuditHistorySelector.pickLatest(audits);
             if (latest == null) {
                 return;
             }
@@ -131,22 +131,6 @@ public class AiRubricAuditService {
         } catch (RuntimeException ex) {
             log.warn("multi_domain_audit_after_job_failed jobId={}", jobId, ex);
         }
-    }
-
-    private static AuditHistoryEntity pickLatestAuditHistory(List<AuditHistoryEntity> audits) {
-        if (audits == null || audits.isEmpty()) {
-            return null;
-        }
-        return audits.stream()
-                .filter(Objects::nonNull)
-                .max(
-                        Comparator.comparing(
-                                        AuditHistoryEntity::getAuditDate,
-                                        Comparator.nullsFirst(Comparator.naturalOrder()))
-                                .thenComparing(
-                                        AuditHistoryEntity::getCreatedAt,
-                                        Comparator.nullsFirst(Comparator.naturalOrder())))
-                .orElse(null);
     }
 
     public Map<String, List<RubricAuditResult>> auditAllDomains(
