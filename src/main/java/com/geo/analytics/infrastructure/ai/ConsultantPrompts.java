@@ -88,6 +88,33 @@ public final class ConsultantPrompts {
             """.formatted(brandName, userQuery);
     }
 
+    /**
+     * ユーザーターン本文の単一情報源。
+     *
+     * <p>Why: リアルタイム経路（{@code GeminiVerificationAdapter}）とバッチ経路
+     * （{@code GeminiBatchPromptText}）が別々に本文を組み立てており、前者だけがクロール本文を渡していた。
+     * 同じ解析でもクエリ本数によって測定材料が変わるのに、保存される calculation_version は同一で
+     * 後から区別できない状態だった（ADR-039）。材料の有無で文面を切り替える判断をここへ集約し、
+     * 材料構成を変えるとき（#71）に直す場所を1箇所にする。{@code .cursorrules} 10節（SSOT）。
+     *
+     * @param clippedWebsiteText クリップ済みのクロール本文。null または空なら材料なしの文面を選ぶ
+     * @param jobPromptContext   ジョブ文脈の前置き。null または空なら前置きしない
+     */
+    public static String userBody(
+            String brandName,
+            String userQuery,
+            String clippedWebsiteText,
+            double domainTrustScore,
+            String technicalSeoEvidenceSummary,
+            String jobPromptContext) {
+        String body = clippedWebsiteText == null || clippedWebsiteText.isBlank()
+                ? userTextBrandQueryOnly(brandName, userQuery)
+                : userTextBrandQueryWithWebsiteExtract(
+                        brandName, userQuery, clippedWebsiteText, domainTrustScore, technicalSeoEvidenceSummary);
+        String ctx = jobPromptContext == null ? "" : jobPromptContext.strip();
+        return ctx.isEmpty() ? body : ctx + "\n\n" + body;
+    }
+
     /** クローラー抽出テキストをそのまま材料として渡す（LLM が解釈・リスク評価を行う）。 */
     public static String userTextBrandQueryWithWebsiteExtract(
             String brandName,

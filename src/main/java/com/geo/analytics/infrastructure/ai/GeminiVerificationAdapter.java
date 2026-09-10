@@ -67,7 +67,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private record PreparedHandoff(String userMessage) {}
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
-        String userBody;
         var crawled = verificationRequest.crawledContent();
         var clippedCrawl = crawled != null ? LlmWebsiteTextClip.clipWebsiteText(crawled) : null;
         if (clippedCrawl == null || clippedCrawl.isBlank()) {
@@ -75,29 +74,26 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     "Crawl data is empty/blank. Falling back to internal knowledge mode. brand=\"{}\" query=\"{}\"",
                     verificationRequest.brandName(),
                     verificationRequest.query());
-            userBody = ConsultantPrompts.userTextBrandQueryOnly(
-                    verificationRequest.brandName(), verificationRequest.query());
-        } else {
-            double trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
-            userBody = ConsultantPrompts.userTextBrandQueryWithWebsiteExtract(
-                    verificationRequest.brandName(),
-                    verificationRequest.query(),
-                    clippedCrawl,
-                    trust,
-                    verificationRequest.technicalSeoEvidenceSummary());
         }
-        return new PreparedHandoff(applyJobContextPrefix(verificationRequest, userBody));
+        double trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
+        return new PreparedHandoff(ConsultantPrompts.userBody(
+                verificationRequest.brandName(),
+                verificationRequest.query(),
+                clippedCrawl,
+                trust,
+                verificationRequest.technicalSeoEvidenceSummary(),
+                resolveJobPromptContext(verificationRequest)));
     }
 
-    private String applyJobContextPrefix(VerificationRequest verificationRequest, String userMessage) {
+    private String resolveJobPromptContext(VerificationRequest verificationRequest) {
         UUID jobId = verificationRequest.jobId();
         if (jobId == null) {
-            return userMessage;
+            return null;
         }
         return jobPersistenceService
                 .findJobByIdOptional(jobId)
-                .map(job -> JobPromptContextFormatter.format(job) + "\n\n" + userMessage)
-                .orElse(userMessage);
+                .map(JobPromptContextFormatter::format)
+                .orElse(null);
     }
 
     private static String evaluatedBrandLabel(VerificationRequest verificationRequest) {
