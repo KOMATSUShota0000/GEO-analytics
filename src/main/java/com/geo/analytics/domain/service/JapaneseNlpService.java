@@ -71,6 +71,37 @@ public final class JapaneseNlpService {
         return tokenize(text).size();
     }
 
+    /**
+     * 形態素の境界。{@code boundary} の添字は {@code text.strip()} 後の文字列の位置に対応し、
+     * 長さは文字列長 + 1。形態素が始まる位置と終わる位置が true になる。
+     */
+    public record TokenBoundaries(boolean[] boundary, int tokenCount) {}
+
+    /**
+     * Why: ブランド言及を数えるとき、語の途中への誤一致（「ガスト」が「ガストロノミー」の一部に一致する等）を
+     * 防ぐには形態素の境界が要る。表記キー（normalizedKey）は境界を失うため、位置情報をそのまま返す。
+     */
+    public TokenBoundaries tokenBoundaries(String text) {
+        if (text == null || text.isBlank()) {
+            return new TokenBoundaries(new boolean[1], 0);
+        }
+        String stripped = text.strip();
+        boolean[] boundary = new boolean[stripped.length() + 1];
+        var morphemes = tokenize(stripped);
+        for (var i = 0; i < morphemes.size(); i++) {
+            Morpheme m = morphemes.get(i);
+            int begin = m.begin();
+            int end = m.end();
+            if (begin >= 0 && begin < boundary.length) {
+                boundary[begin] = true;
+            }
+            if (end >= 0 && end < boundary.length) {
+                boundary[end] = true;
+            }
+        }
+        return new TokenBoundaries(boundary, morphemes.size());
+    }
+
     private MorphemeList tokenize(String text) {
         sudachiSemaphore.acquireUninterruptibly();
         Tokenizer tokenizer = null;
