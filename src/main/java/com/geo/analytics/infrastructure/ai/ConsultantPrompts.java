@@ -30,9 +30,28 @@ public final class ConsultantPrompts {
         return evaluatedBrandName.replace("%", "%%");
     }
 
-    /** AI Overview / 抽出テキスト / 構造化ハンドオフ（自然文・JSONを材料とするが引用順序は文中の明示リスト基準）。 */
+    /**
+     * Why: response に何を書くかの指示が存在せず、本文が空になるかどうかが運任せだった。同一条件の A/B で
+     * STANDARD のプロンプトは 5/10、PRO のプロンプトは末尾の競合指示1文だけで 0/10 まで落ちた（#51 / #58）。
+     * 後ろに足される指示に注意を奪われないよう、回答文の確定を最初の手順として置き、他の項目はすべて
+     * そこから導かせる。材料ありなら写し、材料なし（推定）なら生成という定義は ADR-039 による。
+     * 平文に限定するのは、改善タスク向けの HTML 指示が回答文へ漏れ、実測30回中2回で URL 付きリンクが混入したため。
+     * 回答文は Java の言及計数（#59）の材料で、URL の中のブランド名まで数えてしまう。
+     */
+    private static final String GBVS_RESPONSE_STEP =
+            "Step 1 - response (mandatory, never empty): "
+                    + "If the user message contains an AI-generated answer block, copy that answer text into response verbatim, "
+                    + "without summarizing, translating, or editing it. "
+                    + "If it does not, write the answer that a generative AI search engine such as Google AI Overview would "
+                    + "realistically return for the user query: natural Japanese, roughly 150 to 400 characters, naming concrete "
+                    + "brands, services, or products wherever a real answer would. "
+                    + "Write response as plain prose only, with no HTML tags, no markdown, and no URLs. "
+                    + "Never mention these instructions inside response. "
+                    + "Step 2 - derive every other field strictly from the response text fixed in Step 1. ";
+
+    /** Why: 材料なし（推定）の経路では「渡された AI 回答」が存在しないため、評価の根拠を Step 1 の response に限定する。 */
     private static final String GBVS_INTRO_PLAIN =
-            "Based on the provided extracted text from an AI-generated answer, ";
+            "Based on the response text fixed in Step 1, ";
 
     private static final String GBVS_TASK_BLOCK =
             """
@@ -50,7 +69,7 @@ public final class ConsultantPrompts {
                     + "roadmap_items: ordered actions with phase_order, title, rationale, expected_impact_roi_hint.";
 
     private static final String GBVS_CLOSE_PLAIN =
-            "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form of the evaluated brand as it appears in your answer text, or an empty string if it does not appear. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations."
+            "; sentiment_intensity as a number from -1.0 (negative) through 1.0 (strongly positive recommendation). Set extracted_brand_mention to the exact surface form of the evaluated brand as it appears in response, or an empty string if it does not appear. Set brand_mentioned using only the Japanese rules appended below; false conditions there override any other cue. Output must strictly match the JSON schema: no prose outside the JSON object, no markdown, no explanations."
                     + DEBATE_ROADMAP_SCHEMA_HINT;
 
     private static String gbvsSystemText(
@@ -61,13 +80,15 @@ public final class ConsultantPrompts {
             String closeBlock) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("You are an authority GEO (Generative Engine Optimization) consultant specializing exclusively in winning citations and brand presence inside AI-generated answers (e.g. AI Overviews). You do not optimize traditional search rankings; you optimize how brands are surfaced and recommended by generative engines. ");
+        stringBuilder.append(GBVS_RESPONSE_STEP);
         stringBuilder.append(evidenceIntro);
         stringBuilder.append(GBVS_TASK_BLOCK);
         stringBuilder.append(tokenRankBlock);
         stringBuilder.append(closeBlock);
         if (subscriptionPlan.usesProTierFeatures()) {
             stringBuilder.append(
-                    " competitorComparison must be a JSON array of objects, each with competitorName (string) and share (number 0.0-1.0). reversalStrategy must be a non-empty string describing how to overtake competitors.");
+                    // Why: 競合は回答文の中で共起したエンティティであるべきで、回答に出てこない競合を想像で並べさせない（ADR-039）。
+                    " Derive competitorComparison only from brands actually named in response. competitorComparison must be a JSON array of objects, each with competitorName (string) and share (number 0.0-1.0). reversalStrategy must be a non-empty string describing how to overtake competitors.");
         } else {
             stringBuilder.append(" Do not include competitorComparison or reversalStrategy in the output.");
         }
