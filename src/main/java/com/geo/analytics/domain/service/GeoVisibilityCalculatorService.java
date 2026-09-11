@@ -52,22 +52,6 @@ public final class GeoVisibilityCalculatorService {
     /** ローカル業種のみ権威軸へ加点する MEO(クチコミ)サブ指標の上限。第三者中核20＋ローカルサブ10で④軸30を構成。 */
     private static final double MAX_MEO_LOCAL_SUB = 10.0d;
 
-    /**
-     * ブランド別名をカンマ区切りで分割（後段の LLM ハンドオフ用のユーティリティ）。
-     */
-    public static List<String> splitBrandAliasPhrases(String primary, String fallback) {
-        if (primary != null && !primary.isBlank()) {
-            return Arrays.stream(primary.split("[,、]"))
-                    .map(String::trim)
-                    .filter(s -> !s.isBlank())
-                    .toList();
-        }
-        if (fallback != null && !fallback.isBlank()) {
-            return List.of(fallback.strip());
-        }
-        return List.of();
-    }
-
     public static double calculateFinalGeoScore(
             double contentScore, double machineReadabilityScore, double authorityScore) {
         // V13_GEO4AXIS: コンテンツ50＋技術20＋権威30＝100。権威軸を全業種で常時適用するため天井は
