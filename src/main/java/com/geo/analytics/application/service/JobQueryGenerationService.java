@@ -1,6 +1,7 @@
 package com.geo.analytics.application.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.domain.model.QueryMixPlan;
 import com.geo.analytics.application.dto.GeneratedQueries;
 import com.geo.analytics.infrastructure.ai.QueryGenerationPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
@@ -48,11 +49,17 @@ public class JobQueryGenerationService {
             String focusPoints,
             int desiredCount) {
         int target = Math.max(1, desiredCount);
+        QueryMixPlan plannedMix = QueryMixPlan.forTotal(target);
         LinkedHashSet<String> queries = new LinkedHashSet<>();
         String brandQuery = buildBrandQuery(brandName, targetUrl);
+        int brandedToRequest = plannedMix.brandedCount();
         if (!brandQuery.isBlank()) {
             queries.add(brandQuery);
+            // Why: 先頭のブランド直接検索は指名検索の1本として数える。ここを数えないと LLM 側へ
+            //      指名検索をもう1本余計に作らせ、一般検索の枠を食う（#87）。
+            brandedToRequest = Math.max(0, brandedToRequest - 1);
         }
+        QueryMixPlan requestMix = new QueryMixPlan(brandedToRequest, plannedMix.genericCount());
         if (queries.size() < target) {
             try {
                 String rawJson = queryGenerationChatModel.chat(ChatRequest.builder()
@@ -64,7 +71,7 @@ public class JobQueryGenerationService {
                                                 businessSummary,
                                                 targetAudience,
                                                 focusPoints,
-                                                target)))
+                                                requestMix)))
                                 .build())
                         .aiMessage()
                         .text();
@@ -94,7 +101,43 @@ public class JobQueryGenerationService {
         if (result.size() > target) {
             result = result.subList(0, target);
         }
+        logMixCompliance(brandName, plannedMix, result);
         return List.copyOf(result);
+    }
+
+    /**
+     * Why: 内訳はプロンプトで指示するだけで、LLM が守る保証がない。実測で検証できるよう、
+     * 計画と実際の本数をログに残す。旧実装は制約が無く、生成された10クエリの全部にブランド名が
+     * 入っていた（#87）。ここが常に一致しなければ、プロンプトでは不十分という判断材料になる。
+     */
+    private static void logMixCompliance(String brandName, QueryMixPlan planned, List<String> queries) {
+        String needle = brandName == null ? "" : brandName.strip().toLowerCase(Locale.ROOT);
+        int actualBranded = 0;
+        if (!needle.isEmpty()) {
+            for (String q : queries) {
+                if (q != null && q.toLowerCase(Locale.ROOT).contains(needle)) {
+                    actualBranded++;
+                }
+            }
+        }
+        int actualGeneric = queries.size() - actualBranded;
+        if (actualBranded > planned.brandedCount()) {
+            log.warn(
+                    "query_mix_over_branded brandName={} planned=branded:{}/generic:{} actual=branded:{}/generic:{}",
+                    brandName,
+                    planned.brandedCount(),
+                    planned.genericCount(),
+                    actualBranded,
+                    actualGeneric);
+            return;
+        }
+        log.info(
+                "query_mix brandName={} planned=branded:{}/generic:{} actual=branded:{}/generic:{}",
+                brandName,
+                planned.brandedCount(),
+                planned.genericCount(),
+                actualBranded,
+                actualGeneric);
     }
 
     /** ブランド名＋ドメインの確実なブランド軸クエリ（旧 JobController.defaultInitialQuery 相当）。 */
