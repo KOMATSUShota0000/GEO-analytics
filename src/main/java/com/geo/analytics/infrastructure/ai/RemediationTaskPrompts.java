@@ -22,10 +22,20 @@ public final class RemediationTaskPrompts {
 
     private RemediationTaskPrompts() {}
 
-    public static String systemPrompt(List<GapContext> gaps) {
-        StringBuilder sb = new StringBuilder(SYSTEM_PREFIX.length() + gaps.size() * 256);
-        sb.append(SYSTEM_PREFIX);
-        sb.append("\n--- ギャップ項目開始 ---\n");
+    /** ルールのみ。ギャップの実データは {@link #userPayload(List)} 側へ置く。 */
+    public static String systemInstruction() {
+        return SYSTEM_PREFIX;
+    }
+
+    /**
+     * Why: Gemini は contents（ユーザーターン）が空のリクエストを 400 で拒否する。
+     * 旧実装はギャップ本文までシステム指示に押し込み、ユーザーメッセージを持たなかったため
+     * 呼び出すと必ず失敗した（この経路は一度も実行されていなかったため露見していなかった）。
+     * ルールはシステム、判定対象のデータはユーザーターン、という他プロンプトと同じ構成に揃える。
+     */
+    public static String userPayload(List<GapContext> gaps) {
+        StringBuilder sb = new StringBuilder(gaps.size() * 256 + 64);
+        sb.append("--- ギャップ項目開始 ---\n");
         for (int i = 0; i < gaps.size(); i++) {
             GapContext g = gaps.get(i);
             sb.append("[")

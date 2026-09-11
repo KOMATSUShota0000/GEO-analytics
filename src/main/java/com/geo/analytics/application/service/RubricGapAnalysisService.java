@@ -16,6 +16,7 @@ import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -87,24 +88,36 @@ public class RubricGapAnalysisService {
                         .add(verdict);
             }
         }
-        ArrayList<String> gaps = new ArrayList<>(MAX_GAPS);
+        // Why: 旧実装は「自社が未達 かつ 競合が達成」の相対比較のみをギャップとしていたが、競合サイトの
+        //      ルーブリック監査は Sprint C5 で撤去済みで非自社行が生成されない（audit_rubric_results は
+        //      全行 is_self=true）。そのため常に空を返し、後続の改善タスク生成が一度も動かなかった。
+        //      判定を「自社が未達」という絶対条件へ変更し、競合行は順序付けの材料として扱う。
+        //      競合監査が復活した際（DEBATE-9）は compSet の有無がそのまま優先度に効くため、
+        //      この構造のまま相対ギャップを取り戻せる。
+        ArrayList<String> gaps = new ArrayList<>(selfVerdicts.size());
         for (Map.Entry<String, RubricVerdictStatus> entry : selfVerdicts.entrySet()) {
-            if (gaps.size() >= MAX_GAPS) {
-                break;
-            }
             RubricVerdictStatus selfStatus = entry.getValue();
             if (selfStatus != RubricVerdictStatus.NO && selfStatus != RubricVerdictStatus.PARTIAL) {
                 continue;
             }
-            LinkedHashSet<RubricVerdictStatus> compSet = competitorVerdicts.get(entry.getKey());
-            if (compSet == null || compSet.isEmpty()) {
-                continue;
-            }
-            if (compSet.contains(RubricVerdictStatus.YES)) {
-                gaps.add(entry.getKey());
-            }
+            gaps.add(entry.getKey());
         }
-        return List.copyOf(gaps);
+        gaps.sort(Comparator.comparingInt(criterion -> gapPriority(criterion, selfVerdicts, competitorVerdicts)));
+        return gaps.size() <= MAX_GAPS ? List.copyOf(gaps) : List.copyOf(gaps.subList(0, MAX_GAPS));
+    }
+
+    /**
+     * ギャップの深刻度。小さいほど優先。競合が達成している基準（相対的な劣後）を最優先し、
+     * 同条件なら未達（NO）を部分達成（PARTIAL）より前に置く。
+     */
+    private static int gapPriority(
+            String criterion,
+            Map<String, RubricVerdictStatus> selfVerdicts,
+            Map<String, LinkedHashSet<RubricVerdictStatus>> competitorVerdicts) {
+        LinkedHashSet<RubricVerdictStatus> compSet = competitorVerdicts.get(criterion);
+        boolean competitorAchieved = compSet != null && compSet.contains(RubricVerdictStatus.YES);
+        boolean selfUnmet = selfVerdicts.get(criterion) == RubricVerdictStatus.NO;
+        return (competitorAchieved ? 0 : 2) + (selfUnmet ? 0 : 1);
     }
 
     @Transactional

@@ -14,6 +14,7 @@ import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
 import com.geo.analytics.infrastructure.repository.AuditRubricResultRepository;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import jakarta.persistence.EntityNotFoundException;
@@ -67,7 +68,7 @@ public class AiRemediationService {
         if (gapCriterionIds == null || gapCriterionIds.isEmpty()) {
             return List.of();
         }
-        List<RemediationTaskPrompts.GapContext> contexts = buildGapContexts(auditHistoryId, gapCriterionIds);
+        List<RemediationTaskPrompts.GapContext> contexts = self.loadGapContexts(auditHistoryId, gapCriterionIds);
         if (contexts.isEmpty()) {
             return List.of();
         }
@@ -84,13 +85,27 @@ public class AiRemediationService {
         return tasks;
     }
 
+    /**
+     * Why: RLS のテナント GUC は {@code set_config(..., true)} でトランザクションローカルに設定される。
+     * トランザクション外でリポジトリを読むと GUC が未設定のまま評価され、行が存在しても RLS が全件を弾く。
+     * その結果ギャップの根拠が常に空になり、改善タスクが1件も生成されない。読み取りだけを明示的に
+     * トランザクション内へ閉じ込め、長時間かかる LLM 呼び出しはトランザクション外に残す。
+     */
+    @Transactional(readOnly = true)
+    public List<RemediationTaskPrompts.GapContext> loadGapContexts(
+            UUID auditHistoryId, List<String> gapCriterionIds) {
+        return buildGapContexts(auditHistoryId, gapCriterionIds);
+    }
+
     @CreditReservation(amount = REMEDIATION_CREDIT, settleNote = "ai_remediation_tasks")
     public List<RemediationTask> invokeLlmWithCreditReservation(
             UUID projectId, List<RemediationTaskPrompts.GapContext> contexts) {
         try {
             String rawJson = remediationChatModel
                     .chat(ChatRequest.builder()
-                            .messages(SystemMessage.from(RemediationTaskPrompts.systemPrompt(contexts)))
+                            .messages(
+                                    SystemMessage.from(RemediationTaskPrompts.systemInstruction()),
+                                    UserMessage.from(RemediationTaskPrompts.userPayload(contexts)))
                             .build())
                     .aiMessage()
                     .text();

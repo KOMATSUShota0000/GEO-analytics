@@ -27,7 +27,6 @@ import com.geo.analytics.web.dto.ResultDetailRanking;
 import com.geo.analytics.web.dto.ResultDetailResponse;
 import com.geo.analytics.web.dto.ResultSummaryResponse;
 import com.geo.analytics.web.dto.RemediationTaskResponse;
-import com.geo.analytics.web.dto.RemediationTaskResponseMask;
 import com.geo.analytics.web.dto.StreamErrorPayload;
 import com.geo.analytics.web.dto.TaskToneRegenerateRequest;
 import com.geo.analytics.web.dto.TaskToneRegenerateResponse;
@@ -254,8 +253,12 @@ public class JobController {
         JobAnalysisBenchmarkAssembler.BenchmarkAttach bench = jobAnalysisBenchmarkAssembler.attach(jobEnt);
         JobPersistenceService.JobAnalysisAttachment attachment =
                 jobPersistenceService.loadJobAnalysisAttachment(jobId, audits);
-        List<RemediationTaskResponse> remediationTasksMasked =
-                RemediationTaskResponseMask.apply(bench.factBasedScore(), attachment.remediationTasks());
+        // Why: 改善タスクの Teaser ロックを撤去した（#84）。旧実装は基礎スコアが閾値未満のとき本文を伏せていたが、
+        //      (1) 優先度が高いタスクほど高スコアを要求する循環（S級を読むには80点、80点にするにはS級の実行が必要）、
+        //      (2) スコア基準でありプラン基準でないためアップセル誘導として機能していない、
+        //      (3) 実測で全国チェーンのサイトでも基礎スコア32.5にとどまり閾値へ到達不能、
+        //      の3点により維持できないと判断。ゲート方式（プラン別/件数別/なし）の再設計は #84 で決める。
+        List<RemediationTaskResponse> remediationTasksMasked = attachment.remediationTasks();
         // AI認識状況（Sprint3）をジョブ単位に集約して露出する。スコア非算入の定性エビデンス（Sprint4a-2）。
         AiRecognitionSummaryResponse aiRecognitionSummary = AiRecognitionSummaryResponse.from(
                 AiRecognitionAggregator.aggregate(
