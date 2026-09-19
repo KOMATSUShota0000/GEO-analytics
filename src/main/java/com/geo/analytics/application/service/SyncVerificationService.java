@@ -4,7 +4,6 @@ import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.application.port.AiVerificationPort;
-import com.geo.analytics.application.port.WebCrawlerPort;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import org.springframework.stereotype.Service;
@@ -17,20 +16,14 @@ import java.util.UUID;
 public class SyncVerificationService {
     private final AiVerificationPort aiVerificationPort;
     private final SomScoreParser somScoreParser;
-    private final WebCrawlerPort webCrawlerPort;
-    private final DomainTrustService domainTrustService;
     private final JsonbOperations jsonbOperations;
 
     public SyncVerificationService(
             AiVerificationPort aiVerificationPort,
             SomScoreParser somScoreParser,
-            WebCrawlerPort webCrawlerPort,
-            DomainTrustService domainTrustService,
             JsonbOperations jsonbOperations) {
         this.aiVerificationPort = aiVerificationPort;
         this.somScoreParser = somScoreParser;
-        this.webCrawlerPort = webCrawlerPort;
-        this.domainTrustService = domainTrustService;
         this.jsonbOperations = jsonbOperations;
     }
 
@@ -54,61 +47,16 @@ public class SyncVerificationService {
             UUID jobId,
             UUID queryId,
             String canonicalMainBrand) {
-        var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
+        // Why: 材料なし（推定）で検証する。クロール本文を材料にする経路は撤去した（ADR-058）。
+        var verificationRequest = new VerificationRequest(
                 brandName,
                 query,
-                null,
-                null,
                 null,
                 subscriptionPlan,
                 jobId,
                 queryId,
                 canonicalMainBrand,
-                null,
-                null));
-        var verificationResponse = aiVerificationPort.verify(verificationRequest);
-        return toResult(verificationRequest, verificationResponse);
-    }
-
-    public SyncVerificationResult verifyWithUrl(
-            String brandName,
-            String query,
-            String url,
-            SubscriptionPlan subscriptionPlan) {
-        return verifyWithUrl(brandName, query, url, subscriptionPlan, null, null, null);
-    }
-
-    public SyncVerificationResult verifyWithUrl(
-            String brandName,
-            String query,
-            String url,
-            SubscriptionPlan subscriptionPlan,
-            UUID jobId,
-            UUID queryId) {
-        return verifyWithUrl(brandName, query, url, subscriptionPlan, jobId, queryId, null);
-    }
-
-    public SyncVerificationResult verifyWithUrl(
-            String brandName,
-            String query,
-            String url,
-            SubscriptionPlan subscriptionPlan,
-            UUID jobId,
-            UUID queryId,
-            String canonicalMainBrand) {
-        var crawledPageData = webCrawlerPort.extractContent(url);
-        var verificationRequest = domainTrustService.applyDomainPolicy(new VerificationRequest(
-                brandName,
-                query,
-                crawledPageData.url(),
-                crawledPageData.content(),
-                crawledPageData.contentHash(),
-                subscriptionPlan,
-                jobId,
-                queryId,
-                canonicalMainBrand,
-                null,
-                crawledPageData.seoTechnicalEvidenceSummary()));
+                null);
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
         return toResult(verificationRequest, verificationResponse);
     }
@@ -133,22 +81,19 @@ public class SyncVerificationService {
                 brandName,
                 query,
                 url,
-                null,
-                null,
                 subscriptionPlan,
                 jobId,
                 queryId,
                 canonicalMainBrand,
-                null,
-                null,
                 aiOverviewText);
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
         return toResult(verificationRequest, verificationResponse);
     }
 
     private SyncVerificationResult toResult(VerificationRequest appliedRequest, VerificationResponse verificationResponse) {
-        var content = appliedRequest.crawledContent();
-        int analysisTextLength = content != null ? content.length() : 0;
+        // Why: 解析に使った材料の長さ。材料は実測の AI Overview 本文で、取れなかったクエリは 0（ADR-058）。
+        var material = appliedRequest.aiOverviewText();
+        int analysisTextLength = material != null ? material.length() : 0;
         var consultantOutputData =
                 somScoreParser.parseConsultantOutput(verificationResponse.rawResponseJson());
         var insightsJson = serializeInsights(verificationResponse);

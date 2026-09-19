@@ -17,8 +17,7 @@ public final class GeminiBatchPromptText {
         //      userBody 側の優先順位（実測 > サイト本文 > 推定）に従って推定へ落ちる。
         String system = ConsultantPrompts.systemText(subscriptionPlan, brandName);
         String user = ConsultantPrompts.userBody(
-                brandName, batchQueryLine.queryText(), batchQueryLine.aiOverviewText(), null, 1.0, null,
-                jobPromptContext);
+                brandName, batchQueryLine.queryText(), batchQueryLine.aiOverviewText(), jobPromptContext);
         return system + "\n\n" + user;
     }
 }

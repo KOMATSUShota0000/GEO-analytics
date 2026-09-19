@@ -48,10 +48,6 @@ public final class GeoVisibilityCalculatorService {
     /** PWIM（ADR-017）順位ボーナス成分の重み。 */
     private static final double PWIM_BETA = 0.4d;
 
-    private static final double SOURCE_WEIGHT_HIGH = 1.5;
-    private static final double SOURCE_WEIGHT_MEDIUM = 1.0;
-    private static final double SOURCE_WEIGHT_LOW = 0.3;
-
     // GEO Readiness V13_GEO4AXIS の3軸配点（ADR-023）。MEO単独軸を「権威・エンティティ認知」へ昇華。
     /** コンテンツ素地（ルーブリックLLM10基準の合計）の上限。 */
     private static final double MAX_CONTENT = 50.0d;
@@ -164,38 +160,6 @@ public final class GeoVisibilityCalculatorService {
             if (!Double.isFinite(work[i])) {
                 work[i] = 0.0;
             }
-        }
-    }
-
-    public static double sourceWeightFromUrl(String url) {
-        if (url == null || url.isBlank()) {
-            return SOURCE_WEIGHT_LOW;
-        }
-        var normalized = url.strip().toLowerCase();
-        if (!normalized.contains("://")) {
-            if (normalized.startsWith("prtimes.jp") || normalized.startsWith("www.prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (normalized.startsWith("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        }
-        try {
-            var host = java.net.URI.create(normalized).getHost();
-            if (host == null || host.isBlank()) {
-                return SOURCE_WEIGHT_LOW;
-            }
-            var h = host.toLowerCase();
-            if (h.equals("prtimes.jp") || h.endsWith(".prtimes.jp")) {
-                return SOURCE_WEIGHT_HIGH;
-            }
-            if (h.equals("detail.chiebukuro.yahoo.co.jp")) {
-                return SOURCE_WEIGHT_MEDIUM;
-            }
-            return SOURCE_WEIGHT_LOW;
-        } catch (Exception ignored) {
-            return SOURCE_WEIGHT_LOW;
         }
     }
 
