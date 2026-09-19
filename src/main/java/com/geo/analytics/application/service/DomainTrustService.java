@@ -1,6 +1,5 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.domain.entity.RagDomainRuleEntity;
 import com.geo.analytics.domain.enums.RagDomainRuleKind;
 import com.geo.analytics.infrastructure.repository.RagDomainRuleRepository;
@@ -34,62 +33,6 @@ public class DomainTrustService {
 
     public void refreshCache() {
         cachedRules.set(ragDomainRuleRepository.findAllByActiveTrue());
-    }
-
-    public VerificationRequest applyDomainPolicy(VerificationRequest request) {
-        if (cachedRules.get().isEmpty()) {
-            refreshCache();
-        }
-        var content = request.crawledContent();
-        if (content == null || content.isBlank()) {
-            return request;
-        }
-        var url = request.url();
-        var host = hostFromUrl(url);
-        if (host.isEmpty()) {
-            log.warn("rag crawl excluded reason=invalid_host url={}", url);
-            return stripCrawl(request);
-        }
-        var h = host.toLowerCase(Locale.ROOT);
-        if (matchesTranslationHeuristic(h)) {
-            log.warn("rag crawl excluded reason=translation_host host={}", h);
-            return stripCrawl(request);
-        }
-        if (isBlockedByRule(h)) {
-            log.warn("rag crawl excluded reason=db_block host={}", h);
-            return stripCrawl(request);
-        }
-        // 自社の解析対象ページ（ユーザーが明示指定した target_url）は、日本ドメインか否かに関わらず必ず解析する。
-        // applyDomainPolicy はこの自社ページ経路でのみ呼ばれるため、旧 non_jp フィルタ（.jp 以外を破棄）は
-        // himawari-kai.org 等 .org/.com の日本企業サイトを誤って解析不能にしていた。明示ブロック/翻訳サイト除外は維持する。
-        var trust = resolveTrustBoost(h);
-        return new VerificationRequest(
-            request.brandName(),
-            request.query(),
-            request.url(),
-            request.crawledContent(),
-            request.contentHash(),
-            request.subscriptionPlan(),
-            request.jobId(),
-            request.queryId(),
-            request.canonicalMainBrand(),
-            trust,
-            request.technicalSeoEvidenceSummary());
-    }
-
-    private VerificationRequest stripCrawl(VerificationRequest request) {
-        return new VerificationRequest(
-            request.brandName(),
-            request.query(),
-            request.url(),
-            null,
-            null,
-            request.subscriptionPlan(),
-            request.jobId(),
-            request.queryId(),
-            request.canonicalMainBrand(),
-            null,
-            null);
     }
 
     private static String hostFromUrl(String url) {

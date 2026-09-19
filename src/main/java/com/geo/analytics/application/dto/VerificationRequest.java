@@ -4,43 +4,25 @@ import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import java.util.UUID;
 
+/**
+ * 検証1回分の入力。
+ *
+ * <p>Why: かつてはクロールした自社サイト本文とドメイン信頼度を材料として持っていたが、AI 回答内での
+ * 見え方を測る指標に自社サイト本文を混ぜるのは自作自演だった（ADR-039）。材料は実測の AI Overview
+ * （取れなければ材料なしの推定）に一本化し、クロール関連のフィールドを撤去した（ADR-058）。
+ */
 public record VerificationRequest(
     String brandName,
     String query,
     String url,
-    String crawledContent,
-    String contentHash,
     SubscriptionPlan subscriptionPlan,
     UUID jobId,
     UUID queryId,
     String canonicalMainBrand,
-    Double domainTrustScore,
-    String technicalSeoEvidenceSummary,
     String aiOverviewText
 ) {
     public VerificationRequest(String brandName, String query) {
-        this(brandName, query, null, null, null, SubscriptionPlan.STANDARD, null, null, null, null, null, null);
-    }
-
-    public VerificationRequest(String brandName, String query, String url, String crawledContent, String contentHash) {
-        this(brandName, query, url, crawledContent, contentHash, SubscriptionPlan.STANDARD, null, null, null, null, null, null);
-    }
-
-    /** AI Overview を材料にしない呼び出し（バッチ経路・test-sync）向けの形。 */
-    public VerificationRequest(
-            String brandName,
-            String query,
-            String url,
-            String crawledContent,
-            String contentHash,
-            SubscriptionPlan subscriptionPlan,
-            UUID jobId,
-            UUID queryId,
-            String canonicalMainBrand,
-            Double domainTrustScore,
-            String technicalSeoEvidenceSummary) {
-        this(brandName, query, url, crawledContent, contentHash, subscriptionPlan, jobId, queryId,
-                canonicalMainBrand, domainTrustScore, technicalSeoEvidenceSummary, null);
+        this(brandName, query, null, SubscriptionPlan.STANDARD, null, null, null, null);
     }
 
     public VerificationRequest {
@@ -58,7 +40,7 @@ public record VerificationRequest(
     /**
      * 材料の出どころ。
      *
-     * <p>Why: 材料の有無から一意に決まるため、別フィールドとして持たせて食い違う状態を作らない（#92）。
+     * <p>Why: 材料の有無から一意に決まるため、別フィールドに持たせて食い違う状態を作らない（#92）。
      */
     public MaterialSource materialSource() {
         return aiOverviewText != null && !aiOverviewText.isBlank()

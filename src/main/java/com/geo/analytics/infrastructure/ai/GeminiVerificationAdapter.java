@@ -69,10 +69,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
         var aiOverviewText = verificationRequest.aiOverviewText();
-        var crawled = verificationRequest.crawledContent();
-        var clippedCrawl = crawled != null ? LlmWebsiteTextClip.clipWebsiteText(crawled) : null;
-        boolean hasAiOverview = aiOverviewText != null && !aiOverviewText.isBlank();
-        if (!hasAiOverview && (clippedCrawl == null || clippedCrawl.isBlank())) {
+        if (aiOverviewText == null || aiOverviewText.isBlank()) {
             log.info(
                     "verification_material=estimated brand=\"{}\" query=\"{}\" jobId={} queryId={}",
                     verificationRequest.brandName(),
@@ -80,14 +77,10 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                     verificationRequest.jobId(),
                     verificationRequest.queryId());
         }
-        double trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
         return new PreparedHandoff(ConsultantPrompts.userBody(
                 verificationRequest.brandName(),
                 verificationRequest.query(),
                 aiOverviewText,
-                clippedCrawl,
-                trust,
-                verificationRequest.technicalSeoEvidenceSummary(),
                 resolveJobPromptContext(verificationRequest)));
     }
 
@@ -267,21 +260,10 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 resolved,
                 gbvs.visibilityStage(),
                 gbvs.modifiedZScore(),
-                calculationVersionFor(verificationRequest),
+                GeoVisibilityCalculatorService.CALCULATION_VERSION_AIOVERVIEW,
                 compList,
                 new LinkedHashMap<>(),
                 gbvsNormalizedScore);
-    }
-
-    /**
-     * Why: 材料が変われば同じ式でも別の測定になる。サイト本文を材料にしている旧経路（test-sync。#68 で解消予定）は
-     * 旧版名のまま残し、AI Overview またはその推定を材料にする経路だけ新版名で記録する（ADR-039 / #92）。
-     */
-    private static String calculationVersionFor(VerificationRequest verificationRequest) {
-        var crawled = verificationRequest.crawledContent();
-        return crawled != null && !crawled.isBlank()
-                ? GeoVisibilityCalculatorService.CALCULATION_VERSION
-                : GeoVisibilityCalculatorService.CALCULATION_VERSION_AIOVERVIEW;
     }
 
     /** 引用順位の比較対象。回答文に実際に名前が出たブランドを LLM が挙げたもの（名前は LLM、順序は Java）。 */

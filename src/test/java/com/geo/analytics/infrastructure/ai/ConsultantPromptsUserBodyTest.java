@@ -18,7 +18,7 @@ class ConsultantPromptsUserBodyTest {
 
     @Test
     void 実測のAI_Overviewがあればそれを材料に選ぶ() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, "AI回答本文", "サイト本文", 0.5, "Schema.org: 実装あり", null);
+        String body = ConsultantPrompts.userBody(BRAND, QUERY, "AI回答本文", null);
 
         assertThat(body).isEqualTo(ConsultantPrompts.userTextBrandQueryWithAiOverview(BRAND, QUERY, "AI回答本文"));
     }
@@ -34,39 +34,29 @@ class ConsultantPromptsUserBodyTest {
     }
 
     @Test
-    void AI_Overviewが空白だけならサイト本文へ落ちる() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, "   ", "サイト本文", 0.5, null, null);
-
-        assertThat(body)
-                .isEqualTo(ConsultantPrompts.userTextBrandQueryWithWebsiteExtract(BRAND, QUERY, "サイト本文", 0.5, null));
-    }
-
-    @Test
     void 材料が無ければクエリのみの文面を選ぶ() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, null, 1.0, null, null);
+        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, null);
 
         assertThat(body).isEqualTo(ConsultantPrompts.userTextBrandQueryOnly(BRAND, QUERY));
     }
 
     @Test
     void 材料が空白だけでもクエリのみの文面を選ぶ() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, "   ", 1.0, null, null);
+        String body = ConsultantPrompts.userBody(BRAND, QUERY, "   ", null);
 
         assertThat(body).isEqualTo(ConsultantPrompts.userTextBrandQueryOnly(BRAND, QUERY));
     }
 
     @Test
-    void 材料があればクロール本文の文面を選ぶ() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, "サイト本文", 0.5, "Schema.org: 実装あり", null);
+    void AI_Overviewが空白だけなら材料なしの文面を選ぶ() {
+        String body = ConsultantPrompts.userBody(BRAND, QUERY, "   ", null);
 
-        assertThat(body)
-                .isEqualTo(ConsultantPrompts.userTextBrandQueryWithWebsiteExtract(
-                        BRAND, QUERY, "サイト本文", 0.5, "Schema.org: 実装あり"));
+        assertThat(body).isEqualTo(ConsultantPrompts.userTextBrandQueryOnly(BRAND, QUERY));
     }
 
     @Test
     void ジョブ文脈は本文の前に空行2つで前置きされる() {
-        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, null, 1.0, null, CTX);
+        String body = ConsultantPrompts.userBody(BRAND, QUERY, null, CTX);
 
         assertThat(body).isEqualTo(CTX + "\n\n" + ConsultantPrompts.userTextBrandQueryOnly(BRAND, QUERY));
     }
@@ -75,8 +65,8 @@ class ConsultantPromptsUserBodyTest {
     void ジョブ文脈が空なら前置きしない() {
         String expected = ConsultantPrompts.userTextBrandQueryOnly(BRAND, QUERY);
 
-        assertThat(ConsultantPrompts.userBody(BRAND, QUERY, null, null, 1.0, null, "   ")).isEqualTo(expected);
-        assertThat(ConsultantPrompts.userBody(BRAND, QUERY, null, null, 1.0, null, null)).isEqualTo(expected);
+        assertThat(ConsultantPrompts.userBody(BRAND, QUERY, null, "   ")).isEqualTo(expected);
+        assertThat(ConsultantPrompts.userBody(BRAND, QUERY, null, null)).isEqualTo(expected);
     }
 
     @Test
@@ -88,7 +78,7 @@ class ConsultantPromptsUserBodyTest {
         assertThat(combined)
                 .isEqualTo(ConsultantPrompts.systemText(SubscriptionPlan.PRO, BRAND)
                         + "\n\n"
-                        + ConsultantPrompts.userBody(BRAND, QUERY, null, null, 1.0, null, CTX));
+                        + ConsultantPrompts.userBody(BRAND, QUERY, null, CTX));
     }
 
     @Test
