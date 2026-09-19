@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.AiRecognitionState;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
 import java.lang.StrictMath;
@@ -31,6 +32,7 @@ public record ResultDetailResponse(
     String visibilityStageNarrative,
     Double visibilityStageProgress,
     String calculationVersion,
+    MaterialSource materialSource,
     Boolean negativeAlert,
     AiRecognitionState aiRecognitionState,
     Double modifiedZScore,
@@ -59,6 +61,7 @@ public record ResultDetailResponse(
                 visibilityStageNarrative,
                 visibilityStageProgress,
                 calculationVersion,
+                materialSource,
                 negativeAlert,
                 aiRecognitionState,
                 modifiedZScore,
@@ -108,6 +111,7 @@ public record ResultDetailResponse(
             stageDef.narrative(),
             stageDef.progressRate(),
             auditHistoryEntity.getCalculationVersion(),
+            auditHistoryEntity.getMaterialSource(),
             Boolean.TRUE.equals(auditHistoryEntity.getNegativeAlert()),
             auditHistoryEntity.getAiRecognitionState(),
             mz,
