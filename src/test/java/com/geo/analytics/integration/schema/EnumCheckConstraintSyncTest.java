@@ -8,6 +8,7 @@ import com.geo.analytics.domain.enums.AnalysisPriority;
 import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
 import com.geo.analytics.domain.enums.PreferredEngine;
 import com.geo.analytics.domain.enums.RagDomainRuleKind;
@@ -68,6 +69,7 @@ class EnumCheckConstraintSyncTest extends PostgresTestBase {
                 new EnumColumn(IndustryType.class, "projects", "industry_type"),
                 new EnumColumn(TransactionType.class, "wallet_transactions", "transaction_type"),
                 new EnumColumn(AiRecognitionState.class, "audit_histories", "ai_recognition_state"),
+                new EnumColumn(MaterialSource.class, "audit_histories", "material_source"),
                 new EnumColumn(AnalysisPriority.class, "project_keywords", "analysis_priority"),
                 new EnumColumn(PreferredEngine.class, "project_keywords", "preferred_engine"),
                 new EnumColumn(RagDomainRuleKind.class, "rag_domain_rules", "rule_kind"));

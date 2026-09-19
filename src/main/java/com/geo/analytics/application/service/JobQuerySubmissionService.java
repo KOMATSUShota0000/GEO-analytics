@@ -16,6 +16,7 @@ import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
 import com.geo.analytics.infrastructure.tenant.ContextPropagator;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantPlanScope;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class JobQuerySubmissionService {
@@ -201,9 +203,8 @@ public class JobQuerySubmissionService {
             UUID batchTenantId) {
         if (realtime) {
             jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, planEnum);
-            JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
-            List<QueryEntity> queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-            asyncSgeMeasurementService.measureSgeForJob(jobEntity, queryEntities);
+            // Why: リアルタイム経路はクエリごとに「AI Overview 取得 → そのクエリの検証」と直列に処理する（#92）。
+            //      ここでジョブ全体の非同期取得も走らせると SerpAPI を二重に叩き、原価が倍になる。
             executeImmediateParallelProcessing(jobId);
             return;
         }
@@ -240,6 +241,7 @@ public class JobQuerySubmissionService {
         var queryEntities = jobPersistenceService.findQueriesByJobId(jobId);
         var tenantId = Objects.requireNonNullElse(jobEntity.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         var appliedPlan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
+        var measuredCounter = new AtomicInteger();
         @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = queryEntities.stream()
                 .map(qe -> CompletableFuture.runAsync(
@@ -247,7 +249,8 @@ public class JobQuerySubmissionService {
                                 () -> {
                                     try {
                                         processOneQueryRealtimeCore(
-                                                jobId, tenantId, brandName, targetUrl, qe, appliedPlan);
+                                                jobEntity, tenantId, brandName, targetUrl, qe, appliedPlan,
+                                                measuredCounter);
                                     } catch (Throwable x) {
                                         quotaManager.addTokens(
                                                 tenantId,
@@ -259,6 +262,11 @@ public class JobQuerySubmissionService {
                 .toArray(CompletableFuture[]::new);
         try {
             CompletableFuture.allOf(futures).join();
+            log.info(
+                    "material_mix jobId={} measured={} estimated={}",
+                    jobId,
+                    measuredCounter.get(),
+                    queryEntities.size() - measuredCounter.get());
             jobBenchmarkCaptureService.capture(jobId);
             aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
             // ルーブリック監査の行が永続化された後でしかギャップを判定できないため、この順序を保つこと。
@@ -293,30 +301,37 @@ public class JobQuerySubmissionService {
     }
 
     private void processOneQueryRealtimeCore(
-            UUID jobId,
+            JobEntity jobEntity,
             UUID tenantId,
             String brandName,
             String targetUrl,
             QueryEntity queryEntity,
-            SubscriptionPlan appliedPlan) {
-        // target_url がある場合は自社ページをクロールして実コンテンツで SoM 解析する。
-        // URL 未設定の旧ジョブのみ内部知識モード（クロールなし）にフォールバックする。
-        var syncVerificationResult = targetUrl != null && !targetUrl.isBlank()
-                ? syncVerificationService.verifyWithUrl(
-                        brandName,
-                        queryEntity.getQueryText(),
-                        targetUrl,
-                        appliedPlan,
-                        jobId,
-                        queryEntity.getId(),
-                        brandName)
-                : syncVerificationService.verify(
-                        brandName,
-                        queryEntity.getQueryText(),
-                        appliedPlan,
-                        jobId,
-                        queryEntity.getId(),
-                        brandName);
+            SubscriptionPlan appliedPlan,
+            AtomicInteger measuredCounter) {
+        UUID jobId = jobEntity.getId();
+        // Why: 検証の材料は実測の AI Overview（ADR-039）。このクエリ分を取得してから、その本文を材料に検証する。
+        //      旧実装はクロールした自社サイト本文を材料にしており、AI 回答内での見え方を測れていなかった。
+        var sgeMentionResult = asyncSgeMeasurementService.measureAndPersistForQuery(jobEntity, queryEntity);
+        String aiOverviewText = sgeMentionResult.bodyText();
+        boolean measured = aiOverviewText != null && !aiOverviewText.isBlank();
+        if (measured) {
+            measuredCounter.incrementAndGet();
+        }
+        log.info(
+                "material jobId={} queryId={} source={} mentionCount={}",
+                jobId,
+                queryEntity.getId(),
+                measured ? "measured" : "estimated",
+                sgeMentionResult.mentionCount());
+        var syncVerificationResult = syncVerificationService.verifyWithAiOverview(
+                brandName,
+                queryEntity.getQueryText(),
+                targetUrl,
+                measured ? aiOverviewText : null,
+                appliedPlan,
+                jobId,
+                queryEntity.getId(),
+                brandName);
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
         try {
@@ -369,7 +384,8 @@ public class JobQuerySubmissionService {
                 syncVerificationResult.calculationVersion(),
                 modifiedZ,
                 gbvsNorm,
-                syncVerificationResult.modelInsightsJson());
+                syncVerificationResult.modelInsightsJson(),
+                measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED);
     }
 
     private static String failurePreview(Throwable t) {

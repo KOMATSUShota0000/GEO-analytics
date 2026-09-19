@@ -1,5 +1,6 @@
 package com.geo.analytics.domain.entity;
 import com.geo.analytics.domain.enums.AiRecognitionState;
+import com.geo.analytics.domain.enums.MaterialSource;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -65,6 +66,10 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "ai_recognition_state", length = 32)
     private AiRecognitionState aiRecognitionState;
+    // 検証に使った材料の出どころ。実測のAI Overviewか、LLM生成の推定か（#92 / ADR-039）。表示での区別は #93。
+    @Enumerated(EnumType.STRING)
+    @Column(name = "material_source", length = 16, nullable = false)
+    private MaterialSource materialSource = MaterialSource.ESTIMATED;
     @Column(name = "modified_z_score")
     private Double modifiedZScore;
     @Column(name = "diagnostic_message", columnDefinition = "text")
@@ -177,6 +182,14 @@ public class AuditHistoryEntity extends BaseTenantEntity {
     public String getCalculationVersion() {
         return calculationVersion;
     }
+    public MaterialSource getMaterialSource() {
+        return materialSource;
+    }
+
+    public void setMaterialSource(MaterialSource materialSource) {
+        this.materialSource = materialSource != null ? materialSource : MaterialSource.ESTIMATED;
+    }
+
     public void setCalculationVersion(String calculationVersion) {
         this.calculationVersion = calculationVersion;
     }

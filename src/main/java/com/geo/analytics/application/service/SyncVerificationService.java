@@ -113,6 +113,39 @@ public class SyncVerificationService {
         return toResult(verificationRequest, verificationResponse);
     }
 
+    /**
+     * 実測の AI Overview 本文を材料に検証する（#92 / ADR-039）。
+     *
+     * <p>Why: クロールした自社サイト本文は「AI 回答内での見え方」の材料にならない。この経路ではクロールを行わず、
+     * 材料は AI Overview 本文のみとする。取得できなかったクエリは材料なし（推定）で検証する。url は引き続き渡す
+     * （ドメイン由来の重み付けが従来どおり効くようにするため。重み自体の撤去は #60）。
+     */
+    public SyncVerificationResult verifyWithAiOverview(
+            String brandName,
+            String query,
+            String url,
+            String aiOverviewText,
+            SubscriptionPlan subscriptionPlan,
+            UUID jobId,
+            UUID queryId,
+            String canonicalMainBrand) {
+        var verificationRequest = new VerificationRequest(
+                brandName,
+                query,
+                url,
+                null,
+                null,
+                subscriptionPlan,
+                jobId,
+                queryId,
+                canonicalMainBrand,
+                null,
+                null,
+                aiOverviewText);
+        var verificationResponse = aiVerificationPort.verify(verificationRequest);
+        return toResult(verificationRequest, verificationResponse);
+    }
+
     private SyncVerificationResult toResult(VerificationRequest appliedRequest, VerificationResponse verificationResponse) {
         var content = appliedRequest.crawledContent();
         int analysisTextLength = content != null ? content.length() : 0;

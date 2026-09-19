@@ -212,7 +212,7 @@ public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
                     brandName,
                     query,
                     organicCount);
-            return new SgeMentionResult(false, 0, body);
+            return new SgeMentionResult(false, 0, body, "");
         }
         JsonNode resolvedRoot = resolveAiOverviewBody(root, searchQuery);
         String overviewBody = AiOverviewPayload.bodyText(resolvedRoot);
@@ -222,7 +222,7 @@ public class GeoCompetitorSearchAdapter implements SgeMeasurementPort {
                     searchQuery);
         }
         int mentionCount = AiOverviewPayload.countBrandMentions(overviewBody, brandName);
-        return new SgeMentionResult(mentionCount > 0, mentionCount, writeJsonOrFallback(resolvedRoot, body));
+        return new SgeMentionResult(mentionCount > 0, mentionCount, writeJsonOrFallback(resolvedRoot, body), overviewBody);
     }
 
     /**

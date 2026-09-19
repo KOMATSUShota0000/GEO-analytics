@@ -67,18 +67,23 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private record PreparedHandoff(String userMessage) {}
 
     private PreparedHandoff prepareHandoff(VerificationRequest verificationRequest) {
+        var aiOverviewText = verificationRequest.aiOverviewText();
         var crawled = verificationRequest.crawledContent();
         var clippedCrawl = crawled != null ? LlmWebsiteTextClip.clipWebsiteText(crawled) : null;
-        if (clippedCrawl == null || clippedCrawl.isBlank()) {
-            log.warn(
-                    "Crawl data is empty/blank. Falling back to internal knowledge mode. brand=\"{}\" query=\"{}\"",
+        boolean hasAiOverview = aiOverviewText != null && !aiOverviewText.isBlank();
+        if (!hasAiOverview && (clippedCrawl == null || clippedCrawl.isBlank())) {
+            log.info(
+                    "verification_material=estimated brand=\"{}\" query=\"{}\" jobId={} queryId={}",
                     verificationRequest.brandName(),
-                    verificationRequest.query());
+                    verificationRequest.query(),
+                    verificationRequest.jobId(),
+                    verificationRequest.queryId());
         }
         double trust = verificationRequest.domainTrustScore() != null ? verificationRequest.domainTrustScore() : 1.0;
         return new PreparedHandoff(ConsultantPrompts.userBody(
                 verificationRequest.brandName(),
                 verificationRequest.query(),
+                aiOverviewText,
                 clippedCrawl,
                 trust,
                 verificationRequest.technicalSeoEvidenceSummary(),
@@ -234,10 +239,21 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 resolved,
                 gbvs.visibilityStage(),
                 gbvs.modifiedZScore(),
-                GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                calculationVersionFor(verificationRequest),
                 compList,
                 new LinkedHashMap<>(),
                 gbvsNormalizedScore);
+    }
+
+    /**
+     * Why: 材料が変われば同じ式でも別の測定になる。サイト本文を材料にしている旧経路（test-sync。#68 で解消予定）は
+     * 旧版名のまま残し、AI Overview またはその推定を材料にする経路だけ新版名で記録する（ADR-039 / #92）。
+     */
+    private static String calculationVersionFor(VerificationRequest verificationRequest) {
+        var crawled = verificationRequest.crawledContent();
+        return crawled != null && !crawled.isBlank()
+                ? GeoVisibilityCalculatorService.CALCULATION_VERSION
+                : GeoVisibilityCalculatorService.CALCULATION_VERSION_AIOVERVIEW;
     }
 
     private static String formatGeminiErrorDetail(Throwable throwable) {
