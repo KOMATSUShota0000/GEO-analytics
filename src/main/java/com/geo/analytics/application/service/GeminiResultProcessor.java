@@ -10,10 +10,10 @@ import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
-import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
@@ -40,7 +40,6 @@ public class GeminiResultProcessor {
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
     private final EntityNormalizer entityNormalizer;
-    private final JapaneseNlpService japaneseNlpService;
     private final BrandMentionEngine brandMentionEngine;
     private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
@@ -52,7 +51,6 @@ public class GeminiResultProcessor {
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations,
             EntityNormalizer entityNormalizer,
-            JapaneseNlpService japaneseNlpService,
             BrandMentionEngine brandMentionEngine,
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
@@ -63,7 +61,6 @@ public class GeminiResultProcessor {
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
         this.entityNormalizer = entityNormalizer;
-        this.japaneseNlpService = japaneseNlpService;
         this.brandMentionEngine = brandMentionEngine;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
@@ -99,8 +96,9 @@ public class GeminiResultProcessor {
                 String nlpSource = consultantOutputData.response() != null
                     ? consultantOutputData.response().strip()
                     : "";
-                int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
-                int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
+                // Why: 言及回数・言及文字数・トークン数はすべて Java の実測値にする（#59 / #60）。
+                BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, mainBrand);
+                int responseTokenLength = measuredMention.totalTokens();
                 double stuffingDensity = 0.0;
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, isProPlan);
                 // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。バッチ経路も同期経路と同じ規則にする。
@@ -109,7 +107,8 @@ public class GeminiResultProcessor {
                 SomScoreData measuredMetrics = metrics.withAiCitationPosition(
                         measuredCitationPosition > 0 ? measuredCitationPosition : null);
                 SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
-                        plan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, 0.3);
+                        plan, si, responseTokenLength, measuredMention.mentionCount(),
+                        measuredMention.mentionChars(), stuffingDensity);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException

@@ -21,24 +21,33 @@ public record SomScoreData(
         return new SomScoreData(tokenCount, measuredPosition, sentimentIntensity, brandMentioned);
     }
 
+    /**
+     * スコアの入力を Java の実測値で組み立てる（#60）。
+     *
+     * <p>Why: 旧実装は LLM 自己申告の「言及文字数」を {@code nounCount}（回数）へ渡しており、計算式が
+     * 「文字数 ÷ トークン数」という単位の合わない割り算になっていた。回数・文字数・トークン数はすべて
+     * {@code BrandMentionEngine} の実測値を渡す（.cursorrules 12節）。LLM 申告の token_count は使わない。
+     *
+     * @param measuredMentionCount 回答文中のブランド言及回数（Java 実測）
+     * @param measuredMentionChars 言及箇所の文字数（Java 実測）
+     * @param measuredTokenCount   回答文の形態素トークン数（Java 実測）
+     */
     public SomRawMetrics toRawMetrics(
             SubscriptionPlan subscriptionPlan,
             double normalizedSentimentIntensity,
-            int nlpResponseTokenLength,
-            int nlpNounCount,
-            double stuffingDensity,
-            double sourceWeight) {
-        int tc = tokenCount != null ? tokenCount : 0;
+            int measuredTokenCount,
+            int measuredMentionCount,
+            int measuredMentionChars,
+            double stuffingDensity) {
         boolean mentioned = Boolean.TRUE.equals(brandMentioned);
         return new SomRawMetrics(
-                tc,
+                measuredMentionChars,
                 aiCitationPosition,
                 normalizedSentimentIntensity,
                 subscriptionPlan.usesProTierFeatures(),
                 mentioned,
-                nlpNounCount,
+                measuredMentionCount,
                 stuffingDensity,
-                nlpResponseTokenLength,
-                sourceWeight);
+                measuredTokenCount);
     }
 }
