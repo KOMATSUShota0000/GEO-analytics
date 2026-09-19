@@ -364,6 +364,9 @@ export interface ResultDetail {
   tokenCount?: number;
   aiCitationPosition?: number | null;
   sentimentIntensity?: number;
+  /** AI 回答での語られ方を 0〜100 にした評判スコア。言及の無いクエリは null（#62） */
+  reputationScore?: number | null;
+  reputationBand?: "HIGH" | "MEDIUM" | "LOW" | null;
   resolvedEntityLabel?: string | null;
   visibilityStage?: number | null;
   visibilityStageBand?: string | null;
@@ -523,6 +526,8 @@ export interface JobAnalysisDetail {
   jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
   factBasedScore?: number;
+  /** 評判が付いたクエリの平均（0〜100）。1件も付かなければ null（#62） */
+  reputationAverage?: number | null;
   scoreBreakdown?: ScoreBreakdown | null;
   contentEvidence?: ContentEvidenceItem[];
   // 「AIが読みやすい構造」軸のサイト固有エビデンス（Schema.org/H1/robots等の実クロール所見の要約文）。
@@ -669,6 +674,11 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
       : typeof dmRaw === "string"
         ? dmRaw
         : null;
+  const rsRaw = r.reputationScore !== undefined ? r.reputationScore : r.reputation_score;
+  const reputationScore = typeof rsRaw === "number" && !Number.isNaN(rsRaw) ? rsRaw : null;
+  const rbRaw = r.reputationBand !== undefined ? r.reputationBand : r.reputation_band;
+  const reputationBand =
+    rbRaw === "HIGH" || rbRaw === "MEDIUM" || rbRaw === "LOW" ? rbRaw : null;
   const naRaw = r.negativeAlert;
   const msRaw = r.materialSource !== undefined ? r.materialSource : r.material_source;
   const materialSource =
@@ -684,6 +694,8 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     tokenCount: tc !== undefined && !Number.isNaN(tc) ? tc : undefined,
     aiCitationPosition,
     sentimentIntensity: si !== undefined && !Number.isNaN(si) ? si : undefined,
+    reputationScore,
+    reputationBand,
     resolvedEntityLabel,
     visibilityStage: vs !== undefined && !Number.isNaN(vs) ? vs : null,
     visibilityStageBand: typeof vsbRaw === "string" ? vsbRaw : undefined,
@@ -804,6 +816,9 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       : typeof r.jobMedianVisibilityStage === "number" && !Number.isNaN(r.jobMedianVisibilityStage)
         ? r.jobMedianVisibilityStage
         : null;
+  const repAvgRaw = r.reputationAverage ?? r.reputation_average;
+  const reputationAverage =
+    typeof repAvgRaw === "number" && !Number.isNaN(repAvgRaw) ? repAvgRaw : null;
   const fbsRaw = r.factBasedScore ?? r.fact_based_score;
   const factBasedScore =
     typeof fbsRaw === "number" && !Number.isNaN(fbsRaw) ? fbsRaw : undefined;
@@ -831,6 +846,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     jobMedianVisibilityStage: jmvs,
     results,
     factBasedScore,
+    reputationAverage,
     scoreBreakdown,
     contentEvidence,
     ...(technicalEvidence !== undefined ? { technicalEvidence } : {}),
