@@ -25,11 +25,22 @@ public final class GeoVisibilityCalculatorService {
      */
     public static final String CALCULATION_VERSION_AIOVERVIEW = "V14_AIOVERVIEW";
 
-    /** 出現密度 mentionDensity がこの値に達するとブランドシグナルの密度成分が飽和する（説明用コメント付き定数）。 */
-    private static final double MENTION_DENSITY_SATURATION = 0.30d;
+    /**
+     * 言及密度（言及回数 ÷ 形態素トークン数）がこの値に達すると密度成分が飽和する。
+     *
+     * <p>Why: 旧値 0.30 は「回答文の3割が自社名」という現実に起こらない基準で、実測（AI Overview 本文20件）の
+     * 密度は 0.24%〜4.1%（中央値 0.6%）だった。どれだけ言及されても密度成分がほぼ動かず、スコアが
+     * 「1位に出たか」だけで決まっていた。実測の最大値に合わせて 5% とする（#60 / オーナー確定 2026-09-19）。
+     */
+    private static final double MENTION_DENSITY_SATURATION = 0.05d;
 
-    /** この出現回数を超えるとブランドシグナルの回数成分が飽和する。 */
-    private static final double MENTION_COUNT_SATURATION = 12.0d;
+    /**
+     * この言及回数に達すると回数成分が飽和する。
+     *
+     * <p>Why: 旧値 12 は 150〜400字の AI 回答では到達し得ない。実測の言及回数は 0〜5回だったため、
+     * 最大値の 5回を満点とする（#60 / オーナー確定 2026-09-19）。
+     */
+    private static final double MENTION_COUNT_SATURATION = 5.0d;
 
     /** PWIM（ADR-017）言及成分の重み。単独サイト解析を主用途とするため言及重視に配分。 */
     private static final double PWIM_ALPHA = 0.6d;

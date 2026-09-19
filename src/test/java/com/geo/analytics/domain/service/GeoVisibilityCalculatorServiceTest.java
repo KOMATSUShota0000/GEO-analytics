@@ -149,19 +149,28 @@ class GeoVisibilityCalculatorServiceTest {
     }
 
     @Test
+    void 実測に合わせた飽和のもとで一般的な回答が中位の点数になる() {
+        // Why: 実測（3回言及・307トークン・1位）で SoM が約63点になることを固定する。設定を緩めすぎても
+        //      厳しくしすぎても、この値が大きく動く（#60 の再調整の根拠）。
+        var typical = new SomRawMetrics(0, 1, 0.0, false, true, 3, 0.0, 307);
+
+        assertThat(computeIsolated(typical, 0.0).scorePercent()).isBetween(60.0, 66.0);
+    }
+
+    @Test
     void 言及回数の飽和は回数で効く() {
-        // Why: 旧実装は LLM 申告の「文字数」が回数の引数に入っており、12文字を超えた時点で常に飽和していた（#60）。
-        //      密度を揃えて回数だけを変え、12回で飽和し、それ以上増えても変わらないことを固定する。
-        var six = new SomRawMetrics(0, null, 0.0, false, true, 6, 0.0, 100);
-        var twelve = new SomRawMetrics(0, null, 0.0, false, true, 12, 0.0, 200);
-        var twentyFour = new SomRawMetrics(0, null, 0.0, false, true, 24, 0.0, 400);
+        // Why: 旧実装は LLM 申告の「文字数」が回数の引数に入っており、常に飽和していた（#60）。密度を揃えて
+        //      回数だけを変え、5回で飽和し、それ以上増えても変わらないことを固定する（オーナー確定 2026-09-19）。
+        var three = new SomRawMetrics(0, null, 0.0, false, true, 3, 0.0, 300);
+        var five = new SomRawMetrics(0, null, 0.0, false, true, 5, 0.0, 500);
+        var ten = new SomRawMetrics(0, null, 0.0, false, true, 10, 0.0, 1000);
 
-        double sixScore = computeIsolated(six, 0.0).scorePercent();
-        double twelveScore = computeIsolated(twelve, 0.0).scorePercent();
-        double twentyFourScore = computeIsolated(twentyFour, 0.0).scorePercent();
+        double threeScore = computeIsolated(three, 0.0).scorePercent();
+        double fiveScore = computeIsolated(five, 0.0).scorePercent();
+        double tenScore = computeIsolated(ten, 0.0).scorePercent();
 
-        assertThat(sixScore).isLessThan(twelveScore);
-        assertThat(twentyFourScore).isEqualTo(twelveScore);
+        assertThat(threeScore).isLessThan(fiveScore);
+        assertThat(tenScore).isEqualTo(fiveScore);
     }
 
     @Test
