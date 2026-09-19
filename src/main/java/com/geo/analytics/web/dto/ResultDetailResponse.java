@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.AiRecognitionState;
+import com.geo.analytics.domain.enums.ReputationBand;
+import com.geo.analytics.domain.service.ReputationScoreCalculator;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.VisibilityStageMapper;
@@ -26,6 +28,8 @@ public record ResultDetailResponse(
     Integer tokenCount,
     Integer aiCitationPosition,
     Double sentimentIntensity,
+    Integer reputationScore,
+    ReputationBand reputationBand,
     String resolvedEntityLabel,
     Integer visibilityStage,
     String visibilityStageBand,
@@ -55,6 +59,8 @@ public record ResultDetailResponse(
                 tokenCount,
                 aiCitationPosition,
                 sentimentIntensity,
+                reputationScore,
+                reputationBand,
                 resolvedEntityLabel,
                 visibilityStage,
                 visibilityStageBand,
@@ -85,6 +91,11 @@ public record ResultDetailResponse(
             auditHistoryEntity.getVisibilityStage(),
             auditHistoryEntity.getAiCitationPosition());
         var insight = strategyInsightService.resolveForAudit(auditHistoryEntity);
+        // Why: 言及されていないクエリには「どう言われたか」が存在しない。0点ではなく値なしとして扱う（#62）。
+        Integer reputation = Boolean.TRUE.equals(auditHistoryEntity.getBrandMentioned())
+                && auditHistoryEntity.getSentimentIntensity() != null
+                ? ReputationScoreCalculator.percent(auditHistoryEntity.getSentimentIntensity())
+                : null;
         var mz = auditHistoryEntity.getModifiedZScore() != null
             ? auditHistoryEntity.getModifiedZScore()
             : insight.representativeModifiedZ();
@@ -105,6 +116,8 @@ public record ResultDetailResponse(
             auditHistoryEntity.getTokenCount() != null ? auditHistoryEntity.getTokenCount() : 0,
             auditHistoryEntity.getAiCitationPosition(),
             auditHistoryEntity.getSentimentIntensity() != null ? auditHistoryEntity.getSentimentIntensity() : 0.0,
+            reputation,
+            reputation != null ? ReputationScoreCalculator.band(reputation) : null,
             auditHistoryEntity.getResolvedEntityLabel(),
             auditHistoryEntity.getVisibilityStage(),
             stageDef.bandLabel(),

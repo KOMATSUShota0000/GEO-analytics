@@ -34,7 +34,7 @@ public record SomScoreData(
      */
     public SomRawMetrics toRawMetrics(
             SubscriptionPlan subscriptionPlan,
-            double normalizedSentimentIntensity,
+            double rawSentimentIntensity,
             int measuredTokenCount,
             int measuredMentionCount,
             int measuredMentionChars) {
@@ -42,7 +42,7 @@ public record SomScoreData(
         return new SomRawMetrics(
                 measuredMentionChars,
                 aiCitationPosition,
-                normalizedSentimentIntensity,
+                rawSentimentIntensity,
                 subscriptionPlan.usesProTierFeatures(),
                 mentioned,
                 measuredMentionCount,

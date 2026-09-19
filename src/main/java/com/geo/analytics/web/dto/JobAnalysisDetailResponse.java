@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import java.lang.StrictMath;
 import java.util.List;
 import java.util.UUID;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -27,7 +28,8 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("technical_evidence") String technicalEvidence,
     @JsonProperty("remediation_tasks") List<RemediationTaskResponse> remediationTasks,
     @JsonProperty("ai_recognition_summary") AiRecognitionSummaryResponse aiRecognitionSummary,
-    @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert
+    @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert,
+    @JsonProperty("reputation_average") Integer reputationAverage
 ) {
     public JobAnalysisDetailResponse {
         jobSummaryRecommendedActions =
@@ -54,6 +56,9 @@ public record JobAnalysisDetailResponse(
         String bc = resolveBrandColor(jobEntity, projectEntity);
         String logo = resolveLogoUrl(jobEntity, projectEntity);
         EmotionalAlertPayload emotionalAlert = parseEmotionalAlertJson(jobEntity.getEmotionalAlertJson(), objectMapper);
+        // Why: 平均は「評判が付いたクエリ」だけで取る。言及の無いクエリを0点として混ぜると、可視性の低さが
+        //      評判の低さとして二重に効いてしまう（#62）。
+        Integer reputationAverage = averageReputation(resultDetails);
         return new JobAnalysisDetailResponse(
             jobEntity.getId(),
             jobEntity.getJobStatus().name(),
@@ -73,7 +78,8 @@ public record JobAnalysisDetailResponse(
             technicalEvidence,
             remediationTasks != null ? List.copyOf(remediationTasks) : List.of(),
             aiRecognitionSummary,
-            emotionalAlert);
+            emotionalAlert,
+            reputationAverage);
     }
 
     private static EmotionalAlertPayload parseEmotionalAlertJson(String json, ObjectMapper objectMapper) {
@@ -111,5 +117,20 @@ public record JobAnalysisDetailResponse(
             }
         }
         return null;
+    }
+
+    private static Integer averageReputation(List<ResultDetailResponse> resultDetails) {
+        if (resultDetails == null || resultDetails.isEmpty()) {
+            return null;
+        }
+        int sum = 0;
+        int count = 0;
+        for (ResultDetailResponse detail : resultDetails) {
+            if (detail.reputationScore() != null) {
+                sum += detail.reputationScore();
+                count++;
+            }
+        }
+        return count == 0 ? null : (int) StrictMath.round((double) sum / count);
     }
 }

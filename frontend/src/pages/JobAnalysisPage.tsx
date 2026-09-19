@@ -7,6 +7,7 @@ import { mergeBannerJobHint } from "../lib/bannerJobHint";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
+import { ReputationBadge } from "../components/ReputationBadge";
 import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
@@ -703,8 +704,16 @@ export function JobAnalysisPage(): JSX.Element {
         )}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="pdf-avoid-break border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="pdf-avoid-break flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-800">解析結果一覧</h2>
+            {/* Why: 評判は SoM と別軸のため混ぜず、言及のあったクエリの平均として並べて示す（#62）。 */}
+            {data.reputationAverage !== null && data.reputationAverage !== undefined ? (
+              <span className="text-xs text-slate-600">
+                AI回答での評判（言及ありの平均）:{" "}
+                <span className="font-semibold text-slate-800 tabular-nums">{data.reputationAverage}</span>
+                <span className="text-slate-500"> / 100</span>
+              </span>
+            ) : null}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
@@ -742,6 +751,7 @@ export function JobAnalysisPage(): JSX.Element {
                         <span className="flex flex-wrap items-center gap-2">
                           <span>{row.query}</span>
                           <MaterialSourceBadge materialSource={row.materialSource} />
+                          <ReputationBadge band={row.reputationBand} score={row.reputationScore} />
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
