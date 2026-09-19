@@ -9,6 +9,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
+import com.geo.analytics.domain.service.BrandMentionEngine;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
@@ -40,6 +41,7 @@ public class GeminiResultProcessor {
     private final JsonbOperations jsonbOperations;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
+    private final BrandMentionEngine brandMentionEngine;
     private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
@@ -51,6 +53,7 @@ public class GeminiResultProcessor {
             JsonbOperations jsonbOperations,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
+            BrandMentionEngine brandMentionEngine,
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
             InformationTheoryBasedAggregator informationTheoryBasedAggregator,
@@ -61,6 +64,7 @@ public class GeminiResultProcessor {
         this.jsonbOperations = jsonbOperations;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
+        this.brandMentionEngine = brandMentionEngine;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
         this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
@@ -99,8 +103,13 @@ public class GeminiResultProcessor {
                 int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
                 double stuffingDensity = 0.0;
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, isProPlan);
-                SomRawMetrics rawMetrics =
-                        metrics.toRawMetrics(plan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, 0.3);
+                // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。バッチ経路も同期経路と同じ規則にする。
+                int measuredCitationPosition =
+                        brandMentionEngine.citationPosition(nlpSource, mainBrand, namedBrandsOf(consultantOutputData));
+                SomScoreData measuredMetrics = metrics.withAiCitationPosition(
+                        measuredCitationPosition > 0 ? measuredCitationPosition : null);
+                SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
+                        plan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, 0.3);
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
@@ -211,5 +220,16 @@ public class GeminiResultProcessor {
         return overviewBody != null && !overviewBody.isBlank()
                 ? MaterialSource.MEASURED
                 : MaterialSource.ESTIMATED;
+    }
+
+    /** 引用順位の比較対象。回答文に実際に名前が出たブランドを LLM が挙げたもの（名前は LLM、順序は Java）。 */
+    private static List<String> namedBrandsOf(ConsultantOutputData consultantOutputData) {
+        if (consultantOutputData.competitorComparison() == null) {
+            return List.of();
+        }
+        return consultantOutputData.competitorComparison().stream()
+                .map(entry -> entry.competitorName())
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
     }
 }

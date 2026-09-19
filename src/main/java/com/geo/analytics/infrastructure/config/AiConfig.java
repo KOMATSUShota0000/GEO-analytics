@@ -5,6 +5,7 @@ import com.geo.analytics.application.service.AiVerificationRouter;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.service.BrandMentionEngine;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
@@ -240,12 +241,14 @@ public class AiConfig {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
+            BrandMentionEngine brandMentionEngine,
             JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
                 entityNormalizer,
                 japaneseNlpService,
+                brandMentionEngine,
                 jobPersistenceService);
     }
 

@@ -38,6 +38,46 @@ class BrandMentionEngineSudachiTest {
     }
 
     @Test
+    void 文章形式でも登場順を引用順位とする() {
+        String answer = "クラウド会計ソフトでは freee やマネーフォワード、弥生会計が人気です。";
+
+        assertThat(engine.citationPosition(answer, "freee", java.util.List.of("マネーフォワード", "弥生会計")))
+                .isEqualTo(1);
+        assertThat(engine.citationPosition(answer, "弥生会計", java.util.List.of("freee", "マネーフォワード")))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void 番号付きリストでも同じ規則で数える() {
+        String answer = "1. マネーフォワード クラウド会計 2. freee会計 3. 弥生会計";
+
+        assertThat(engine.citationPosition(answer, "freee", java.util.List.of("マネーフォワード", "弥生会計")))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void 登場しなければゼロを返す() {
+        String answer = "クラウド会計ソフトではマネーフォワードと弥生会計が人気です。";
+
+        assertThat(engine.citationPosition(answer, "freee", java.util.List.of("マネーフォワード", "弥生会計")))
+                .isZero();
+    }
+
+    @Test
+    void 他ブランドが無ければ登場すれば一位() {
+        assertThat(engine.citationPosition("会計ソフトなら freee が便利です。", "freee", java.util.List.of()))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void 比較対象の重複や自社と同じ表記は順位を押し下げない() {
+        String answer = "freee は弥生会計より手軽です。";
+
+        assertThat(engine.citationPosition(answer, "freee", java.util.List.of("freee", "弥生会計", "弥生会計")))
+                .isEqualTo(1);
+    }
+
+    @Test
     void 漢字の語に続く英字ブランドも境界で数える() {
         var m = engine.measure("freee会計はfreeeの主力製品です。", "freee");
 
