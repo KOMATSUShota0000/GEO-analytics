@@ -12,7 +12,7 @@ class GeminiBatchClientTest {
     @Test
     void writeBatchRequestJsonlInjectsPromptContextBetweenSystemAndUserPrompt() {
         UUID qId = UUID.fromString("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
-        BatchQueryLine line = new BatchQueryLine(qId, "価格");
+        BatchQueryLine line = new BatchQueryLine(qId, "価格", null);
         String text =
                 GeminiBatchPromptText.combinedPromptText(
                         "BrandX", line, SubscriptionPlan.STANDARD, "JOB_CTX_BLOCK");
@@ -24,7 +24,7 @@ class GeminiBatchClientTest {
     @Test
     void writeBatchRequestJsonlOmitsBlankJobPromptContextWithoutExtraBlankLines() {
         UUID qId = UUID.fromString("b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22");
-        BatchQueryLine line = new BatchQueryLine(qId, "品質");
+        BatchQueryLine line = new BatchQueryLine(qId, "品質", null);
         String text =
                 GeminiBatchPromptText.combinedPromptText(
                         "Acme", line, SubscriptionPlan.PRO, "   \t\n  ");

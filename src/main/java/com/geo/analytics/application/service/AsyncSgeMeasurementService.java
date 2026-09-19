@@ -11,7 +11,6 @@ import com.geo.analytics.infrastructure.ratelimit.SerpApiGlobalRequestGate;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -89,10 +88,17 @@ public class AsyncSgeMeasurementService {
                 query.getQueryText(),
                 result.rawResponseJson(),
                 result.mentioned(),
-                result.mentionCount());
+                result.mentionCount(),
+                result.bodyText());
     }
 
-    @Async
+    /**
+     * ジョブ配下の全クエリの AI Overview を取得して保存する。バッチ経路がバッチ投入の直前に呼ぶ。
+     *
+     * <p>Why: 投入後はプロンプトを差し替えられないため、取得の完了を待ってから JSONL を組み立てる必要がある
+     * （ADR-046）。呼び出し元（{@code GeminiBatchExecutorService.uploadAndSubmitBatchJob}）自体が非同期のため、
+     * ここを非同期にすると順序を保証できない。
+     */
     public void measureSgeForJob(JobEntity job, List<QueryEntity> queries, int dailyQuotaRefundOnFailure) {
         Objects.requireNonNull(job, "job");
         UUID jobId = job.getId();
@@ -108,7 +114,8 @@ public class AsyncSgeMeasurementService {
                         queryEntity.getQueryText(),
                         "{}",
                         false,
-                        0);
+                        0,
+                        null);
             }
             return;
         }
@@ -142,7 +149,7 @@ public class AsyncSgeMeasurementService {
                             "SGE measurement degraded to empty (SerpAPI失敗/timeout等) jobId={} queryId={} state={}",
                             jobId, queryEntity.getId(), subtask.state());
                     batchPersistence.insertSgeResult(
-                            wid, jobId, queryEntity.getId(), queryEntity.getQueryText(), "{}", false, 0);
+                            wid, jobId, queryEntity.getId(), queryEntity.getQueryText(), "{}", false, 0, null);
                     continue;
                 }
                 batchPersistence.insertSgeResult(
@@ -150,7 +157,8 @@ public class AsyncSgeMeasurementService {
                     queryEntity.getQueryText(),
                     sgeMentionResult.rawResponseJson(),
                     sgeMentionResult.mentioned(),
-                    sgeMentionResult.mentionCount());
+                    sgeMentionResult.mentionCount(),
+                    sgeMentionResult.bodyText());
             }
         } catch (Exception exception) {
             if (exception instanceof InterruptedException) {

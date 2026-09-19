@@ -3,6 +3,7 @@ package com.geo.analytics.application.service;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -64,7 +65,7 @@ class AsyncSgeMeasurementServiceDegradeTest {
 
         verify(persistence, times(3)).insertSgeResult(
                 eq(WORKSPACE_ID), eq(JOB_ID), any(UUID.class),
-                anyString(), eq("{}"), eq(false), eq(0));
+                anyString(), eq("{}"), eq(false), eq(0), isNull());
         verify(persistence, never()).updateJobStatus(eq(JOB_ID), eq(JobStatus.FAILED), anyString());
         verifyNoInteractions(port, gate);
     }
@@ -84,7 +85,7 @@ class AsyncSgeMeasurementServiceDegradeTest {
         verifyNoInteractions(port, gate);
         verify(persistence, never()).insertSgeResult(
                 any(UUID.class), any(UUID.class), any(UUID.class),
-                anyString(), anyString(), anyBoolean(), anyInt());
+                anyString(), anyString(), anyBoolean(), anyInt(), any());
         verify(persistence, never()).updateJobStatus(eq(JOB_ID), eq(JobStatus.FAILED), anyString());
     }
 
@@ -106,7 +107,7 @@ class AsyncSgeMeasurementServiceDegradeTest {
         // 各クエリは空プレースホルダ（"{}" / false / 0）へ降格して保存され、ジョブは FAILED にならない。
         verify(persistence, times(2)).insertSgeResult(
                 eq(WORKSPACE_ID), eq(JOB_ID), any(UUID.class),
-                anyString(), eq("{}"), eq(false), eq(0));
+                anyString(), eq("{}"), eq(false), eq(0), isNull());
         verify(persistence, never()).updateJobStatus(eq(JOB_ID), eq(JobStatus.FAILED), anyString());
     }
 

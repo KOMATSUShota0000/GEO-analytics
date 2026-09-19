@@ -9,6 +9,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.slf4j.Logger;
@@ -25,6 +26,8 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -176,7 +179,8 @@ public class BatchPersistenceService {
                                    Integer visibilityStage, String calculationVersion,
                                    double modifiedZScore, boolean negativeAlert,
                                    String diagnosticMessage, List<String> recommendedActions,
-                                   String modelInsightsJson) {
+                                   String modelInsightsJson, MaterialSource materialSource) {
+        MaterialSource material = materialSource != null ? materialSource : MaterialSource.ESTIMATED;
         Integer persistedAiCitationPosition = normalizedAiCitationPosition(aiCitationPosition);
         Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
         UUID auditId;
@@ -189,7 +193,7 @@ public class BatchPersistenceService {
                         + "token_count = ?, ai_citation_position = ?, sentiment_intensity = ?, "
                         + "visibility_stage = ?, calculation_version = ?, negative_alert = ?, "
                         + "modified_z_score = ?, diagnostic_message = ?, recommended_actions = ?, "
-                        + "model_insights = ?, audit_date = ? WHERE id = ?");
+                        + "model_insights = ?, audit_date = ?, material_source = ? WHERE id = ?");
                 setJsonb(ps, 1, rawResponse);
                 ps.setDouble(2, somScore);
                 setNullableDouble(ps, 3, gbvsNormalizedScore);
@@ -208,7 +212,8 @@ public class BatchPersistenceService {
                 setJsonb(ps, 16, toJson(recommendedActions));
                 setJsonb(ps, 17, modelInsightsJson);
                 ps.setObject(18, LocalDate.now());
-                ps.setObject(19, auditId);
+                ps.setString(19, material.name());
+                ps.setObject(20, auditId);
                 return ps;
             });
         } else {
@@ -219,8 +224,8 @@ public class BatchPersistenceService {
                         + "raw_response, som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, "
                         + "resolved_entity_label, token_count, ai_citation_position, sentiment_intensity, "
                         + "visibility_stage, calculation_version, negative_alert, modified_z_score, "
-                        + "diagnostic_message, recommended_actions, model_insights, audit_date, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
+                        + "diagnostic_message, recommended_actions, model_insights, audit_date, material_source, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
                 ps.setObject(1, auditId);
                 ps.setString(2, workspaceId.toString());
                 ps.setObject(3, jobId);
@@ -244,6 +249,7 @@ public class BatchPersistenceService {
                 setJsonb(ps, 21, toJson(recommendedActions));
                 setJsonb(ps, 22, modelInsightsJson);
                 ps.setObject(23, LocalDate.now());
+                ps.setString(24, material.name());
                 return ps;
             });
         }
@@ -253,12 +259,12 @@ public class BatchPersistenceService {
 
     public void insertSgeResult(UUID workspaceId, UUID jobId, UUID queryId,
                                 String queryText, String sgeRawResponse,
-                                boolean sgeMentioned, int mentionCount) {
+                                boolean sgeMentioned, int mentionCount, String overviewBody) {
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
                     "INSERT INTO sge_results (id, tenant_id, job_id, query_id, query, "
-                    + "sge_raw_response, sge_mentioned, mention_count, created_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, now())");
+                    + "sge_raw_response, sge_mentioned, mention_count, overview_body, created_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, now())");
             ps.setObject(1, UUID.randomUUID());
             ps.setString(2, workspaceId.toString());
             ps.setObject(3, jobId);
@@ -267,8 +273,27 @@ public class BatchPersistenceService {
             setJsonb(ps, 6, sgeRawResponse);
             ps.setBoolean(7, sgeMentioned);
             ps.setInt(8, mentionCount);
+            ps.setString(9, overviewBody != null && !overviewBody.isBlank() ? overviewBody : null);
             return ps;
         });
+    }
+
+    /**
+     * ジョブ配下の AI Overview 本文を queryId ごとに返す（#94 / ADR-046）。
+     *
+     * <p>Why: バッチ経路は「投入」と「回収」が別のタイミングで走る。両者が同じ一次情報を読めるように、
+     * 生JSONの再解釈ではなく保存済みの本文列を使う。本文が空のクエリは含めない（材料は推定になる）。
+     */
+    public Map<UUID, String> findOverviewBodiesByJobId(UUID jobId) {
+        Map<UUID, String> bodies = new HashMap<>();
+        jdbc.query("SELECT query_id, overview_body FROM sge_results WHERE job_id = ?", rs -> {
+            UUID queryId = rs.getObject("query_id", UUID.class);
+            String body = rs.getString("overview_body");
+            if (queryId != null && body != null && !body.isBlank()) {
+                bodies.put(queryId, body);
+            }
+        }, jobId);
+        return Map.copyOf(bodies);
     }
 
     public record ProjectBrandInfo(UUID id, String brandColor, String logoUrl) {}
