@@ -14,14 +14,10 @@ public record ConsultantOutputData(
         @JsonProperty("brand_mentioned") Boolean brandMentioned,
         @JsonProperty("prioritizedTasks") List<TaskDTO> prioritizedTasks,
         @JsonProperty("competitorComparison") List<CompetitorShareEntry> competitorComparison,
-        @JsonProperty("reversalStrategy") String reversalStrategy,
-        @JsonProperty("debate_log") List<DebateLogTurn> debateLog,
-        @JsonProperty("roadmap_items") List<RoadmapConsensusItem> roadmapItems) {
+        @JsonProperty("reversalStrategy") String reversalStrategy) {
     public ConsultantOutputData {
         prioritizedTasks = prioritizedTasks == null ? List.of() : List.copyOf(prioritizedTasks);
         competitorComparison = competitorComparison == null ? null : List.copyOf(competitorComparison);
-        debateLog = debateLog == null ? List.of() : List.copyOf(debateLog);
-        roadmapItems = roadmapItems == null ? List.of() : List.copyOf(roadmapItems);
     }
 
     public SomScoreData toSomScoreData() {
