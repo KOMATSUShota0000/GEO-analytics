@@ -11,7 +11,7 @@ class QueryMixPlanTest {
     @Test
     void プラン別の内訳() {
         assertThat(QueryMixPlan.forTotal(3)).isEqualTo(new QueryMixPlan(1, 2));    // STANDARD
-        assertThat(QueryMixPlan.forTotal(10)).isEqualTo(new QueryMixPlan(3, 7));   // PRO
+        assertThat(QueryMixPlan.forTotal(10)).isEqualTo(new QueryMixPlan(2, 8));   // PRO
         assertThat(QueryMixPlan.forTotal(30)).isEqualTo(new QueryMixPlan(3, 27));  // EXPERT
     }
 

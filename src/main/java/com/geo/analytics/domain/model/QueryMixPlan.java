@@ -17,8 +17,8 @@ public record QueryMixPlan(int brandedCount, int genericCount) {
     /** 指名検索の上限。これ以上増やしても検出できる問題が増えないため。 */
     private static final int MAX_BRANDED = 3;
 
-    /** 総数の何分の1までを指名検索に充てるか。3本なら1本、10本なら3本→上限3、30本なら10本→上限3。 */
-    private static final int BRANDED_DENOMINATOR = 3;
+    /** 総数の何分の1までを指名検索に充てるか。3本なら1本（下限）、10本なら2本、30本なら6本→上限3。 */
+    private static final int BRANDED_DENOMINATOR = 5;
 
     public QueryMixPlan {
         if (brandedCount < 0 || genericCount < 0) {
