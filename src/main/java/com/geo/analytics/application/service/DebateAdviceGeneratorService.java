@@ -114,8 +114,10 @@ public class DebateAdviceGeneratorService {
                         ? strategyInsightService.fromModifiedZ(medZ)
                         : strategyInsightService.fromVisibilityStage(medSt);
 
-        // PRO/EXPERT かつ課金識別子が揃っている場合は、解析ごとの短縮版議論を起動する。
-        if (resolvedPlan.usesProTierFeatures() && project.hasBillingIdentity()) {
+        // Why: 4ペルソナ議論は全プランで走らせる（オーナー確定 2026-09-20 / #73）。CLAUDE.md がプロダクトの
+        //      核の第一項に挙げる体験であり、プランで有無を分けると「改善提案の質」がプランで別物になる。
+        //      課金識別子が揃わない場合だけは、チケットを予約できないため単発生成へ落とす。
+        if (project.hasBillingIdentity()) {
             return generateWithShortDebate(rows, project, resolvedPlan, medZ, medSt, hint);
         }
         return generateSingleShot(rows, project, resolvedPlan, medZ, medSt, hint, null);
