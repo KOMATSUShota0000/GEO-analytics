@@ -37,8 +37,7 @@ public record SomScoreData(
             double normalizedSentimentIntensity,
             int measuredTokenCount,
             int measuredMentionCount,
-            int measuredMentionChars,
-            double stuffingDensity) {
+            int measuredMentionChars) {
         boolean mentioned = Boolean.TRUE.equals(brandMentioned);
         return new SomRawMetrics(
                 measuredMentionChars,
@@ -47,7 +46,6 @@ public record SomScoreData(
                 subscriptionPlan.usesProTierFeatures(),
                 mentioned,
                 measuredMentionCount,
-                stuffingDensity,
                 measuredTokenCount);
     }
 }

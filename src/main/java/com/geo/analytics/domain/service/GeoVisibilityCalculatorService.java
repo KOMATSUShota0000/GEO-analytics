@@ -207,12 +207,11 @@ public final class GeoVisibilityCalculatorService {
         Integer aiPos = metrics.aiCitationPosition();
         if (!metrics.isSemanticallyMentioned()) {
             log.info(
-                    "[MATH DEBUG] outcome=not_semantic aiPos={} mentions={} mentionChars={} responseTokenLength={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
+                    "[MATH DEBUG] outcome=not_semantic aiPos={} mentions={} mentionChars={} responseTokenLength={} sentimentIntensity={} somScore=0.0",
                     aiPos,
                     metrics.nounCount(),
                     metrics.tokenCount(),
                     metrics.responseTokenLength(),
-                    metrics.stuffingDensity(),
                     metrics.sentimentIntensity());
             return 0.0;
         }

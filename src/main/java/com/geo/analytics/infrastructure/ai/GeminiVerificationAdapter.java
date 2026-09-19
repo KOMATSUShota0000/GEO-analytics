@@ -194,7 +194,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, main);
         int tc = measuredMention.mentionChars();
         int responseTokenLength = measuredMention.totalTokens();
-        double stuffingDensity = 0.0;
         String resolved = entityNormalizer.resolve(rawName, main, isProPlan);
         // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。LLM 申告は比較のためログにだけ残す。
         int measuredCitationPosition =
@@ -218,7 +217,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 metrics.tokenCount());
         SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
                 subscriptionPlan, si, responseTokenLength, measuredMention.mentionCount(),
-                measuredMention.mentionChars(), stuffingDensity);
+                measuredMention.mentionChars());
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
         if (verificationRequest.jobId() != null) {

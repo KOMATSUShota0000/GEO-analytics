@@ -6,17 +6,25 @@ import com.geo.analytics.application.dto.CrawledPageData;
 import com.geo.analytics.application.dto.RubricAuditResult;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.service.FactBasedScoreAggregator;
+import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.StuffingPenaltyCalculator;
 import com.geo.analytics.domain.service.MachineReadabilityScoreCalculator;
 import com.geo.analytics.domain.service.MeoTrustScoreCalculator;
 import com.geo.analytics.domain.service.RubricAiAuditScoreCalculator;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class JobAnalysisBenchmarkAssembler {
-    private final ObjectMapper objectMapper;
+    private static final Logger log = LoggerFactory.getLogger(JobAnalysisBenchmarkAssembler.class);
 
-    public JobAnalysisBenchmarkAssembler(ObjectMapper objectMapper) {
+    private final ObjectMapper objectMapper;
+    private final BrandMentionEngine brandMentionEngine;
+
+    public JobAnalysisBenchmarkAssembler(ObjectMapper objectMapper, BrandMentionEngine brandMentionEngine) {
         this.objectMapper = objectMapper;
+        this.brandMentionEngine = brandMentionEngine;
     }
 
     public BenchmarkAttach attach(JobEntity jobEntity) {
@@ -30,7 +38,10 @@ public class JobAnalysisBenchmarkAssembler {
         try {
             RubricAuditResult self = objectMapper.readValue(selfJson, RubricAuditResult.class);
             CrawledPageData crawl = parseCrawl(jobEntity.getSelfCrawledPageJson());
-            double ai = RubricAiAuditScoreCalculator.scoreAiAudit(self);
+            // Why: 自社サイト本文へのブランド名の詰め込みを、コンテンツ軸から減点する（#61 / `.cursorrules` 7節）。
+            //      AI 回答（SoM の材料）には適用しない。言及が多いことは評価対象であり罰する理由がないため。
+            double stuffingRetention = stuffingRetentionFor(jobEntity, crawl);
+            double ai = RubricAiAuditScoreCalculator.scoreAiAudit(self) * stuffingRetention;
             Integer meoRc = jobEntity.getMeoReviewCount();
             int rc = meoRc != null && meoRc > 0 ? meoRc.intValue() : 0;
             Double meoStars = jobEntity.getMeoAverageStars();
@@ -46,6 +57,22 @@ public class JobAnalysisBenchmarkAssembler {
         } catch (JsonProcessingException ex) {
             return new BenchmarkAttach(null, null);
         }
+    }
+
+    private double stuffingRetentionFor(JobEntity jobEntity, CrawledPageData crawl) {
+        String content = crawl != null ? crawl.content() : null;
+        String brandName = jobEntity.getBrandName();
+        if (content == null || content.isBlank() || brandName == null || brandName.isBlank()) {
+            return 1.0d;
+        }
+        double density = brandMentionEngine.measure(content, brandName).density();
+        double retention = StuffingPenaltyCalculator.retentionFactor(density);
+        if (retention < 1.0d) {
+            log.info(
+                    "stuffing_penalty jobId={} density={} retention={}",
+                    jobEntity.getId(), density, retention);
+        }
+        return retention;
     }
 
     private CrawledPageData parseCrawl(String json) throws JsonProcessingException {
