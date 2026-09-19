@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 class GeoVisibilityCalculatorServiceTest {
 
     private static SomRawMetrics quietContext() {
-        return new SomRawMetrics(0, null, 0.0, false, false, 0, 0.0, 20);
+        return new SomRawMetrics(0, null, 0.0, false, false, 0, 20);
     }
 
     private static List<SomRawMetrics> corpusPadding(int quietCount) {
@@ -102,7 +102,7 @@ class GeoVisibilityCalculatorServiceTest {
 
     @Test
     void scenarioA_strongerCitationPriority_yieldsHigherGeoVisibilityScore() {
-        var base = new SomRawMetrics(500, null, 1.0, false, true, 500, 0.0, 520);
+        var base = new SomRawMetrics(500, null, 1.0, false, true, 500, 520);
         var strongCitation = new SomRawMetrics(
                 base.tokenCount(),
                 1,
@@ -110,7 +110,6 @@ class GeoVisibilityCalculatorServiceTest {
                 base.isProAnalysis(),
                 base.isSemanticallyMentioned(),
                 base.nounCount(),
-                base.stuffingDensity(),
                 base.responseTokenLength());
         var weakerCitation = new SomRawMetrics(
                 base.tokenCount(),
@@ -119,7 +118,6 @@ class GeoVisibilityCalculatorServiceTest {
                 base.isProAnalysis(),
                 base.isSemanticallyMentioned(),
                 base.nounCount(),
-                base.stuffingDensity(),
                 base.responseTokenLength());
         var batch = new ArrayList<SomRawMetrics>();
         batch.addAll(corpusPadding(6));
@@ -134,7 +132,7 @@ class GeoVisibilityCalculatorServiceTest {
 
     @Test
     void scenarioB_citationOnly_withAiCitationPosition_yieldsNonZeroScore() {
-        var metrics = new SomRawMetrics(0, 1, 1.0, false, true, 0, 0.0, 80);
+        var metrics = new SomRawMetrics(0, 1, 1.0, false, true, 0, 80);
         var gbvs = computeIsolated(metrics, 0.0);
         assertThat(gbvs.scorePercent()).isGreaterThan(0.0);
         assertThat(gbvs.visibilityStage()).isBetween(1, 10);
@@ -143,7 +141,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void mentionWithoutCitation_yieldsNonZeroScore_pwimCore() {
         // PWIM の本丸: 言及あり・順位なし（単独サイト解析）でも SoM が 0 にならない。旧仕様は必ず 0 だった。
-        var metrics = new SomRawMetrics(700, null, 0.5, false, true, 118, 0.0, 900);
+        var metrics = new SomRawMetrics(700, null, 0.5, false, true, 118, 900);
         var gbvs = computeIsolated(metrics, 0.0);
         assertThat(gbvs.scorePercent()).isGreaterThan(0.0);
     }
@@ -152,7 +150,7 @@ class GeoVisibilityCalculatorServiceTest {
     void 実測に合わせた飽和のもとで一般的な回答が中位の点数になる() {
         // Why: 実測（3回言及・307トークン・1位）で SoM が約63点になることを固定する。設定を緩めすぎても
         //      厳しくしすぎても、この値が大きく動く（#60 の再調整の根拠）。
-        var typical = new SomRawMetrics(0, 1, 0.0, false, true, 3, 0.0, 307);
+        var typical = new SomRawMetrics(0, 1, 0.0, false, true, 3, 307);
 
         assertThat(computeIsolated(typical, 0.0).scorePercent()).isBetween(60.0, 66.0);
     }
@@ -161,9 +159,9 @@ class GeoVisibilityCalculatorServiceTest {
     void 言及回数の飽和は回数で効く() {
         // Why: 旧実装は LLM 申告の「文字数」が回数の引数に入っており、常に飽和していた（#60）。密度を揃えて
         //      回数だけを変え、5回で飽和し、それ以上増えても変わらないことを固定する（オーナー確定 2026-09-19）。
-        var three = new SomRawMetrics(0, null, 0.0, false, true, 3, 0.0, 300);
-        var five = new SomRawMetrics(0, null, 0.0, false, true, 5, 0.0, 500);
-        var ten = new SomRawMetrics(0, null, 0.0, false, true, 10, 0.0, 1000);
+        var three = new SomRawMetrics(0, null, 0.0, false, true, 3, 300);
+        var five = new SomRawMetrics(0, null, 0.0, false, true, 5, 500);
+        var ten = new SomRawMetrics(0, null, 0.0, false, true, 10, 1000);
 
         double threeScore = computeIsolated(three, 0.0).scorePercent();
         double fiveScore = computeIsolated(five, 0.0).scorePercent();
@@ -177,14 +175,14 @@ class GeoVisibilityCalculatorServiceTest {
     void 引用元の重みを外したことで言及だけでも言及成分の満点を取れる() {
         // Why: sourceWeight を SoM から外した（ADR-039 の決定5 / #60）。撤去前は言及成分の天井が 0.6×0.2=0.12 で、
         //      どれだけ言及されても SoM は 12.0 に張り付いていた。
-        var saturated = new SomRawMetrics(0, null, 0.0, false, true, 60, 0.0, 100);
+        var saturated = new SomRawMetrics(0, null, 0.0, false, true, 60, 100);
 
         assertThat(computeIsolated(saturated, 0.0).scorePercent()).isCloseTo(60.0, within(0.001));
     }
 
     @Test
     void 言及も順位も満点なら100になる() {
-        var perfect = new SomRawMetrics(0, 1, 0.0, false, true, 60, 0.0, 100);
+        var perfect = new SomRawMetrics(0, 1, 0.0, false, true, 60, 100);
 
         assertThat(computeIsolated(perfect, 0.0).scorePercent()).isCloseTo(100.0, within(0.001));
     }
@@ -192,7 +190,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void noMentionAndNoCitation_yieldsZeroScore() {
         // 言及そのものが無ければ 0（露出ゼロは妥当な 0）。
-        var metrics = new SomRawMetrics(0, null, 0.0, false, false, 0, 0.0, 80);
+        var metrics = new SomRawMetrics(0, null, 0.0, false, false, 0, 80);
         var gbvs = computeIsolated(metrics, 0.0);
         assertThat(gbvs.scorePercent()).isEqualTo(0.0);
     }
@@ -200,7 +198,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void extremeMentionDensity_saturates_andStaysWithinBounds() {
         // 異常な言及回数でも飽和し、スコアは 0〜100 の範囲を超えない（外れ値・スタッフィング耐性）。
-        var metrics = new SomRawMetrics(5000, 1, 1.0, false, true, 5000, 0.0, 5000);
+        var metrics = new SomRawMetrics(5000, 1, 1.0, false, true, 5000, 5000);
         var gbvs = computeIsolated(metrics, 0.0);
         assertThat(gbvs.scorePercent()).isBetween(0.0, 100.0);
     }
@@ -272,7 +270,7 @@ class GeoVisibilityCalculatorServiceTest {
     @Test
     void deterministic_sameInputYieldsSameScore() {
         // 再現性: 同一入力は完全同一スコアを返す（StrictMath/clamp、決定論的）。
-        var metrics = new SomRawMetrics(700, 3, 0.2, false, true, 50, 0.0, 900);
+        var metrics = new SomRawMetrics(700, 3, 0.2, false, true, 50, 900);
         var first = computeIsolated(metrics, 0.0);
         var second = computeIsolated(metrics, 0.0);
         assertThat(first.scorePercent()).isEqualTo(second.scorePercent());

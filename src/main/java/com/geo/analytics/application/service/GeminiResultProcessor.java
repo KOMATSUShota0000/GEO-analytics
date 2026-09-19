@@ -99,7 +99,6 @@ public class GeminiResultProcessor {
                 // Why: 言及回数・言及文字数・トークン数はすべて Java の実測値にする（#59 / #60）。
                 BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, mainBrand);
                 int responseTokenLength = measuredMention.totalTokens();
-                double stuffingDensity = 0.0;
                 String resolved = entityNormalizer.resolve(rawName, mainBrand, isProPlan);
                 // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。バッチ経路も同期経路と同じ規則にする。
                 int measuredCitationPosition =
@@ -108,7 +107,7 @@ public class GeminiResultProcessor {
                         measuredCitationPosition > 0 ? measuredCitationPosition : null);
                 SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
                         plan, si, responseTokenLength, measuredMention.mentionCount(),
-                        measuredMention.mentionChars(), stuffingDensity);
+                        measuredMention.mentionChars());
                 parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
             } catch (JsonProcessingException
                 | IllegalArgumentException
