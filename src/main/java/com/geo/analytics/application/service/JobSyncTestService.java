@@ -19,15 +19,18 @@ public class JobSyncTestService {
     private static final Logger log = LoggerFactory.getLogger(JobSyncTestService.class);
     private final JobPersistenceService jobPersistenceService;
     private final SyncVerificationService syncVerificationService;
+    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
     private final SomScoreParser somScoreParser;
     private final JsonbOperations jsonbOperations;
     public JobSyncTestService(
             JobPersistenceService jobPersistenceService,
             SyncVerificationService syncVerificationService,
+            AsyncSgeMeasurementService asyncSgeMeasurementService,
             SomScoreParser somScoreParser,
             JsonbOperations jsonbOperations) {
         this.jobPersistenceService = jobPersistenceService;
         this.syncVerificationService = syncVerificationService;
+        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.somScoreParser = somScoreParser;
         this.jsonbOperations = jsonbOperations;
     }
@@ -42,12 +45,23 @@ public class JobSyncTestService {
         QueryEntity queryEntity = pendingQueryEntities.getFirst();
         SubscriptionPlan subscriptionPlan =
             Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-        SyncVerificationResult syncVerificationResult = syncVerificationService.verify(
+        // Why: 本番のリアルタイム経路は「クエリごとに AI Overview を取得 → その本文を材料に検証」する
+        //      （ADR-045）。test-sync が材料なしで検証していたため、ここで確認した挙動が本番の挙動を
+        //      保証していなかった（#68）。同じ手順を踏む。
+        var sgeMentionResult = asyncSgeMeasurementService.measureAndPersistForQuery(jobEntity, queryEntity);
+        String aiOverviewText = sgeMentionResult.bodyText();
+        boolean measured = aiOverviewText != null && !aiOverviewText.isBlank();
+        log.info(
+                "test_sync_material jobId={} queryId={} source={}",
+                jobId, queryEntity.getId(), measured ? "measured" : "estimated");
+        SyncVerificationResult syncVerificationResult = syncVerificationService.verifyWithAiOverview(
             jobEntity.getBrandName(),
             queryEntity.getQueryText(),
+            jobEntity.getTargetUrl(),
+            measured ? aiOverviewText : null,
             subscriptionPlan,
-            null,
-            null,
+            jobId,
+            queryEntity.getId(),
             jobEntity.getBrandName());
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
@@ -93,9 +107,7 @@ public class JobSyncTestService {
             modifiedZ,
             syncVerificationResult.gbvsNormalizedScore(),
             syncVerificationResult.modelInsightsJson(),
-            // Why: test-sync は今もクロール本文を材料にしており、実測の AI Overview ではない。
-            //      本番のリアルタイム経路と揃えるのは #68。それまでは正直に推定として記録する。
-            MaterialSource.ESTIMATED);
+            measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         return jobPersistenceService.findJobById(jobId);
     }
