@@ -58,7 +58,7 @@ public class AiConfig {
     public ChatLanguageModel geminiGbvsChatModel() {
         return GoogleAiGeminiChatModel.builder()
             .apiKey(appProperties.getAi().getGemini().getApiKey())
-            .modelName(LlmModelNames.GEMINI_31_PRO)
+            .modelName(LlmModelNames.GEMINI_25_FLASH)
             .temperature(0.0)
             .timeout(Duration.ofSeconds(300))
             .build();
