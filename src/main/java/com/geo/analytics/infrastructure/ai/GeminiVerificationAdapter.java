@@ -14,8 +14,8 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import dev.langchain4j.data.message.ChatMessage;
@@ -38,7 +38,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final ChatLanguageModel geminiGbvsChatModel;
     private final SomScoreParser somScoreParser;
     private final EntityNormalizer entityNormalizer;
-    private final JapaneseNlpService japaneseNlpService;
     private final BrandMentionEngine brandMentionEngine;
     private final JobPersistenceService jobPersistenceService;
 
@@ -46,13 +45,11 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             @Qualifier(AiConfig.GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
-            JapaneseNlpService japaneseNlpService,
             BrandMentionEngine brandMentionEngine,
             JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.entityNormalizer = entityNormalizer;
-        this.japaneseNlpService = japaneseNlpService;
         this.brandMentionEngine = brandMentionEngine;
         this.jobPersistenceService = jobPersistenceService;
     }
@@ -182,7 +179,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             VerificationRequest verificationRequest) {
         SomScoreData metrics = somScoreParser.parse(rawAiResponseJson);
         ConsultantOutputData full = somScoreParser.parseConsultantOutput(rawAiResponseJson);
-        int tc = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
+
         double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
         String ext = full.extractedBrandMention();
         String rawName = ext != null && !ext.isBlank() ? ext : verificationRequest.brandName();
@@ -192,11 +189,13 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             : verificationRequest.brandName();
         boolean isProPlan = subscriptionPlan.usesProTierFeatures();
         String nlpSource = full.response() != null ? full.response().strip() : "";
-        int llmBrandPassageChars = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
-        int responseTokenLength = japaneseNlpService.totalTokenCount(nlpSource);
+        // Why: 言及回数・言及文字数・トークン数はすべて Java の実測値にする（#59 / #60）。旧実装は LLM 申告の
+        //      「文字数」を回数として渡しており、計算式が単位の合わない割り算になっていた。
+        BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, main);
+        int tc = measuredMention.mentionChars();
+        int responseTokenLength = measuredMention.totalTokens();
         double stuffingDensity = 0.0;
         String resolved = entityNormalizer.resolve(rawName, main, isProPlan);
-        double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
         // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。LLM 申告は比較のためログにだけ残す。
         int measuredCitationPosition =
                 brandMentionEngine.citationPosition(nlpSource, main, namedBrandsOf(full));
@@ -209,8 +208,17 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 verificationRequest.queryId(),
                 measuredCitationPosition,
                 metrics.aiCitationPosition());
+        log.info(
+                "mention_metrics jobId={} queryId={} count={} chars={} tokens={} llmTokenCount={}",
+                verificationRequest.jobId(),
+                verificationRequest.queryId(),
+                measuredMention.mentionCount(),
+                measuredMention.mentionChars(),
+                measuredMention.totalTokens(),
+                metrics.tokenCount());
         SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
-                subscriptionPlan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, sourceWeight);
+                subscriptionPlan, si, responseTokenLength, measuredMention.mentionCount(),
+                measuredMention.mentionChars(), stuffingDensity);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
         if (verificationRequest.jobId() != null) {

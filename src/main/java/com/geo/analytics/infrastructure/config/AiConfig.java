@@ -240,14 +240,12 @@ public class AiConfig {
             @Qualifier(GEMINI_GBVS_CHAT) ChatLanguageModel geminiGbvsChatModel,
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
-            JapaneseNlpService japaneseNlpService,
             BrandMentionEngine brandMentionEngine,
             JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
                 entityNormalizer,
-                japaneseNlpService,
                 brandMentionEngine,
                 jobPersistenceService);
     }

@@ -189,19 +189,18 @@ public final class GeoVisibilityCalculatorService {
     }
 
     /**
-     * LLM が構造化出力した token_count（ブランド実質言及パッセージの文字数相当）と応答長からブレンド SOM を構成する。
-     * 感情強度は後段の倍率補正を行わず原文値をログのみに残す（スコア本体には乗算しない）。
+     * 回答文から Java が実測した言及回数・言及文字数・トークン数（#59 / #60）と、引用順位（#66）から SOM を構成する。
+     * 感情強度は乗算せず、独立した評判スコアとして扱う（#62 でオーナー確定）。原文値はログにのみ残す。
      */
     private static double weightedSom(SomRawMetrics metrics) {
         Integer aiPos = metrics.aiCitationPosition();
         if (!metrics.isSemanticallyMentioned()) {
             log.info(
-                    "[MATH DEBUG] outcome=not_semantic aiPos={} mentions={} tokenCount={} responseTokenLength={} sourceWeight={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
+                    "[MATH DEBUG] outcome=not_semantic aiPos={} mentions={} mentionChars={} responseTokenLength={} stuffingDensity={} sentimentIntensity={} somScore=0.0",
                     aiPos,
                     metrics.nounCount(),
                     metrics.tokenCount(),
                     metrics.responseTokenLength(),
-                    metrics.sourceWeight(),
                     metrics.stuffingDensity(),
                     metrics.sentimentIntensity());
             return 0.0;
@@ -217,9 +216,8 @@ public final class GeoVisibilityCalculatorService {
                     total);
             return 0.0;
         }
-        double sourceWeight = metrics.sourceWeight() > RobustAuditMathUtil.EPSILON
-                ? metrics.sourceWeight()
-                : SOURCE_WEIGHT_LOW;
+        // Why: 言及回数 ÷ 形態素トークン数。どちらも Java の実測値で単位が揃っている（#60）。
+        //      旧実装は LLM 申告の「文字数」を回数として割っており、意味のない比になっていた。
         double mentionDensity = total > 0 ? (double) mentions / (double) total : 0.0;
         double densityFactor = Math.min(1.0, mentionDensity / MENTION_DENSITY_SATURATION);
         double countFactor = Math.min(1.0, (double) mentions / MENTION_COUNT_SATURATION);
@@ -229,8 +227,10 @@ public final class GeoVisibilityCalculatorService {
         }
         // PWIM（ADR-017）: 順位への乗算依存を廃し、言及=基礎点・順位=加算ボーナスの線形統合へ。
         // 単独サイト解析で aiCitationPosition が空でも、言及があれば非ゼロのスコアを返す（SoMゼロ問題の解消）。
-        double normalizedSourceWeight = clamp01(sourceWeight / SOURCE_WEIGHT_HIGH);
-        double mentionComponent = clamp01(mentionSignal * normalizedSourceWeight);
+        // Why: 引用元ドメインの重み（sourceWeight）を SoM から外した（ADR-039 の決定5 / #60）。第三者からの
+        //      信頼は「AI 回答に出やすくなる原因」で権威軸が担当し、SoM は「AI 回答での見え方という結果」を測る。
+        //      これにより言及成分の天井が 0.12 から 0.60 へ戻る。
+        double mentionComponent = mentionSignal;
         // 順位ボーナスは NDCG 由来の対数減衰（1位=1.0, 2位≈0.63, 5位≈0.39）。
         double citationBonus = (aiPos != null && aiPos > 0)
                 ? clamp01(1.0 / (StrictMath.log(aiPos + 1.0) / StrictMath.log(2.0)))
@@ -238,13 +238,12 @@ public final class GeoVisibilityCalculatorService {
         double sentimentObserved = metrics.sentimentIntensity();
         double pwimScore = clamp01(Math.fma(PWIM_ALPHA, mentionComponent, PWIM_BETA * citationBonus));
         log.info(
-                "[MATH DEBUG] outcome=ok model=pwim aiPos={} mentions={} total={} density={} mentionSignal={} normSourceWeight={} mentionComponent={} citationBonus={} alpha={} beta={} sentimentIntensity_observed={} somScore={}",
+                "[MATH DEBUG] outcome=ok model=pwim aiPos={} mentions={} total={} density={} mentionSignal={} mentionComponent={} citationBonus={} alpha={} beta={} sentimentIntensity_observed={} somScore={}",
                 aiPos,
                 mentions,
                 total,
                 mentionDensity,
                 mentionSignal,
-                normalizedSourceWeight,
                 mentionComponent,
                 citationBonus,
                 PWIM_ALPHA,

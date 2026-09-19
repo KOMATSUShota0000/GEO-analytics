@@ -8,5 +8,4 @@ public record SomRawMetrics(
     boolean isSemanticallyMentioned,
     int nounCount,
     double stuffingDensity,
-    int responseTokenLength,
-    double sourceWeight) {}
+    int responseTokenLength) {}
