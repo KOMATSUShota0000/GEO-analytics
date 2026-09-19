@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { getAccessToken, tryRestoreSession } from "../auth/authSession";
@@ -455,7 +456,12 @@ export default function ReportPrintPage(): JSX.Element {
                     resultRows.map((row) => (
                       <Fragment key={row.resultId}>
                         <tr className="border-b border-slate-100 last:border-0">
-                          <td className="max-w-md px-4 py-3 align-top text-slate-800">{row.query}</td>
+                          <td className="max-w-md px-4 py-3 align-top text-slate-800">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span>{row.query}</span>
+                              <MaterialSourceBadge materialSource={row.materialSource} />
+                            </span>
+                          </td>
                           <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums text-slate-800">
                             {formatSomScore(row)}
                           </td>

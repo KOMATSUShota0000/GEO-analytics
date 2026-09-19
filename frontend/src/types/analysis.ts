@@ -369,6 +369,8 @@ export interface ResultDetail {
   visibilityStageBand?: string | null;
   visibilityStageNarrative?: string | null;
   calculationVersion?: string | null;
+  /** 評価の材料。MEASURED=実測のAI Overview本文 / ESTIMATED=生成AIの回答を推定（#93） */
+  materialSource?: "MEASURED" | "ESTIMATED" | null;
   negativeAlert?: boolean;
   modifiedZScore?: number | null;
   diagnosticMessage?: string | null;
@@ -668,6 +670,9 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
         ? dmRaw
         : null;
   const naRaw = r.negativeAlert;
+  const msRaw = r.materialSource !== undefined ? r.materialSource : r.material_source;
+  const materialSource =
+    msRaw === "MEASURED" || msRaw === "ESTIMATED" ? msRaw : null;
   return {
     resultId,
     query,
@@ -684,6 +689,7 @@ export function parseResultDetail(raw: unknown): ResultDetail | null {
     visibilityStageBand: typeof vsbRaw === "string" ? vsbRaw : undefined,
     visibilityStageNarrative: typeof vsnRaw === "string" ? vsnRaw : undefined,
     calculationVersion: typeof cvRaw === "string" ? cvRaw : undefined,
+    materialSource,
     negativeAlert: naRaw === true,
     modifiedZScore: mz !== undefined && !Number.isNaN(mz) ? mz : null,
     diagnosticMessage,

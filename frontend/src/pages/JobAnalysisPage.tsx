@@ -6,6 +6,7 @@ import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "rea
 import { mergeBannerJobHint } from "../lib/bannerJobHint";
 import { AnalysisCharts } from "../components/AnalysisCharts";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
+import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { OperationUpsellBanner } from "../components/OperationUpsellBanner";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
@@ -738,7 +739,10 @@ export function JobAnalysisPage(): JSX.Element {
                       className="pdf-avoid-break border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
                     >
                       <td className="max-w-md px-4 py-3 align-top text-slate-800 transition-all duration-500 ease-out">
-                        {row.query}
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span>{row.query}</span>
+                          <MaterialSourceBadge materialSource={row.materialSource} />
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-slate-800">
                         <CompletedScoreCell value={formatAuditDate(row.auditDate)} />
