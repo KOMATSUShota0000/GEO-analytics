@@ -12,6 +12,15 @@ public record SomScoreData(
     @JsonProperty("sentiment_intensity") Double sentimentIntensity,
     @JsonProperty("brand_mentioned") Boolean brandMentioned
 ) {
+    /**
+     * 引用順位を Java の実測値へ差し替える（#66）。
+     *
+     * <p>Why: 順位は確定的な物理量なので LLM に数えさせない（.cursorrules 12節）。LLM 申告は比較ログにだけ残す。
+     */
+    public SomScoreData withAiCitationPosition(Integer measuredPosition) {
+        return new SomScoreData(tokenCount, measuredPosition, sentimentIntensity, brandMentioned);
+    }
+
     public SomRawMetrics toRawMetrics(
             SubscriptionPlan subscriptionPlan,
             double normalizedSentimentIntensity,

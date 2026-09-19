@@ -13,6 +13,7 @@ import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.BrandMentionEngine;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
@@ -38,6 +39,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final SomScoreParser somScoreParser;
     private final EntityNormalizer entityNormalizer;
     private final JapaneseNlpService japaneseNlpService;
+    private final BrandMentionEngine brandMentionEngine;
     private final JobPersistenceService jobPersistenceService;
 
     public GeminiVerificationAdapter(
@@ -45,11 +47,13 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             JapaneseNlpService japaneseNlpService,
+            BrandMentionEngine brandMentionEngine,
             JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.entityNormalizer = entityNormalizer;
         this.japaneseNlpService = japaneseNlpService;
+        this.brandMentionEngine = brandMentionEngine;
         this.jobPersistenceService = jobPersistenceService;
     }
 
@@ -179,7 +183,6 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         SomScoreData metrics = somScoreParser.parse(rawAiResponseJson);
         ConsultantOutputData full = somScoreParser.parseConsultantOutput(rawAiResponseJson);
         int tc = metrics.tokenCount() != null ? metrics.tokenCount() : 0;
-        Integer rp = metrics.aiCitationPosition();
         double si = metrics.sentimentIntensity() != null ? metrics.sentimentIntensity() : 0.0;
         String ext = full.extractedBrandMention();
         String rawName = ext != null && !ext.isBlank() ? ext : verificationRequest.brandName();
@@ -194,7 +197,19 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         double stuffingDensity = 0.0;
         String resolved = entityNormalizer.resolve(rawName, main, isProPlan);
         double sourceWeight = GeoVisibilityCalculatorService.sourceWeightFromUrl(verificationRequest.url());
-        SomRawMetrics rawMetrics = metrics.toRawMetrics(
+        // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。LLM 申告は比較のためログにだけ残す。
+        int measuredCitationPosition =
+                brandMentionEngine.citationPosition(nlpSource, main, namedBrandsOf(full));
+        SomScoreData measuredMetrics = metrics.withAiCitationPosition(
+                measuredCitationPosition > 0 ? measuredCitationPosition : null);
+        Integer rp = measuredMetrics.aiCitationPosition();
+        log.info(
+                "citation_position jobId={} queryId={} java={} llm={}",
+                verificationRequest.jobId(),
+                verificationRequest.queryId(),
+                measuredCitationPosition,
+                metrics.aiCitationPosition());
+        SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
                 subscriptionPlan, si, responseTokenLength, llmBrandPassageChars, stuffingDensity, sourceWeight);
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
         GeoVisibilityCalculatorService.GbvsResult gbvs;
@@ -254,6 +269,17 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         return crawled != null && !crawled.isBlank()
                 ? GeoVisibilityCalculatorService.CALCULATION_VERSION
                 : GeoVisibilityCalculatorService.CALCULATION_VERSION_AIOVERVIEW;
+    }
+
+    /** 引用順位の比較対象。回答文に実際に名前が出たブランドを LLM が挙げたもの（名前は LLM、順序は Java）。 */
+    private static List<String> namedBrandsOf(ConsultantOutputData consultantOutputData) {
+        if (consultantOutputData.competitorComparison() == null) {
+            return List.of();
+        }
+        return consultantOutputData.competitorComparison().stream()
+                .map(entry -> entry.competitorName())
+                .filter(name -> name != null && !name.isBlank())
+                .toList();
     }
 
     private static String formatGeminiErrorDetail(Throwable throwable) {

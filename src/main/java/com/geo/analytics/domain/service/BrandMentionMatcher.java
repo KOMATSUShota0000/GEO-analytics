@@ -57,4 +57,30 @@ final class BrandMentionMatcher {
         }
         return new BrandMentionMetrics(mentions, chars, totalTokens);
     }
+
+    /**
+     * 正規化済み本文で、その表記が最初に現れる位置を返す。見つからなければ -1。
+     *
+     * <p>Why: 引用順位（AI 回答で何番目に名前が出たか）を Java で決めるために使う（#66）。一致規則は
+     * 計数と同じ（形態素の境界で始まり境界で終わる）。位置の比較にしか使わないため、最長一致の考慮は不要。
+     *
+     * @param normalizedText 正規化済みの本文
+     * @param boundary       長さ {@code normalizedText.length() + 1} の形態素境界
+     * @param pattern        正規化済みの表記。空文字を渡さないこと
+     */
+    static int firstIndex(String normalizedText, boolean[] boundary, String pattern) {
+        int length = normalizedText.length();
+        int patternLength = pattern.length();
+        if (length == 0 || patternLength == 0 || patternLength > length) {
+            return -1;
+        }
+        for (int position = 0; position + patternLength <= length; position++) {
+            if (boundary[position]
+                    && boundary[position + patternLength]
+                    && normalizedText.regionMatches(position, pattern, 0, patternLength)) {
+                return position;
+            }
+        }
+        return -1;
+    }
 }
