@@ -32,8 +32,7 @@ class RubricGapAnalysisServiceTest {
     private static RubricGapAnalysisService serviceReturning(List<AuditRubricResultEntity> rows) {
         var rubricRepository = mock(AuditRubricResultRepository.class);
         when(rubricRepository.findByAuditHistoryId(any())).thenReturn(rows);
-        return new RubricGapAnalysisService(
-                rubricRepository, mock(AuditHistoryRepository.class), mock(JobRepository.class));
+        return new RubricGapAnalysisService(rubricRepository);
     }
 
     @Test

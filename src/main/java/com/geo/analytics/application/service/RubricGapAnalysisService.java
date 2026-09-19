@@ -35,16 +35,9 @@ public class RubricGapAnalysisService {
     private static final int MAX_GAPS = 5;
 
     private final AuditRubricResultRepository auditRubricResultRepository;
-    private final AuditHistoryRepository auditHistoryRepository;
-    private final JobRepository jobRepository;
 
-    public RubricGapAnalysisService(
-            AuditRubricResultRepository auditRubricResultRepository,
-            AuditHistoryRepository auditHistoryRepository,
-            JobRepository jobRepository) {
+    public RubricGapAnalysisService(AuditRubricResultRepository auditRubricResultRepository) {
         this.auditRubricResultRepository = auditRubricResultRepository;
-        this.auditHistoryRepository = auditHistoryRepository;
-        this.jobRepository = jobRepository;
     }
 
     @Transactional(readOnly = true)
@@ -120,81 +113,11 @@ public class RubricGapAnalysisService {
         return (competitorAchieved ? 0 : 2) + (selfUnmet ? 0 : 1);
     }
 
-    @Transactional
-    public double aggregateAndPersistFinalScore(UUID auditHistoryId) {
-        if (auditHistoryId == null) {
-            throw new IllegalArgumentException("auditHistoryId");
-        }
-        AuditHistoryEntity history = auditHistoryRepository
-                .findById(auditHistoryId)
-                .orElseThrow(() -> new EntityNotFoundException("auditHistoryId"));
-        List<AuditRubricResultEntity> rows;
-        try {
-            rows = auditRubricResultRepository.findByAuditHistoryId(auditHistoryId);
-        } catch (RuntimeException runtimeException) {
-            log.error(
-                    "rubric_gap_aggregate_load_failed auditHistoryId={} trace={}",
-                    auditHistoryId,
-                    truncateStackTrace(runtimeException));
-            throw runtimeException;
-        }
-        double aiAuditTotal = 0.0d;
-        double meoTotal = 0.0d;
-        double machineReadabilityTotal = 0.0d;
-        double thirdPartyCoreTotal = 0.0d;
-        for (int i = 0; i < rows.size(); i++) {
-            AuditRubricResultEntity row = rows.get(i);
-            if (!row.isSelf()) {
-                continue;
-            }
-            RubricCriterionId criterion = parseCriterion(row.getCriterionId());
-            if (criterion == null) {
-                continue;
-            }
-            BigDecimal scoreBd = row.getScore();
-            if (scoreBd == null) {
-                continue;
-            }
-            double score = scoreBd.doubleValue();
-            switch (criterion.source()) {
-                case LLM -> aiAuditTotal = StrictMath.fma(score, 1.0d, aiAuditTotal);
-                case SYSTEM -> machineReadabilityTotal = StrictMath.fma(score, 1.0d, machineReadabilityTotal);
-                case MEO -> meoTotal = StrictMath.fma(score, 1.0d, meoTotal);
-                case AUTHORITY -> thirdPartyCoreTotal = StrictMath.fma(score, 1.0d, thirdPartyCoreTotal);
-            }
-        }
-        BusinessModelType mode = jobRepository.findById(history.getJobId())
-                .map(JobEntity::getBusinessModelType)
-                .orElse(BusinessModelType.LOCAL_STORE);
-        double authority = GeoVisibilityCalculatorService.combineAuthority(thirdPartyCoreTotal, meoTotal, mode);
-        double finalScore = GeoVisibilityCalculatorService.calculateFinalGeoScore(
-                aiAuditTotal, machineReadabilityTotal, authority);
-        double rounded = BigDecimal.valueOf(finalScore)
-                .setScale(3, RoundingMode.HALF_EVEN)
-                .doubleValue();
-        history.setSomScore(rounded);
-        history.setGbvsNormalizedScore(rounded);
-        history.setCalculationVersion(GeoVisibilityCalculatorService.CALCULATION_VERSION);
-        auditHistoryRepository.save(history);
-        return rounded;
-    }
-
     private static boolean isLlmCriterion(String criterionId) {
         try {
             return RubricCriterionId.valueOf(criterionId).source() == RubricCriterionId.Source.LLM;
         } catch (IllegalArgumentException illegalArgumentException) {
             return false;
-        }
-    }
-
-    private static RubricCriterionId parseCriterion(String criterionId) {
-        if (criterionId == null) {
-            return null;
-        }
-        try {
-            return RubricCriterionId.valueOf(criterionId);
-        } catch (IllegalArgumentException illegalArgumentException) {
-            return null;
         }
     }
 
