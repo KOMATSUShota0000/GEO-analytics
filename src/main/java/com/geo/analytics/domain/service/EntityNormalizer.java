@@ -41,8 +41,13 @@ public final class EntityNormalizer {
         }
     }
 
-    @SuppressWarnings("unused")
-    public String resolve(String rawName, String mainBrand, boolean isProPlan) {
+    /**
+     * 自社ブランドとの同定。一致しなければ {@link #UNMATCHED}。
+     *
+     * <p>Why: 未使用の {@code isProPlan} 引数を撤去した（#65）。プランで名寄せの規則を変える設計意図は
+     * 実装に存在せず、引数だけが残っていた（`.cursorrules` 10節）。
+     */
+    public String resolve(String rawName, String mainBrand) {
         String raw = rawName == null ? "" : rawName;
         String main = mainBrand == null ? "" : mainBrand;
         String strippedRaw = prepareForSudachi(raw);
@@ -81,6 +86,71 @@ public final class EntityNormalizer {
             }
         }
         return UNMATCHED;
+    }
+
+    /**
+     * 候補群の中から同じエンティティを探す。見つからなければ {@link #UNMATCHED}。
+     *
+     * <p>Why: 名寄せエンジンは3段構え（正規化形の一致／読みの一致／バイグラム類似）で完成していたのに、
+     * 候補として渡されるのが自社ブランド1件だけで、競合は全件 OTHERS へ潰れていた（#65）。候補を渡せる
+     * 入口を用意し、「マネーフォワード」と「Money Forward」のような表記ゆれを1つへ寄せる。
+     */
+    public String resolveAmong(String rawName, List<String> candidates) {
+        String strippedRaw = prepareForSudachi(rawName == null ? "" : rawName);
+        if (strippedRaw.isBlank() || candidates == null || candidates.isEmpty()) {
+            return UNMATCHED;
+        }
+        String rawNorm = japaneseNlpService.normalizedKey(strippedRaw);
+        if (rawNorm.isBlank()) {
+            return UNMATCHED;
+        }
+        String rawReading = japaneseNlpService.readingKey(strippedRaw);
+        List<NameCandidate> cands = new ArrayList<>(candidates.size());
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            String prepared = prepareForSudachi(candidate);
+            cands.add(new NameCandidate(
+                    candidate,
+                    japaneseNlpService.normalizedKey(prepared),
+                    japaneseNlpService.readingKey(prepared)));
+        }
+        for (NameCandidate cand : cands) {
+            if (!cand.normSudachi.isBlank() && rawNorm.equals(cand.normSudachi)) {
+                return cand.canonical;
+            }
+        }
+        for (NameCandidate cand : cands) {
+            if (!rawReading.isBlank() && !cand.readingKey.isBlank() && rawReading.equals(cand.readingKey)) {
+                return cand.canonical;
+            }
+        }
+        for (NameCandidate cand : cands) {
+            if (!cand.normSudachi.isBlank()
+                    && StringBigramTokenizer.diceCoefficient(rawNorm, cand.normSudachi) >= LEXICAL_DICE_THRESHOLD) {
+                return cand.canonical;
+            }
+        }
+        return UNMATCHED;
+    }
+
+    /**
+     * 「その他」のような残余カテゴリかどうか。
+     *
+     * <p>Why: LLM は競合の一覧に「その他」を混ぜてくることがある。実在のエンティティではないため、
+     * 分子にも分母にも入れない（#65 / オーナー確定 2026-09-19）。
+     */
+    public static boolean isResidualCategory(String rawName) {
+        if (rawName == null) {
+            return false;
+        }
+        String normalized = Normalizer.normalize(rawName.trim(), Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        return normalized.equals("その他")
+                || normalized.equals("そのほか")
+                || normalized.equals("他")
+                || normalized.equals("others")
+                || normalized.equals("other");
     }
 
     public static String prepareForSudachi(String text) {

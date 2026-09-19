@@ -15,7 +15,6 @@ import com.geo.analytics.application.service.ProjectAuditLifecyclePublisher;
 import com.geo.analytics.application.service.SubscriptionManagementService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.domain.entity.JobEntity;
-import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
@@ -355,12 +354,12 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
     }
 
     @Test
-    void scenarioD_entityResolutionAndNoMatchExcludedFromSomAggregation() {
+    void scenarioD_entityResolutionMergesSurfaceVariants() {
         var insights = new LinkedHashMap<ModelType, String>();
         insights.put(ModelType.GEMINI, "{}");
-        var aliasA = new CompetitorResult("御茶", 40.0, 2, 5, MatchStatus.AUTO_MATCH, 2);
-        var aliasB = new CompetitorResult("お茶", 50.0, 1, 6, MatchStatus.AUTO_MATCH, 3);
-        var noise = new CompetitorResult("TotallyUnrelatedNoise", 99.0, 1, 7, MatchStatus.NO_MATCH, 0);
+        var aliasA = new CompetitorResult("御茶", 40.0, 2, 2);
+        var aliasB = new CompetitorResult("お茶", 50.0, 1, 3);
+        var noise = new CompetitorResult("TotallyUnrelatedNoise", 99.0, 3, 0);
         var modelResponse = new VerificationResponse(
                 ModelType.GEMINI,
                 "{}",
@@ -392,16 +391,20 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 null);
         var aggregated = informationTheoryBasedAggregator.aggregate(List.of(modelResponse), request);
         assertThat(aggregated.calculationVersion()).isEqualTo("V11_GEO_PURE");
-        assertThat(aggregated.competitorResults()).hasSize(1);
-        var matched = aggregated.competitorResults().getFirst();
-        assertThat(matched.competitorLabel()).isEqualTo("お茶");
-        assertThat(matched.matchStatus()).isEqualTo(MatchStatus.AUTO_MATCH);
-        assertThat(matched.aiCitationPosition()).isEqualTo(1);
-        assertThat(matched.visibilityStage()).isEqualTo(10);
-        assertThat(matched.somScore()).isCloseTo(100.0, org.assertj.core.data.Offset.offset(0.05));
+        // Why: 表記ゆれ（御茶／お茶）は1つのエンティティへ寄る。無関係な名前は別エンティティとして残る。
+        //      自社・残余カテゴリ・表記ゆれの除外は生成時（CompetitorSelection）で行うよう移した（#64 / #65）。
+        assertThat(aggregated.competitorResults()).hasSize(2);
         assertThat(aggregated.competitorResults().stream().map(CompetitorResult::competitorLabel))
-                .noneMatch("TotallyUnrelatedNoise"::equals);
-        assertThat(aggregated.somScore()).isCloseTo(62.5, org.assertj.core.data.Offset.offset(0.06));
+                .containsExactlyInAnyOrder("お茶", "TotallyUnrelatedNoise");
+        var matched = aggregated.competitorResults().stream()
+                .filter(c -> "お茶".equals(c.competitorLabel()))
+                .findFirst()
+                .orElseThrow();
+        // Why: 表記ゆれが合算され（40+50=90点）、無関係な名前（99点）との相対シェアになる。
+        //      旧テストは集約側が NO_MATCH を除外する前提で 100% を期待していたが、その除外は生成時へ移した。
+        assertThat(matched.somScore()).isCloseTo(47.62, org.assertj.core.data.Offset.offset(0.05));
+        // 自社シグナル 1.5 ÷ (1.5 + 0.40 + 0.50 + 0.99) = 44.25%。無関係な名前も分母に入るため旧値から下がる。
+        assertThat(aggregated.somScore()).isCloseTo(44.25, org.assertj.core.data.Offset.offset(0.06));
     }
 
     @Test
