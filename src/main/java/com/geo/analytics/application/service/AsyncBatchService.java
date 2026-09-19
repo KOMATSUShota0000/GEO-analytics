@@ -109,8 +109,9 @@ public class AsyncBatchService {
                     String outputFileContent =
                         geminiBatchClient.downloadOutputFileContent(outputFileName);
                     geminiResultProcessor.processOutputJsonlAndUpsertResults(jobEntity, outputFileContent);
-                    jobBenchmarkCaptureService.capture(jobEntity.getId());
-                    aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobEntity.getId());
+                    // Why: 監査を先に行い、自社分の成果物をベンチマーク保存で使い回す（#72）。
+                    var selfAudit = aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobEntity.getId());
+                    jobBenchmarkCaptureService.capture(jobEntity.getId(), selfAudit);
                     batchPersistence.updateJobStatus(jobEntity.getId(), JobStatus.COMPLETED, null);
                     projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobEntity.getId()));
                 } else {

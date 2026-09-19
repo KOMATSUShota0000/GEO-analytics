@@ -3,6 +3,7 @@ package com.geo.analytics.application.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.ExtractedPlace;
+import com.geo.analytics.application.dto.CrawledPageData;
 import com.geo.analytics.application.dto.RubricAuditResult;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
@@ -66,8 +67,17 @@ public class JobBenchmarkCaptureService {
      * クロールと LLM 監査を含むため readOnly ではなく、外側で長時間トランザクションを張らないよう
      * 読み取り境界のみをここで確保する。
      */
+    /** 監査結果を使い回せない経路（旧呼び出し）向け。自前でクロールと監査を行う。 */
     @Transactional
     public void capture(UUID jobId) {
+        capture(jobId, null);
+    }
+
+    /**
+     * @param reusableSelfAudit 直前のルーブリック監査（#72）の自社分。null なら自前でクロールと監査を行う
+     */
+    @Transactional
+    public void capture(UUID jobId, AiRubricAuditService.SelfAuditSnapshot reusableSelfAudit) {
         log.info("benchmark_capture_started jobId={}", jobId);
         try {
             JobEntity job = batchPersistence.findJobById(jobId);
@@ -94,10 +104,21 @@ public class JobBenchmarkCaptureService {
                     return;
                 }
                 String trimmedTarget = targetUrl.trim();
-                var selfBundle = smartDomainCrawlService.compileForAudit(trimmedTarget);
-                RubricAuditResult selfRubric =
-                        rubricAuditService.executeAudit(
-                                projectId, selfBundle.mergedAuditText(), JobPromptContextFormatter.format(job));
+                RubricAuditResult selfRubric;
+                CrawledPageData selfCrawled;
+                if (reusableSelfAudit != null) {
+                    // Why: 直前のルーブリック監査が同じ URL を同じ手順でクロールし、同じ LLM 監査を実行している。
+                    //      作り直すとクロールと LLM コールを2回払うことになる（#72）。
+                    selfRubric = reusableSelfAudit.llmAudit();
+                    selfCrawled = reusableSelfAudit.crawled();
+                    log.info("benchmark_capture_reused_audit jobId={}", jobId);
+                } else {
+                    var selfBundle = smartDomainCrawlService.compileForAudit(trimmedTarget);
+                    selfRubric = rubricAuditService.executeAudit(
+                            projectId, selfBundle.mergedAuditText(), JobPromptContextFormatter.format(job));
+                    selfCrawled = selfBundle.primaryPage().crawled();
+                    log.info("benchmark_capture_audited_itself jobId={} reason=no_reusable_audit", jobId);
+                }
                 Integer meoCount = null;
                 Double meoStars = null;
                 try {
@@ -124,7 +145,7 @@ public class JobBenchmarkCaptureService {
                     jobPersistenceService.persistJobBenchmarkSnapshot(
                             jobId,
                             objectMapper.writeValueAsString(selfRubric),
-                            objectMapper.writeValueAsString(selfBundle.primaryPage().crawled()),
+                            objectMapper.writeValueAsString(selfCrawled),
                             meoCount,
                             meoStars);
                     log.info("benchmark_capture_persisted jobId={} meoCount={} meoStars={}", jobId, meoCount, meoStars);

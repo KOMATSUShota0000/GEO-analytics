@@ -266,8 +266,10 @@ public class JobQuerySubmissionService {
                     jobId,
                     measuredCounter.get(),
                     queryEntities.size() - measuredCounter.get());
-            jobBenchmarkCaptureService.capture(jobId);
-            aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
+            // Why: 監査を先に行い、その自社分のクロールと LLM 監査をベンチマーク保存へ渡す（#72）。
+            //      旧実装は同じ URL を2回クロールし、同じルーブリック監査を2回呼んでいた。
+            var selfAudit = aiRubricAuditService.runMultiDomainAuditForCompletedJob(jobId);
+            jobBenchmarkCaptureService.capture(jobId, selfAudit);
             // ルーブリック監査の行が永続化された後でしかギャップを判定できないため、この順序を保つこと。
             remediationTaskOrchestrationService.generateForCompletedJob(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
