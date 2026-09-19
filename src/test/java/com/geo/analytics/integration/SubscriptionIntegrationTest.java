@@ -359,6 +359,9 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
 
     @Test
     void scenarioC_upgradeReflectsImmediatelyWithoutRestart() {
+        // Why: 先行テストの非同期処理が枠を消費・払い戻しする間にバケツを作り直すと、満量を前提にした
+        //      この検証が揺れる（#108 と同じ原因）。処理中のジョブが無くなってから作り直す。
+        awaitNoJobsInFlight();
         jdbcTemplate.update("UPDATE workspaces SET subscription_plan='PRO' WHERE id=?", WID);
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         var limit = SubscriptionPlan.PRO.getDailyLimit();

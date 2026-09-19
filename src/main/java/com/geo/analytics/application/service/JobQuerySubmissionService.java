@@ -47,6 +47,7 @@ public class JobQuerySubmissionService {
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
     private final AiRubricAuditService aiRubricAuditService;
     private final RemediationTaskOrchestrationService remediationTaskOrchestrationService;
+    private final GapAnalysisService gapAnalysisService;
 
     public JobQuerySubmissionService(
             JobPersistenceService jobPersistenceService,
@@ -62,7 +63,8 @@ public class JobQuerySubmissionService {
             PlanBasedQuotaManager quotaManager,
             JobBenchmarkCaptureService jobBenchmarkCaptureService,
             AiRubricAuditService aiRubricAuditService,
-            RemediationTaskOrchestrationService remediationTaskOrchestrationService) {
+            RemediationTaskOrchestrationService remediationTaskOrchestrationService,
+            GapAnalysisService gapAnalysisService) {
         this.jobPersistenceService = jobPersistenceService;
         this.asyncSgeMeasurementService = asyncSgeMeasurementService;
         this.syncVerificationService = syncVerificationService;
@@ -76,6 +78,7 @@ public class JobQuerySubmissionService {
         this.jobBenchmarkCaptureService = Objects.requireNonNull(jobBenchmarkCaptureService);
         this.aiRubricAuditService = Objects.requireNonNull(aiRubricAuditService);
         this.remediationTaskOrchestrationService = Objects.requireNonNull(remediationTaskOrchestrationService);
+        this.gapAnalysisService = Objects.requireNonNull(gapAnalysisService);
     }
 
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
@@ -272,6 +275,10 @@ public class JobQuerySubmissionService {
             jobBenchmarkCaptureService.capture(jobId, selfAudit);
             // ルーブリック監査の行が永続化された後でしかギャップを判定できないため、この順序を保つこと。
             remediationTaskOrchestrationService.generateForCompletedJob(jobId);
+            // Why: 4ペルソナ議論によるジョブ全体アドバイスは、バッチ経路（GeminiResultProcessor）からしか
+            //      呼ばれておらず、リアルタイム経路の解析には議論が走っていなかった（#73）。同じ入口を呼ぶ。
+            //      失敗しても解析は落とさない（内部でテンプレートへ縮退する）。
+            gapAnalysisService.scheduleForJob(jobId);
             jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
             var completedJobEntity = jobPersistenceService.findJobById(jobId);
             projectAuditLifecyclePublisher.publishAuditCompleted(completedJobEntity);
