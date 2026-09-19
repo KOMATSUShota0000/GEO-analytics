@@ -12,8 +12,8 @@ import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.BrandMentionEngine;
 import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
+import com.geo.analytics.domain.service.SomScoreCalculator;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
-import com.geo.analytics.domain.service.InformationTheoryBasedAggregator;
 import com.geo.analytics.infrastructure.ai.GeminiBatchApiException;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchOutputRecord;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
@@ -41,7 +41,6 @@ public class GeminiResultProcessor {
     private final JsonbOperations jsonbOperations;
     private final EntityNormalizer entityNormalizer;
     private final BrandMentionEngine brandMentionEngine;
-    private final InformationTheoryBasedAggregator informationTheoryBasedAggregator;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
@@ -54,7 +53,6 @@ public class GeminiResultProcessor {
             BrandMentionEngine brandMentionEngine,
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
-            InformationTheoryBasedAggregator informationTheoryBasedAggregator,
             PlanBasedQuotaManager planBasedQuotaManager) {
         this.batchPersistence = batchPersistence;
         this.objectMapper = objectMapper;
@@ -64,7 +62,6 @@ public class GeminiResultProcessor {
         this.brandMentionEngine = brandMentionEngine;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
-        this.informationTheoryBasedAggregator = informationTheoryBasedAggregator;
         this.planBasedQuotaManager = planBasedQuotaManager;
     }
     @Transactional("batchTransactionManager")
@@ -131,7 +128,7 @@ public class GeminiResultProcessor {
                 parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
         // Why: 投入時に取得した AI Overview 本文を回収時にも読み、行ごとに材料の別を記録する（ADR-046）。
         Map<UUID, String> overviewBodies = batchPersistence.findOverviewBodiesByJobId(jobEntity.getId());
-        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg);
+        var gbvsList = SomScoreCalculator.computeBatchForJob(metricsList, lAvg);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
             var gbvs = gbvsList.get(idx);
