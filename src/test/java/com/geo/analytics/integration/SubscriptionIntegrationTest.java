@@ -317,9 +317,13 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         var limit = SubscriptionPlan.PRO.getDailyLimit();
         var jobId = createJob("SubscriptionB");
         // Why: 「容量 - 1キーワード分」を先に消費する旧実装は、残量が同一クラス内の先行テストの
-        //      消費量に依存し、単独実行では 429 にならなかった（main でも再現する既存の脆さ）。
-        //      検証したいのは「バケット枯渇時に 429 と復旧時刻を返すこと」なので、ジョブ作成
-        //      （これ自体もクォータを消費する）を終えてから残量を 0 にして決定的にする。
+        //      消費量に依存し、単独実行では 429 にならなかった。検証したいのは「バケット枯渇時に
+        //      429 と復旧時刻を返すこと」なので、ジョブ作成を終えてから残量を 0 にして決定的にする。
+        //
+        //      さらに、先行テストが起動した非同期処理が失敗して枠を払い戻すと、空にした直後に残量が
+        //      復活して 204 が返っていた（全体実行のときだけ落ちる原因。#108）。処理中のジョブが
+        //      無くなるのを待ってから空にする。
+        awaitNoJobsInFlight();
         planBasedQuotaManager.resolve(WID).tryConsumeAsMuchAsPossible();
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
@@ -333,6 +337,24 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .jsonPath("$.message").value(m -> assertThat((String) m).matches(RECOVERY_PATTERN))
                 .jsonPath("$.details.current_limit").isEqualTo(limit)
                 .jsonPath("$.details.plan_name").isEqualTo("PRO");
+    }
+
+    /** 非同期処理が枠を払い戻し切るまで待つ。払い戻しはジョブが終端状態になった後には発生しない。 */
+    private void awaitNoJobsInFlight() {
+        for (int attempt = 0; attempt < 300; attempt++) {
+            Integer inFlight = jdbcTemplate.queryForObject(
+                    "SELECT count(*) FROM jobs WHERE job_status IN ('REALTIME_PROCESSING','RUNNING','SUBMITTED')",
+                    Integer.class);
+            if (inFlight != null && inFlight == 0) {
+                return;
+            }
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     @Test
