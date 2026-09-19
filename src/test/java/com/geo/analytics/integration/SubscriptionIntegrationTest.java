@@ -147,7 +147,11 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         planQuotaCaffeineProxyManager.getCache().invalidateAll();
         webTestClient = webTestClient.mutate().responseTimeout(Duration.ofSeconds(120)).build();
         lenient().doNothing().when(jobBenchmarkCaptureService).capture(any(UUID.class));
-        lenient().doNothing().when(aiRubricAuditService).runMultiDomainAuditForCompletedJob(any(UUID.class));
+        lenient().doNothing().when(jobBenchmarkCaptureService).capture(any(UUID.class), any());
+        // Why: 監査は自社分の成果物を返すようになった（#72）。テストでは使い回す材料が無い null を返す。
+        lenient()
+                .when(aiRubricAuditService.runMultiDomainAuditForCompletedJob(any(UUID.class)))
+                .thenReturn(null);
         lenient().doNothing().when(projectAuditLifecyclePublisher).publishAuditCompleted(any(JobEntity.class));
         lenient()
                 .when(geoCompetitorSearchAdapter.checkSgeMention(anyString(), anyString()))

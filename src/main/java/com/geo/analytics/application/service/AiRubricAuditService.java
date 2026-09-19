@@ -87,25 +87,31 @@ public class AiRubricAuditService {
         this.self = self;
     }
 
-    public void runMultiDomainAuditForCompletedJob(UUID jobId) {
+    /**
+     * 解析完了後に自社ドメインを監査する。戻り値は自社分のクロール結果と LLM 監査結果（失敗時は null）。
+     *
+     * <p>Why: 同じ自社サイトへのクロールと監査をベンチマーク保存側でも行っており、1解析あたりどちらも
+     * 2回払っていた（#72）。ここで得た結果を呼び出し元が {@code JobBenchmarkCaptureService} へ渡す。
+     */
+    public SelfAuditSnapshot runMultiDomainAuditForCompletedJob(UUID jobId) {
         if (jobId == null) {
-            return;
+            return null;
         }
         try {
             JobAnalysisAggregate agg = jobPersistenceService.findJobAnalysisAggregate(jobId);
             JobEntity job = agg.job();
             ProjectEntity project = agg.project();
             if (project == null || job.getProjectId() == null) {
-                return;
+                return null;
             }
             List<AuditHistoryEntity> audits = agg.auditHistories();
             AuditHistoryEntity latest = LatestAuditHistorySelector.pickLatest(audits);
             if (latest == null) {
-                return;
+                return null;
             }
             String targetUrl = project.getTargetUrl();
             if (targetUrl == null || targetUrl.isBlank()) {
-                return;
+                return null;
             }
             String trimmedTarget = targetUrl.trim();
             ArrayList<String> domainUrls = new ArrayList<>();
@@ -118,22 +124,41 @@ public class AiRubricAuditService {
             UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
             UUID projectId = job.getProjectId();
             UUID auditHistoryId = latest.getId();
-            TenantPlanScope.executeWithTenant(
+            return TenantPlanScope.executeWithTenant(
                     workspaceId,
-                    () ->
-                            self.auditAllDomains(
+                    () -> self.auditAllDomains(
                                     projectId,
                                     auditHistoryId,
                                     trimmedTarget,
                                     meoSearchQuery,
                                     domainUrls,
-                                    jobId));
+                                    jobId)
+                            .selfAudit());
         } catch (RuntimeException ex) {
             log.warn("multi_domain_audit_after_job_failed jobId={}", jobId, ex);
+            return null;
         }
     }
 
-    public Map<String, List<RubricAuditResult>> auditAllDomains(
+    /**
+     * 自社ドメイン1件分のクロール結果と LLM 監査結果。
+     *
+     * <p>Why: 同じ自社サイトへのクロールと LLM 監査が、ベンチマーク保存側でも重ねて行われ、1解析あたり
+     * どちらも2回払っていた（#72）。ここで得たものを渡して使い回す。
+     */
+    public record SelfAuditSnapshot(
+            CrawledPageData crawled, com.geo.analytics.application.dto.RubricAuditResult llmAudit) {}
+
+    /** 全ドメインの監査結果と、そのうち自社分の成果物。 */
+    public record MultiDomainAudit(
+            Map<String, List<RubricAuditResult>> byUrl, SelfAuditSnapshot selfAudit) {}
+
+    private record DomainAudit(
+            List<RubricAuditResult> rows,
+            CrawledPageData crawled,
+            com.geo.analytics.application.dto.RubricAuditResult llmAudit) {}
+
+    public MultiDomainAudit auditAllDomains(
             UUID projectId,
             UUID auditHistoryId,
             String selfUrl,
@@ -147,7 +172,7 @@ public class AiRubricAuditService {
             throw new IllegalArgumentException("auditHistoryId");
         }
         if (domainUrls == null || domainUrls.isEmpty()) {
-            return Map.of();
+            return new MultiDomainAudit(Map.of(), null);
         }
         String normalizedSelfUrl = selfUrl == null ? "" : selfUrl.trim();
         ArrayList<String> normalizedUrls = new ArrayList<>(domainUrls.size());
@@ -162,7 +187,7 @@ public class AiRubricAuditService {
             }
         }
         if (normalizedUrls.isEmpty()) {
-            return Map.of();
+            return new MultiDomainAudit(Map.of(), null);
         }
         final String jobContextBlock =
                 jobId == null
@@ -172,13 +197,13 @@ public class AiRubricAuditService {
                                 .map(JobPromptContextFormatter::format)
                                 .orElse(null);
         ArrayList<DomainSubtask> tracked = new ArrayList<>(normalizedUrls.size());
-        try (StructuredTaskScope<List<RubricAuditResult>, Void> scope = StructuredTaskScope.open(
-                StructuredTaskScope.Joiner.<List<RubricAuditResult>>awaitAll(),
+        try (StructuredTaskScope<DomainAudit, Void> scope = StructuredTaskScope.open(
+                StructuredTaskScope.Joiner.<DomainAudit>awaitAll(),
                 cf -> cf.withTimeout(SCOPE_TIMEOUT)
                         .withThreadFactory(Thread.ofVirtual().name("ai-rubric-audit-", 0).factory()))) {
             for (int i = 0; i < normalizedUrls.size(); i++) {
                 String url = normalizedUrls.get(i);
-                StructuredTaskScope.Subtask<List<RubricAuditResult>> subtask =
+                StructuredTaskScope.Subtask<DomainAudit> subtask =
                         scope.fork(() -> ContextPropagator.wrap(
                                         () -> auditOneDomain(projectId, url, jobContextBlock))
                                 .get());
@@ -200,12 +225,17 @@ public class AiRubricAuditService {
             }
         }
         LinkedHashMap<String, List<RubricAuditResult>> aggregated = new LinkedHashMap<>(tracked.size());
+        SelfAuditSnapshot selfSnapshot = null;
         for (int i = 0; i < tracked.size(); i++) {
             DomainSubtask entry = tracked.get(i);
             StructuredTaskScope.Subtask.State state = entry.subtask.state();
             if (state == StructuredTaskScope.Subtask.State.SUCCESS) {
                 try {
-                    aggregated.put(entry.url, entry.subtask.get());
+                    DomainAudit domainAudit = entry.subtask.get();
+                    aggregated.put(entry.url, domainAudit.rows());
+                    if (entry.url.equals(normalizedSelfUrl)) {
+                        selfSnapshot = new SelfAuditSnapshot(domainAudit.crawled(), domainAudit.llmAudit());
+                    }
                 } catch (RuntimeException runtimeException) {
                     log.error(
                             "ai_rubric_audit_collect_failed projectId={} url={} trace={}",
@@ -239,6 +269,7 @@ public class AiRubricAuditService {
         }
         appendThirdPartyMentionForSelf(finalMap, projectId, meoSearchQuery, normalizedSelfUrl);
         Map<String, List<RubricAuditResult>> result = Map.copyOf(finalMap);
+        SelfAuditSnapshot capturedSelfSnapshot = selfSnapshot;
         try {
             self.saveAuditResults(auditHistoryId, normalizedSelfUrl, result);
         } catch (RuntimeException runtimeException) {
@@ -248,7 +279,7 @@ public class AiRubricAuditService {
                     auditHistoryId,
                     truncateStackTrace(runtimeException));
         }
-        return result;
+        return new MultiDomainAudit(result, capturedSelfSnapshot);
     }
 
     private void appendThirdPartyMentionForSelf(
@@ -342,13 +373,15 @@ public class AiRubricAuditService {
         auditRubricResultRepository.saveAll(entities);
     }
 
-    private List<RubricAuditResult> auditOneDomain(UUID projectId, String url, String jobContextBlock) {
+    private DomainAudit auditOneDomain(UUID projectId, String url, String jobContextBlock) {
         try {
             DomainDeepAuditContext bundle = smartDomainCrawlService.compileForAudit(url);
             ArrayList<RubricAuditResult> results = new ArrayList<>(RubricCriterionId.values().length);
-            appendLlmAudits(projectId, bundle, results, jobContextBlock);
+            com.geo.analytics.application.dto.RubricAuditResult llmAudit =
+                    rubricAuditService.executeAudit(projectId, bundle.mergedAuditText(), jobContextBlock);
+            appendLlmAudits(llmAudit, results);
             appendSystemAudits(url, bundle.primaryPage().crawled(), results);
-            return List.copyOf(results);
+            return new DomainAudit(List.copyOf(results), bundle.primaryPage().crawled(), llmAudit);
         } catch (RuntimeException runtimeException) {
             log.error(
                     "ai_rubric_audit_one_domain_failed projectId={} url={} trace={}",
@@ -360,12 +393,8 @@ public class AiRubricAuditService {
     }
 
     private void appendLlmAudits(
-            UUID projectId,
-            DomainDeepAuditContext bundle,
-            ArrayList<RubricAuditResult> sink,
-            String jobContextBlock) {
-        com.geo.analytics.application.dto.RubricAuditResult llmAudit =
-                rubricAuditService.executeAudit(projectId, bundle.mergedAuditText(), jobContextBlock);
+            com.geo.analytics.application.dto.RubricAuditResult llmAudit,
+            ArrayList<RubricAuditResult> sink) {
         List<RubricItemAudit> items = llmAudit.items();
         for (int i = 0; i < items.size(); i++) {
             RubricItemAudit item = items.get(i);
@@ -530,7 +559,7 @@ public class AiRubricAuditService {
         return full.substring(0, STACK_TRACE_LIMIT);
     }
 
-    private record DomainSubtask(String url, StructuredTaskScope.Subtask<List<RubricAuditResult>> subtask) {}
+    private record DomainSubtask(String url, StructuredTaskScope.Subtask<DomainAudit> subtask) {}
 
     private record LlmsTxtProbe(boolean available, String failureEvidence) {}
 }
