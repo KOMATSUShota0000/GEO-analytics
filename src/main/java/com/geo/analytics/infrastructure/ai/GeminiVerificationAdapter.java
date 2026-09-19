@@ -219,13 +219,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
                 subscriptionPlan, si, responseTokenLength, measuredMention.mentionCount(),
                 measuredMention.mentionChars());
         var lAvgSingle = responseTokenLength > 0 ? (double) responseTokenLength : 0.0;
-        GeoVisibilityCalculatorService.GbvsResult gbvs;
-        if (verificationRequest.jobId() != null) {
-            long pq = jobPersistenceService.countQueriesByJobId(verificationRequest.jobId());
-            gbvs = SomScoreCalculator.computeWithPlannedQueries(rawMetrics, lAvgSingle, pq);
-        } else {
-            gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
-        }
+        GeoVisibilityCalculatorService.GbvsResult gbvs = SomScoreCalculator.compute(rawMetrics, lAvgSingle);
         double gbvsNormalizedScore = gbvs.scorePercent();
         var som = StrictMath.max(0.0, StrictMath.min(100.0, gbvsNormalizedScore));
         boolean brand = Boolean.TRUE.equals(full.brandMentioned());

@@ -45,9 +45,8 @@ public class InformationTheoryBasedAggregator {
 
     public List<GeoVisibilityCalculatorService.GbvsResult> finalizeGbvsBatchForJob(
             List<SomRawMetrics> rows,
-            double lAvgJob,
-            long plannedQueryCount) {
-        return SomScoreCalculator.computeBatchForJob(rows, lAvgJob, plannedQueryCount);
+            double lAvgJob) {
+        return SomScoreCalculator.computeBatchForJob(rows, lAvgJob);
     }
 
     public VerificationResponse aggregate(List<VerificationResponse> successes, VerificationRequest request) {

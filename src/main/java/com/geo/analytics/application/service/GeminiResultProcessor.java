@@ -131,8 +131,7 @@ public class GeminiResultProcessor {
                 parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
         // Why: 投入時に取得した AI Overview 本文を回収時にも読み、行ごとに材料の別を記録する（ADR-046）。
         Map<UUID, String> overviewBodies = batchPersistence.findOverviewBodiesByJobId(jobEntity.getId());
-        long plannedQueries = batchPersistence.countQueriesByJobId(jobEntity.getId());
-        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
+        var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
             var line = parsedLines.get(idx);
             var gbvs = gbvsList.get(idx);
