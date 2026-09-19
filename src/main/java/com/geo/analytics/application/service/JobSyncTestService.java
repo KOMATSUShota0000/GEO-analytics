@@ -4,6 +4,7 @@ import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.JsonbOperations;
 import org.slf4j.Logger;
@@ -91,7 +92,10 @@ public class JobSyncTestService {
             syncVerificationResult.calculationVersion(),
             modifiedZ,
             syncVerificationResult.gbvsNormalizedScore(),
-            syncVerificationResult.modelInsightsJson());
+            syncVerificationResult.modelInsightsJson(),
+            // Why: test-sync は今もクロール本文を材料にしており、実測の AI Overview ではない。
+            //      本番のリアルタイム経路と揃えるのは #68。それまでは正直に推定として記録する。
+            MaterialSource.ESTIMATED);
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         return jobPersistenceService.findJobById(jobId);
     }

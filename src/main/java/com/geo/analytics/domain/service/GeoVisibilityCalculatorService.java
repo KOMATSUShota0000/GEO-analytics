@@ -17,6 +17,14 @@ public final class GeoVisibilityCalculatorService {
     /** Must fit DB column varchar(32) on audit_history.calculation_version. */
     public static final String CALCULATION_VERSION = "V13_GEO4AXIS";
 
+    /**
+     * 材料を実測の AI Overview（取れない場合はその推定）へ切り替えた版（ADR-039 / #92）。
+     *
+     * <p>Why: 同じ式でも材料が変われば別の測定になる。旧版名のままだと、サイト本文を材料にしていた行と
+     * 見分けがつかない。材料が実測か推定かの別は audit_histories.material_source に持つ。
+     */
+    public static final String CALCULATION_VERSION_AIOVERVIEW = "V14_AIOVERVIEW";
+
     /** 出現密度 mentionDensity がこの値に達するとブランドシグナルの密度成分が飽和する（説明用コメント付き定数）。 */
     private static final double MENTION_DENSITY_SATURATION = 0.30d;
 

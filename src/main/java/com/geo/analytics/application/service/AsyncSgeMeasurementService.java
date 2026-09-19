@@ -11,8 +11,6 @@ import com.geo.analytics.infrastructure.ratelimit.SerpApiGlobalRequestGate;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +28,6 @@ public class AsyncSgeMeasurementService {
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final SerpApiGlobalRequestGate serpApiGlobalRequestGate;
     private final String serpApiKey;
-    private AsyncSgeMeasurementService self;
 
     public AsyncSgeMeasurementService(
             SgeMeasurementPort sgeMeasurementPort,
@@ -46,14 +43,53 @@ public class AsyncSgeMeasurementService {
         this.serpApiKey = key != null ? key : "";
     }
 
-    @Autowired
-    @Lazy
-    void setSelf(AsyncSgeMeasurementService self) {
-        this.self = self;
+    /**
+     * リアルタイム経路用に、1クエリ分の AI Overview を同期で取得・保存し、その本文を返す（#92 / ADR-039）。
+     *
+     * <p>Why: 従来はジョブ全体の取得を非同期で走らせていたため、検証が先に走って材料が間に合わなかった
+     * （実データで10クエリ中9クエリが取得前に検証済み）。クエリごとに「取得 → そのクエリの検証」と直列にする。
+     * 取得に失敗したクエリは推定へ降格させるだけで、解析全体は落とさない。
+     */
+    public SgeMentionResult measureAndPersistForQuery(JobEntity job, QueryEntity query) {
+        Objects.requireNonNull(job, "job");
+        Objects.requireNonNull(query, "query");
+        UUID jobId = job.getId();
+        UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        SgeMentionResult empty = new SgeMentionResult(false, 0, "{}", "");
+        if (serpApiKey.isBlank()) {
+            log.warn(
+                    "SERPAPI key is not configured. Degrading AI Overview to estimated. jobId={} queryId={}",
+                    jobId, query.getId());
+            persistSgeResult(workspaceId, jobId, query, empty);
+            return empty;
+        }
+        try {
+            SgeMentionResult fetched = serpApiGlobalRequestGate.execute(
+                    () -> sgeMeasurementPort.checkSgeMention(query.getQueryText(), job.getBrandName()));
+            SgeMentionResult resolved = fetched != null ? fetched : empty;
+            persistSgeResult(workspaceId, jobId, query, resolved);
+            return resolved;
+        } catch (Exception exception) {
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn(
+                    "AI Overview fetch failed; degrading this query to estimated jobId={} queryId={}",
+                    jobId, query.getId(), exception);
+            persistSgeResult(workspaceId, jobId, query, empty);
+            return empty;
+        }
     }
 
-    public void measureSgeForJob(JobEntity job, List<QueryEntity> queries) {
-        self.measureSgeForJob(job, queries, 0);
+    private void persistSgeResult(UUID workspaceId, UUID jobId, QueryEntity query, SgeMentionResult result) {
+        batchPersistence.insertSgeResult(
+                workspaceId,
+                jobId,
+                query.getId(),
+                query.getQueryText(),
+                result.rawResponseJson(),
+                result.mentioned(),
+                result.mentionCount());
     }
 
     @Async

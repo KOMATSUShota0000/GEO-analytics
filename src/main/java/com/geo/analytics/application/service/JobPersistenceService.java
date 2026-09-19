@@ -17,6 +17,7 @@ import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
 import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
@@ -470,7 +471,8 @@ public class JobPersistenceService {
             String calculationVersion,
             Double modifiedZScore,
             Double gbvsNormalizedScore,
-            String modelInsightsJson) {
+            String modelInsightsJson,
+            MaterialSource materialSource) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -512,6 +514,7 @@ public class JobPersistenceService {
                 existing.setAuditDate(LocalDate.now());
                 existing.setWorkspaceId(workspaceId);
                 existing.setModelInsightsJson(modelInsightsJson);
+                existing.setMaterialSource(materialSource);
                 auditHistoryRepository.save(existing);
             } else {
                 AuditHistoryEntity auditHistoryEntity = new AuditHistoryEntity();
@@ -538,6 +541,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setRecommendedActions(actions);
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
+                auditHistoryEntity.setMaterialSource(materialSource);
                 auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {

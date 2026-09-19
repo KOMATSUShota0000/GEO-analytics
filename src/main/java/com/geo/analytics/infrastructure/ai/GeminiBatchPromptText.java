@@ -17,7 +17,7 @@ public final class GeminiBatchPromptText {
         //      userBody 側だけを直せば両経路へ同時に効く。
         String system = ConsultantPrompts.systemText(subscriptionPlan, brandName);
         String user = ConsultantPrompts.userBody(
-                brandName, batchQueryLine.queryText(), null, 1.0, null, jobPromptContext);
+                brandName, batchQueryLine.queryText(), null, null, 1.0, null, jobPromptContext);
         return system + "\n\n" + user;
     }
 }
