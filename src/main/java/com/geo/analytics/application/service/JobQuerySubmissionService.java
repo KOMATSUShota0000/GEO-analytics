@@ -216,10 +216,9 @@ public class JobQuerySubmissionService {
             }
             throw runtimeException;
         }
+        // Why: バッチ経路の AI Overview 取得は、バッチ投入の直前に行う（ADR-046）。ここでも取得すると
+        //      SerpAPI を二重に叩き、原価が倍になる。
         startDeepAnalysisBatchPlaceholder(jobId);
-        JobEntity batchJobEntity = jobPersistenceService.findJobById(jobId);
-        List<QueryEntity> batchQueryEntities = jobPersistenceService.findQueriesByJobId(jobId);
-        asyncSgeMeasurementService.measureSgeForJob(batchJobEntity, batchQueryEntities, queryTexts.size());
     }
 
     private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {

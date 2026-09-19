@@ -6,6 +6,7 @@ import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
@@ -23,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -120,6 +122,8 @@ public class GeminiResultProcessor {
                 .orElse(0.0);
         List<SomRawMetrics> metricsList =
                 parsedLines.stream().map(BatchParsedLine::rawMetrics).toList();
+        // Why: 投入時に取得した AI Overview 本文を回収時にも読み、行ごとに材料の別を記録する（ADR-046）。
+        Map<UUID, String> overviewBodies = batchPersistence.findOverviewBodiesByJobId(jobEntity.getId());
         long plannedQueries = batchPersistence.countQueriesByJobId(jobEntity.getId());
         var gbvsList = informationTheoryBasedAggregator.finalizeGbvsBatchForJob(metricsList, lAvg, plannedQueries);
         for (int idx = 0; idx < parsedLines.size(); idx++) {
@@ -144,11 +148,12 @@ public class GeminiResultProcessor {
                         line.resolved(), m.tokenCount(),
                         m.aiCitationPosition(), m.sentimentIntensity(),
                         gbvs.visibilityStage(),
-                        GeoVisibilityCalculatorService.CALCULATION_VERSION,
+                        GeoVisibilityCalculatorService.CALCULATION_VERSION_AIOVERVIEW,
                         gbvs.modifiedZScore(), negAlert,
                         insight.diagnosticMessage(),
                         new ArrayList<>(insight.recommendedActions()),
-                        null);
+                        null,
+                        materialSourceFor(overviewBodies.get(line.queryId())));
                     quotaSettled.add(line.queryId());
                 });
         }
@@ -199,5 +204,12 @@ public class GeminiResultProcessor {
                 "Could not extract text from batch output for key: " + outputRecord.key());
         }
         return textNode.asText();
+    }
+
+    /** 本文が取れたクエリは実測、取れなかったクエリは推定（#94 / ADR-046）。 */
+    private static MaterialSource materialSourceFor(String overviewBody) {
+        return overviewBody != null && !overviewBody.isBlank()
+                ? MaterialSource.MEASURED
+                : MaterialSource.ESTIMATED;
     }
 }

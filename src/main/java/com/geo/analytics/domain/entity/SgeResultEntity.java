@@ -29,9 +29,18 @@ public class SgeResultEntity extends BaseTenantEntity {
     private Boolean sgeMentioned;
     @Column(name = "mention_count", nullable = false)
     private int mentionCount;
+    // AI Overview の本文。投入時と回収時で同じ一次情報を読むため、生JSONと別に列で持つ（#94 / ADR-046）。
+    @Column(name = "overview_body", columnDefinition = "text")
+    private String overviewBody;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     public SgeResultEntity() {
+    }
+    public String getOverviewBody() {
+        return overviewBody;
+    }
+    public void setOverviewBody(String overviewBody) {
+        this.overviewBody = overviewBody;
     }
     public UUID getId() {
         return id;

@@ -12,23 +12,29 @@ import com.geo.analytics.infrastructure.ai.dto.BatchQueryLine;
 import com.geo.analytics.infrastructure.ai.dto.GeminiBatchJob;
 import com.geo.analytics.infrastructure.ai.dto.GeminiFileMetadata;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class GeminiBatchExecutorService {
+    private static final Logger log = LoggerFactory.getLogger(GeminiBatchExecutorService.class);
     private final GeminiBatchClient geminiBatchClient;
     private final BatchPersistenceService batchPersistence;
     private final ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher;
     private final PlanBasedQuotaManager planBasedQuotaManager;
     private final JobBenchmarkCaptureService jobBenchmarkCaptureService;
     private final AiRubricAuditService aiRubricAuditService;
+    private final AsyncSgeMeasurementService asyncSgeMeasurementService;
 
     public GeminiBatchExecutorService(
             GeminiBatchClient geminiBatchClient,
@@ -36,13 +42,15 @@ public class GeminiBatchExecutorService {
             ProjectAuditLifecyclePublisher projectAuditLifecyclePublisher,
             PlanBasedQuotaManager planBasedQuotaManager,
             JobBenchmarkCaptureService jobBenchmarkCaptureService,
-            AiRubricAuditService aiRubricAuditService) {
+            AiRubricAuditService aiRubricAuditService,
+            AsyncSgeMeasurementService asyncSgeMeasurementService) {
         this.geminiBatchClient = geminiBatchClient;
         this.batchPersistence = batchPersistence;
         this.projectAuditLifecyclePublisher = projectAuditLifecyclePublisher;
         this.planBasedQuotaManager = planBasedQuotaManager;
         this.jobBenchmarkCaptureService = jobBenchmarkCaptureService;
         this.aiRubricAuditService = aiRubricAuditService;
+        this.asyncSgeMeasurementService = asyncSgeMeasurementService;
     }
 
     @Async
@@ -61,9 +69,22 @@ public class GeminiBatchExecutorService {
                 return CompletableFuture.completedFuture(null);
             }
             quotaRefundOnFailure = unprocessedQueryEntities.size() * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+            // Why: バッチ投入後はプロンプトを差し替えられないため、全クエリの AI Overview 取得を終えてから
+            //      JSONL を組み立てる（ADR-046）。取れなかったクエリは本文なしで投入され、推定として扱われる。
+            asyncSgeMeasurementService.measureSgeForJob(
+                jobEntity, unprocessedQueryEntities, quotaRefundOnFailure);
+            Map<UUID, String> overviewBodies = batchPersistence.findOverviewBodiesByJobId(jobEntity.getId());
             List<BatchQueryLine> batchQueryLines = unprocessedQueryEntities.stream()
-                .map(queryEntity -> new BatchQueryLine(queryEntity.getId(), queryEntity.getQueryText()))
+                .map(queryEntity -> new BatchQueryLine(
+                        queryEntity.getId(),
+                        queryEntity.getQueryText(),
+                        overviewBodies.get(queryEntity.getId())))
                 .toList();
+            log.info(
+                "batch_material jobId={} measured={} estimated={}",
+                jobEntity.getId(),
+                overviewBodies.size(),
+                unprocessedQueryEntities.size() - overviewBodies.size());
             SubscriptionPlan subscriptionPlan =
                 Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
             String jobPromptContext = JobPromptContextFormatter.format(jobEntity);

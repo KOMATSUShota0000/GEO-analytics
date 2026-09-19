@@ -81,7 +81,7 @@ class ConsultantPromptsUserBodyTest {
 
     @Test
     void バッチ経路の組み立てがシステム指示とユーザー本文の連結のままであること() {
-        var line = new BatchQueryLine(java.util.UUID.randomUUID(), QUERY);
+        var line = new BatchQueryLine(java.util.UUID.randomUUID(), QUERY, null);
 
         String combined = GeminiBatchPromptText.combinedPromptText(BRAND, line, SubscriptionPlan.PRO, CTX);
 
@@ -92,8 +92,20 @@ class ConsultantPromptsUserBodyTest {
     }
 
     @Test
+    void バッチ経路も実測のAI_Overviewを材料にする() {
+        var line = new BatchQueryLine(java.util.UUID.randomUUID(), QUERY, "AI回答本文");
+
+        String combined = GeminiBatchPromptText.combinedPromptText(BRAND, line, SubscriptionPlan.PRO, null);
+
+        assertThat(combined)
+                .isEqualTo(ConsultantPrompts.systemText(SubscriptionPlan.PRO, BRAND)
+                        + "\n\n"
+                        + ConsultantPrompts.userTextBrandQueryWithAiOverview(BRAND, QUERY, "AI回答本文"));
+    }
+
+    @Test
     void バッチ経路はジョブ文脈が無くても同じ規則で組み立てる() {
-        var line = new BatchQueryLine(java.util.UUID.randomUUID(), QUERY);
+        var line = new BatchQueryLine(java.util.UUID.randomUUID(), QUERY, null);
 
         String combined = GeminiBatchPromptText.combinedPromptText(BRAND, line, SubscriptionPlan.STANDARD, null);
 
