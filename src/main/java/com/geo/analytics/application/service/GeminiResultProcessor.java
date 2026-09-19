@@ -99,7 +99,7 @@ public class GeminiResultProcessor {
                 // Why: 言及回数・言及文字数・トークン数はすべて Java の実測値にする（#59 / #60）。
                 BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, mainBrand);
                 int responseTokenLength = measuredMention.totalTokens();
-                String resolved = entityNormalizer.resolve(rawName, mainBrand, isProPlan);
+                String resolved = entityNormalizer.resolve(rawName, mainBrand);
                 // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。バッチ経路も同期経路と同じ規則にする。
                 int measuredCitationPosition =
                         brandMentionEngine.citationPosition(nlpSource, mainBrand, namedBrandsOf(consultantOutputData));

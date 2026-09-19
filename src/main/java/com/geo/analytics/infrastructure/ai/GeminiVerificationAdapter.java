@@ -6,7 +6,6 @@ import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
 import com.geo.analytics.application.port.ModelTypedAiVerificationPort;
-import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.SomScoreParser;
@@ -14,6 +13,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.CompetitorSelection;
 import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.service.SomScoreCalculator;
@@ -194,7 +194,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         BrandMentionMetrics measuredMention = brandMentionEngine.measure(nlpSource, main);
         int tc = measuredMention.mentionChars();
         int responseTokenLength = measuredMention.totalTokens();
-        String resolved = entityNormalizer.resolve(rawName, main, isProPlan);
+        String resolved = entityNormalizer.resolve(rawName, main);
         // Why: 引用順位は回答文から Java で決める（#66 / ADR-047）。LLM 申告は比較のためログにだけ残す。
         int measuredCitationPosition =
                 brandMentionEngine.citationPosition(nlpSource, main, namedBrandsOf(full));
@@ -224,22 +224,34 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         var som = StrictMath.max(0.0, StrictMath.min(100.0, gbvsNormalizedScore));
         boolean brand = Boolean.TRUE.equals(full.brandMentioned());
         int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, som)));
+        // Why: 競合は「回答文に同時に登場した他ブランド」。名前は LLM が挙げ、数と順序は Java が本文から測る
+        //      （#64 / .cursorrules 12節）。自社・残余カテゴリ・表記ゆれの重複はここで落とす（#65）。
+        // Why: 競合は「回答文に同時に登場した他ブランド」。名前は LLM が挙げ、選別と計数は Java が行う
+        //      （#64 / #65 / .cursorrules 12節）。自社・残余カテゴリ・表記ゆれの重複は選別で落とす。
         var compList = new ArrayList<CompetitorResult>();
-        if (full.competitorComparison() != null) {
-            var idx = 0;
-            for (var entry : full.competitorComparison()) {
-                var label = entry.competitorName() != null ? entry.competitorName() : "";
-                int compNounCount = 0;
-                var shareSom = entry.share() != null ? entry.share() * 100.0 : 0.0;
-                var vs = gbvs.visibilityStage();
+        var acceptedLabels = CompetitorSelection.accept(namedBrandsOf(full), main, entityNormalizer);
+        if (!acceptedLabels.isEmpty()) {
+            var rankingNames = new ArrayList<String>(acceptedLabels.size() + 1);
+            rankingNames.add(main);
+            rankingNames.addAll(acceptedLabels);
+            for (String label : acceptedLabels) {
+                BrandMentionMetrics competitorMention = brandMentionEngine.measure(nlpSource, label);
+                int competitorPosition = brandMentionEngine.citationPosition(nlpSource, label, rankingNames);
+                SomRawMetrics competitorMetrics = new SomRawMetrics(
+                        competitorMention.mentionChars(),
+                        competitorPosition > 0 ? competitorPosition : null,
+                        0.0,
+                        isProPlan,
+                        competitorMention.mentionCount() > 0,
+                        competitorMention.mentionCount(),
+                        competitorMention.totalTokens());
+                double competitorSom =
+                        SomScoreCalculator.compute(competitorMetrics, lAvgSingle).scorePercent();
                 compList.add(new CompetitorResult(
                         label,
-                        shareSom,
-                        idx + 1,
-                        vs,
-                        MatchStatus.AUTO_MATCH,
-                        compNounCount));
-                idx++;
+                        competitorSom,
+                        competitorPosition > 0 ? competitorPosition : null,
+                        competitorMention.mentionCount()));
             }
         }
         return new VerificationResponse(

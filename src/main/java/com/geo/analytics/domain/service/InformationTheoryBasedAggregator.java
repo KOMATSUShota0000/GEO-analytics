@@ -3,7 +3,6 @@ package com.geo.analytics.domain.service;
 import com.geo.analytics.application.dto.CompetitorResult;
 import com.geo.analytics.application.dto.VerificationRequest;
 import com.geo.analytics.application.dto.VerificationResponse;
-import com.geo.analytics.domain.enums.MatchStatus;
 import com.geo.analytics.domain.enums.ModelType;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
 import com.geo.analytics.domain.matching.RobustAuditMathUtil;
@@ -68,9 +67,8 @@ public class InformationTheoryBasedAggregator {
             sumBrandSignal += brandSignal;
             sumAllBrands += brandSignal;
             for (var c : v.competitorResults()) {
-                if (c.matchStatus() == MatchStatus.NO_MATCH) {
-                    continue;
-                }
+                // Why: 旧実装の NO_MATCH 除外は、生成側が AUTO_MATCH 固定だったため一度も発火しない死んだ防御
+                //      だった（#64）。名寄せは生成時に済ませ、残余カテゴリと自社はそこで落としている（#65）。
                 double cs = c.somScore() != null ? c.somScore() : 0.0;
                 sumAllBrands += clampD(cs / 100.0, 0.0, 1.0);
             }
@@ -144,7 +142,6 @@ public class InformationTheoryBasedAggregator {
         Double avgMz = countMz > 0 ? sumMz / countMz : first.modifiedZScore();
         Map<String, EntityAggregate> byEntity = successes.stream()
                 .flatMap(v -> v.competitorResults().stream()
-                        .filter(c -> c.matchStatus() != MatchStatus.NO_MATCH)
                         .map(c -> BrandContrib.from(tokenizerManager, c)))
                 .collect(Collectors.groupingBy(
                         BrandContrib::groupingKey,
@@ -215,8 +212,6 @@ public class InformationTheoryBasedAggregator {
                     e.canonicalLabel(),
                     halfEven2(clampD(somVal, 0.0, 100.0)),
                     rank,
-                    visStage,
-                    e.aggregatedStatus(),
                     nounAgg));
         }
         merged.sort(Comparator.comparing(
@@ -278,22 +273,22 @@ public class InformationTheoryBasedAggregator {
         return BigDecimal.valueOf(value).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
-    private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions, MatchStatus status) {
+    private record BrandContrib(String groupingKey, String surfaceLabel, BigDecimal points, long mentions) {
         static BrandContrib from(TokenizerManager tm, CompetitorResult c) {
             String surface = c.competitorLabel() != null ? c.competitorLabel() : "";
             List<String> tok = tm.tokenizeToNormalizedList(surface);
             String gk = tok.isEmpty() ? surface : String.join("", tok);
             double sc = c.somScore() != null ? c.somScore() : 0.0;
             sc = clampD(sc, 0.0, 100.0);
-            long mentions = c.nounCount();
+            long mentions = c.mentionCount();
             if (mentions < 0L) {
                 mentions = 0L;
             }
-            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), mentions, c.matchStatus());
+            return new BrandContrib(gk, surface, BigDecimal.valueOf(sc), mentions);
         }
     }
 
-    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, MatchStatus aggregatedStatus, long totalMentions) {
+    private record EntityAggregate(String canonicalLabel, BigDecimal totalPoints, long totalMentions) {
         static EntityAggregate fromContribs(List<BrandContrib> rows) {
             BigDecimal sumPts = rows.stream()
                     .collect(Collectors.toMap(
@@ -303,14 +298,13 @@ public class InformationTheoryBasedAggregator {
                     .values().stream()
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             long sumMentions = rows.stream().mapToLong(BrandContrib::mentions).sum();
-            MatchStatus st = MatchStatus.AUTO_MATCH;
             String canonical = rows.stream()
                     .map(BrandContrib::surfaceLabel)
                     .filter(Objects::nonNull)
                     .distinct()
                     .min(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
                     .orElse("");
-            return new EntityAggregate(canonical, sumPts, st, sumMentions);
+            return new EntityAggregate(canonical, sumPts, sumMentions);
         }
     }
 }
