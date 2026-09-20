@@ -257,6 +257,37 @@ export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.El
             <SafeHtmlRenderer html={html} />
           </Box>
         )}
+        {!masked && (task.rationale || task.evidence) ? (
+          // Why: 提案の根拠を本文と分けて示す。根拠の置き場が無く「改善点を根拠付きで表示する」が
+          //      構造上満たせなかった（#79）。
+          <Stack
+            spacing={0.75}
+            sx={{
+              mt: 1.5,
+              p: 1.25,
+              borderRadius: 2,
+              backgroundColor: "rgba(15,23,42,0.035)",
+              border: "1px solid rgba(15,23,42,0.06)",
+            }}
+          >
+            {task.rationale ? (
+              <Box>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>なぜ効くか</Typography>
+                <Typography sx={{ fontSize: 13, lineHeight: 1.7, color: "#1f2937" }}>
+                  {task.rationale}
+                </Typography>
+              </Box>
+            ) : null}
+            {task.evidence ? (
+              <Box>
+                <Typography sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>根拠</Typography>
+                <Typography sx={{ fontSize: 13, lineHeight: 1.7, color: "#1f2937" }}>
+                  {task.evidence}
+                </Typography>
+              </Box>
+            ) : null}
+          </Stack>
+        ) : null}
       </CardContent>
     </Card>
   );

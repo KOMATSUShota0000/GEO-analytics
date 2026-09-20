@@ -105,8 +105,16 @@ public class TaskRegenerationService {
             throw new TaskLockedException();
         }
         String newContent = self.invokeLlmWithCreditReservation(projectId, tone, old.title(), old.content());
+        // Why: 文体の再生成は本文だけを差し替える。根拠（rationale / evidence）は元の判断材料なので保持する（#79）。
         RemediationTask next = new RemediationTask(
-                old.id(), old.category(), old.priority(), old.title(), newContent, old.impactScore());
+                old.id(),
+                old.category(),
+                old.priority(),
+                old.title(),
+                newContent,
+                old.impactScore(),
+                old.rationale(),
+                old.evidence());
         tasks.set(index, next);
         try {
             latest.setJobRecommendedActionsJson(objectMapper.writeValueAsString(tasks));

@@ -15,6 +15,8 @@ public record RemediationTaskResponse(
         String title,
         String content,
         @JsonProperty("impact_score") double impactScore,
+        String rationale,
+        String evidence,
         Integer level,
         @JsonProperty("required_score_threshold") Double requiredScoreThreshold,
         @JsonProperty("is_masked") boolean isMasked) {
@@ -31,6 +33,8 @@ public record RemediationTaskResponse(
                 task.title(),
                 task.content(),
                 task.impactScore(),
+                task.rationale(),
+                task.evidence(),
                 cap.level(),
                 cap.requiredScoreThreshold(),
                 false);

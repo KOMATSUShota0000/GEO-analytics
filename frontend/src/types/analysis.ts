@@ -477,6 +477,10 @@ export interface RemediationTask {
   title: string;
   content: string;
   impactScore: number;
+  /** なぜ効くか（GEO 露出・引用への作用）。古いデータには無い（#79） */
+  rationale?: string | null;
+  /** どこが根拠か（ルーブリック監査の所見の引用）。古いデータには無い（#79） */
+  evidence?: string | null;
   level: number;
   requiredScoreThreshold: number;
   isMasked: boolean;
@@ -940,6 +944,10 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
   const level = levelParsed !== undefined ? levelParsed : caps.level;
   const requiredScoreThreshold =
     thresholdParsed !== undefined ? thresholdParsed : caps.requiredScoreThreshold;
+  const rationaleRaw = r.rationale;
+  const rationale = typeof rationaleRaw === "string" && rationaleRaw.trim().length > 0 ? rationaleRaw : null;
+  const evidenceRaw = r.evidence;
+  const evidence = typeof evidenceRaw === "string" && evidenceRaw.trim().length > 0 ? evidenceRaw : null;
   const maskedRaw = pickBool(r, "isMasked", "is_masked");
   const isMasked = maskedRaw === true;
   const targetSectionPayload =
@@ -951,6 +959,8 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
     title,
     content,
     impactScore: impactRaw,
+    rationale,
+    evidence,
     level,
     requiredScoreThreshold,
     isMasked,

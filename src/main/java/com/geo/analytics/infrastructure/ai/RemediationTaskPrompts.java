@@ -14,6 +14,7 @@ public final class RemediationTaskPrompts {
 - 出力 tasks 配列には、最低でも SPIKE が1件以上、SLAB が1件以上含まれていること。
 - 各タスクの content は Markdown 形式で、なぜ必要か（GEO 露出 / LLM 引用への影響）と、具体的な実行手順を含めること。
 - 推測や入力に無い情報を新たに追加してはならない。証拠（evidence）の範囲内で提案すること。
+- 各タスクには rationale（なぜ効くか。GEO 露出・LLM 引用への作用を1〜2文で）と evidence（根拠。与えられたルーブリック所見のどこに基づくかを引用して示す）を必ず含めること。evidence に入力に無い内容を書いてはならない。
 - impactScore は 0.0 から 1.0 の範囲で、ビジネスへの推定インパクトを表すこと。
 - priority は S / A / B のいずれかとし、impactScore が 0.7 以上であれば S、0.4 以上 0.7 未満であれば A、それ未満であれば B を選ぶこと。
 
