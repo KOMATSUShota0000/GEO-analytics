@@ -331,6 +331,30 @@ public class BatchPersistenceService {
      * AI 議論駆動アドバイス生成用のプロジェクト・コンテキストを JDBC で取得する。
      * GapAnalysisService から呼ばれるパスは JDBC ベースで、JPA を持ち込まないために本メソッドを用意。
      */
+    /**
+     * プロジェクト単位の少数意見（オンボーディング議論の見立て）。解析プロンプトの前置きに載せる（#82）。
+     *
+     * <p>Why: バッチ経路はここが唯一の DB 入口で、JPA の ProjectRepository を持たないため JDBC で読む。
+     */
+    public List<MinorityReport> findProjectMinorityReports(UUID projectId) {
+        if (projectId == null) {
+            return List.of();
+        }
+        List<String> rows = jdbc.query(
+                "SELECT minority_reports::text FROM projects WHERE id = ?",
+                (rs, rn) -> rs.getString(1),
+                projectId);
+        if (rows.isEmpty() || rows.getFirst() == null || rows.getFirst().isBlank()) {
+            return List.of();
+        }
+        try {
+            return List.of(objectMapper.readValue(rows.getFirst(), MinorityReport[].class));
+        } catch (JsonProcessingException exception) {
+            log.warn("project_minority_reports_parse_failed projectId={}", projectId, exception);
+            return List.of();
+        }
+    }
+
     public Optional<ProjectAdviceContext> findProjectAdviceContext(UUID projectId) {
         if (projectId == null) {
             return Optional.empty();

@@ -88,7 +88,9 @@ public class GeminiBatchExecutorService {
                 unprocessedQueryEntities.size() - overviewBodies.size());
             SubscriptionPlan subscriptionPlan =
                 Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
-            String jobPromptContext = JobPromptContextFormatter.format(jobEntity);
+            // Why: オンボーディング議論の少数意見を毎回の解析文脈に載せる（オーナー確定 2026-09-19 / #82）。
+            String jobPromptContext = JobPromptContextFormatter.format(
+                jobEntity, batchPersistence.findProjectMinorityReports(jobEntity.getProjectId()));
             jsonlPath = geminiBatchClient.writeBatchRequestJsonlToTempFile(
                 jobEntity.getBrandName(), batchQueryLines, subscriptionPlan, jobPromptContext);
             GeminiFileMetadata uploadedFileMetadata = geminiBatchClient.uploadJsonlFile(jsonlPath);

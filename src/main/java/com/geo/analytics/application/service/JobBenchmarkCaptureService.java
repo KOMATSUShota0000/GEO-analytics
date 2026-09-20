@@ -115,7 +115,10 @@ public class JobBenchmarkCaptureService {
                 } else {
                     var selfBundle = smartDomainCrawlService.compileForAudit(trimmedTarget);
                     selfRubric = rubricAuditService.executeAudit(
-                            projectId, selfBundle.mergedAuditText(), JobPromptContextFormatter.format(job));
+                            projectId,
+                            selfBundle.mergedAuditText(),
+                            JobPromptContextFormatter.format(
+                                    job, batchPersistence.findProjectMinorityReports(projectId)));
                     selfCrawled = selfBundle.primaryPage().crawled();
                     log.info("benchmark_capture_audited_itself jobId={} reason=no_reusable_audit", jobId);
                 }

@@ -1,6 +1,5 @@
 package com.geo.analytics.domain.service;
 
-import java.lang.StrictMath;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
