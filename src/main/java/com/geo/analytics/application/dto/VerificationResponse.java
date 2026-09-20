@@ -1,5 +1,6 @@
 package com.geo.analytics.application.dto;
 
+import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.domain.enums.ModelType;
 
 import java.util.Collections;

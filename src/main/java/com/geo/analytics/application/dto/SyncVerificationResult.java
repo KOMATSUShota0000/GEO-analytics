@@ -1,5 +1,8 @@
 package com.geo.analytics.application.dto;
 
+import com.geo.analytics.domain.model.CompetitorResult;
+import java.util.List;
+
 public record SyncVerificationResult(
         String rawResponseJson,
         Double somScore,
@@ -16,5 +19,10 @@ public record SyncVerificationResult(
         String calculationVersion,
         String modelInsightsJson,
         Double gbvsNormalizedScore,
-        int analysisTextLength
-) {}
+        int analysisTextLength,
+        List<CompetitorResult> competitorResults
+) {
+    public SyncVerificationResult {
+        competitorResults = competitorResults == null ? List.of() : List.copyOf(competitorResults);
+    }
+}

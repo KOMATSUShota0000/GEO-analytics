@@ -17,6 +17,7 @@ import { LoadingCharacter } from "../components/LoadingCharacter";
 import { DebateAdviceTeaserBanner } from "../components/DebateAdviceTeaserBanner";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
+import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import CircularProgress from "@mui/material/CircularProgress";
 
 const AI_ADVICE_LOADING_MESSAGES = [
@@ -677,6 +678,7 @@ export function JobAnalysisPage(): JSX.Element {
             {!isProPlanUi ? <DebateAdviceTeaserBanner /> : null}
           </div>
         )}
+        <CompetitorShareChart shares={data?.competitorShares ?? []} />
         <RoadmapTimeline items={data?.roadmapItems ?? []} />
         <MinorityReportPanel reports={data?.minorityReports ?? []} />
       </div>

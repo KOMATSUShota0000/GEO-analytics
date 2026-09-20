@@ -393,7 +393,8 @@ public class JobQuerySubmissionService {
                 modifiedZ,
                 gbvsNorm,
                 syncVerificationResult.modelInsightsJson(),
-                measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED);
+                measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED,
+                syncVerificationResult.competitorResults());
     }
 
     private static String failurePreview(Throwable t) {

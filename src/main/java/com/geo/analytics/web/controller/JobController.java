@@ -20,6 +20,7 @@ import com.geo.analytics.application.dto.PdfGenerationStartResult;
 import com.geo.analytics.domain.service.AiRecognitionAggregator;
 import com.geo.analytics.web.dto.AddQueriesRequest;
 import com.geo.analytics.web.dto.AiRecognitionSummaryResponse;
+import com.geo.analytics.web.dto.CompetitorShareDto;
 import com.geo.analytics.web.dto.CreateJobRequest;
 import com.geo.analytics.web.dto.JobAnalysisDetailResponse;
 import com.geo.analytics.web.dto.JobStatusResponse;
@@ -277,6 +278,10 @@ public class JobController {
             bench.technicalEvidence(),
             remediationTasksMasked,
             aiRecognitionSummary,
+            // 競合シェアは解析全体で1枚（オーナー確定 2026-09-20 / #112）。集計はドメイン側の SSOT（CompetitorShareAggregator）に任せる。
+            jobPersistenceService.findCompetitorShares(jobEnt.getBrandName(), audits).stream()
+                .map(share -> new CompetitorShareDto(share.label(), share.share(), share.self()))
+                .toList(),
             objectMapper));
     }
 

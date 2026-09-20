@@ -549,6 +549,38 @@ function parseMinorityReports(raw: unknown): JobMinorityReport[] {
   return out;
 }
 
+/** 競合シェア円グラフの1切片。分母は解析全体の SoM 合計（#112） */
+export interface CompetitorShare {
+  label: string;
+  /** 0〜100 のパーセント（小数第1位） */
+  share: number;
+  /** 自社の切片か。ブランドカラーを当てる側の判定に使う */
+  self: boolean;
+}
+
+function parseCompetitorShares(raw: unknown): CompetitorShare[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: CompetitorShare[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const o = item as JsonDict;
+    const labelRaw = o.label;
+    const shareRaw = o.share;
+    if (typeof labelRaw !== "string" || labelRaw.length === 0) {
+      continue;
+    }
+    if (typeof shareRaw !== "number" || Number.isNaN(shareRaw)) {
+      continue;
+    }
+    out.push({ label: labelRaw, share: shareRaw, self: o.self === true });
+  }
+  return out;
+}
+
 /** 改善ロードマップの1項目。フェーズ順はサーバ側で確定済み（#77） */
 export interface JobRoadmapItem {
   phase: "NOW" | "SHORT_TERM" | "MID_TERM";
@@ -618,6 +650,8 @@ export interface JobAnalysisDetail {
   minorityReports?: JobMinorityReport[];
   /** 改善ロードマップ。無ければ空配列（#77） */
   roadmapItems?: JobRoadmapItem[];
+  /** AI回答内のシェア（自社 vs 競合）。解析全体で1枚ぶん（#112） */
+  competitorShares?: CompetitorShare[];
 }
 
 function auditDateString(v: unknown): string | null {
@@ -917,6 +951,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   const minorityReports = parseMinorityReports(r.minorityReports ?? r.minority_reports);
   const roadmapItems = parseRoadmapItems(r.roadmapItems ?? r.roadmap_items);
+  const competitorShares = parseCompetitorShares(r.competitorShares ?? r.competitor_shares);
   return {
     jobId,
     jobStatus,
@@ -940,6 +975,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
     minorityReports,
     roadmapItems,
+    competitorShares,
   };
 }
 

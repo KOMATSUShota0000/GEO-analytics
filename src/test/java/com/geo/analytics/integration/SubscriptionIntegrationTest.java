@@ -1,7 +1,7 @@
 package com.geo.analytics.integration;
 
 import com.geo.analytics.GeoAnalyticsApplication;
-import com.geo.analytics.application.dto.CompetitorResult;
+import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.application.dto.SgeMentionResult;
 import com.geo.analytics.application.dto.SyncVerificationResult;
 import com.geo.analytics.application.dto.VerificationRequest;
@@ -193,7 +193,8 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 "V11_GEO_PURE",
                 "{}",
                 50.0,
-                0);
+                0,
+                List.of());
     }
 
     @AfterEach

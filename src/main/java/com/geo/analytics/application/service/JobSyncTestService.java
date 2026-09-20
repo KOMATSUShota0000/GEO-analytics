@@ -107,7 +107,8 @@ public class JobSyncTestService {
             modifiedZ,
             syncVerificationResult.gbvsNormalizedScore(),
             syncVerificationResult.modelInsightsJson(),
-            measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED);
+            measured ? MaterialSource.MEASURED : MaterialSource.ESTIMATED,
+            syncVerificationResult.competitorResults());
         jobPersistenceService.updateJobStatus(jobId, JobStatus.COMPLETED, null);
         return jobPersistenceService.findJobById(jobId);
     }

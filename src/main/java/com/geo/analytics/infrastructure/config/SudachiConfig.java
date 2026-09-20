@@ -3,6 +3,8 @@ package com.geo.analytics.infrastructure.config;
 import com.geo.analytics.domain.matching.NormalizationLayer;
 import com.geo.analytics.domain.matching.TokenizerManager;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.CompetitorMeasurer;
+import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.worksap.nlp.sudachi.Config;
 import com.worksap.nlp.sudachi.Dictionary;
@@ -37,6 +39,13 @@ public class SudachiConfig {
     @Bean
     public BrandMentionEngine brandMentionEngine(JapaneseNlpService japaneseNlpService) {
         return new BrandMentionEngine(japaneseNlpService);
+    }
+
+    /** Why: 競合の実測はリアルタイム経路とバッチ経路で共有する（#112）。 */
+    @Bean
+    public CompetitorMeasurer competitorMeasurer(
+            BrandMentionEngine brandMentionEngine, EntityNormalizer entityNormalizer) {
+        return new CompetitorMeasurer(brandMentionEngine, entityNormalizer);
     }
 
     @Bean

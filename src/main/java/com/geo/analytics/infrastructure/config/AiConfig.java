@@ -6,6 +6,7 @@ import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.SomScoreParser;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.CompetitorMeasurer;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
@@ -265,12 +266,14 @@ public class AiConfig {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             BrandMentionEngine brandMentionEngine,
+            CompetitorMeasurer competitorMeasurer,
             JobPersistenceService jobPersistenceService) {
         return new GeminiVerificationAdapter(
                 geminiGbvsChatModel,
                 somScoreParser,
                 entityNormalizer,
                 brandMentionEngine,
+                competitorMeasurer,
                 jobPersistenceService);
     }
 
