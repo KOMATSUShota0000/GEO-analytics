@@ -6,7 +6,6 @@ import com.geo.analytics.application.credit.CreditReservation;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.exception.TaskLockedException;
-import com.geo.analytics.domain.enums.TaskPriority;
 import com.geo.analytics.domain.model.RemediationPriorityLevel;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.Tone;
@@ -40,7 +39,6 @@ public class TaskRegenerationService {
     private final TaskRegenerationService self;
     private final TaskRegenerationRateLimiter taskRegenerationRateLimiter;
     private final JobPersistenceService jobPersistenceService;
-    private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
     private final AuditHistoryRepository auditHistoryRepository;
     private final ChatLanguageModel taskToneChatModel;
     private final ObjectMapper objectMapper;
@@ -49,14 +47,12 @@ public class TaskRegenerationService {
             @Lazy TaskRegenerationService self,
             TaskRegenerationRateLimiter taskRegenerationRateLimiter,
             JobPersistenceService jobPersistenceService,
-            JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
             AuditHistoryRepository auditHistoryRepository,
             @Qualifier(AiConfig.GEMINI_TASK_TONE_REGENERATION) ChatLanguageModel taskToneChatModel,
             ObjectMapper objectMapper) {
         this.self = self;
         this.taskRegenerationRateLimiter = taskRegenerationRateLimiter;
         this.jobPersistenceService = jobPersistenceService;
-        this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
         this.auditHistoryRepository = auditHistoryRepository;
         this.taskToneChatModel = taskToneChatModel;
         this.objectMapper = objectMapper;
@@ -100,8 +96,8 @@ public class TaskRegenerationService {
             throw new EntityNotFoundException("task");
         }
         RemediationTask old = tasks.get(index);
-        Double factBasedScore = jobAnalysisBenchmarkAssembler.attach(job).factBasedScore();
-        if (isTaskLockedFromScore(factBasedScore, old.priority())) {
+        // Why: 伏せている本文は文体の再生成もできない。判定はプラン基準（#84）で、表示側のロックと同じ規則を使う。
+        if (RemediationPriorityLevel.isLockedFor(old.priority(), job.getAppliedPlan())) {
             throw new TaskLockedException();
         }
         String newContent = self.invokeLlmWithCreditReservation(projectId, tone, old.title(), old.content());
@@ -122,26 +118,13 @@ public class TaskRegenerationService {
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
-        RemediationTaskResponse response = RemediationTaskResponse.from(next);
+        RemediationTaskResponse response = RemediationTaskResponse.from(next, job.getAppliedPlan());
         if (response == null) {
             throw new IllegalStateException("response");
         }
         return new TaskToneRegenerateResponse(response);
     }
 
-    private static boolean isTaskLockedFromScore(Double factBasedScore, TaskPriority priority) {
-        Double threshold = RemediationPriorityLevel.forPriority(priority).requiredScoreThreshold();
-        if (threshold != null && threshold <= 0.0) {
-            return false;
-        }
-        if (factBasedScore == null || Double.isNaN(factBasedScore.doubleValue())) {
-            return true;
-        }
-        if (threshold == null) {
-            return true;
-        }
-        return factBasedScore.doubleValue() < threshold.doubleValue();
-    }
 
     private static AuditHistoryEntity pickLatest(List<AuditHistoryEntity> audits) {
         if (audits == null || audits.isEmpty()) {

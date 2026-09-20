@@ -482,7 +482,8 @@ export interface RemediationTask {
   /** どこが根拠か（ルーブリック監査の所見の引用）。古いデータには無い（#79） */
   evidence?: string | null;
   level: number;
-  requiredScoreThreshold: number;
+  /** S級のみ true。本文の解放にProプラン以上が要る（#84。旧スコア閾値は撤去） */
+  requiresProPlan: boolean;
   isMasked: boolean;
   targetSection?: string;
 }
@@ -981,14 +982,14 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
 
 function remediationCapsFromPriority(
   priority: RemediationTaskPriority,
-): { level: number; requiredScoreThreshold: number } {
+): { level: number; requiresProPlan: boolean } {
   if (priority === "B") {
-    return { level: 1, requiredScoreThreshold: 0 };
+    return { level: 1, requiresProPlan: false };
   }
   if (priority === "A") {
-    return { level: 2, requiredScoreThreshold: 60 };
+    return { level: 2, requiresProPlan: false };
   }
-  return { level: 3, requiredScoreThreshold: 80 };
+  return { level: 3, requiresProPlan: true };
 }
 
 function parseScoreBreakdown(raw: unknown): ScoreBreakdown | null {
@@ -1059,10 +1060,9 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
     typeof tsRaw === "string" ? tsRaw.trim() : "";
   const caps = remediationCapsFromPriority(priorityRaw);
   const levelParsed = pickNum(r, "level", "level");
-  const thresholdParsed = pickNum(r, "requiredScoreThreshold", "required_score_threshold");
   const level = levelParsed !== undefined ? levelParsed : caps.level;
-  const requiredScoreThreshold =
-    thresholdParsed !== undefined ? thresholdParsed : caps.requiredScoreThreshold;
+  const proParsed = pickBool(r, "requiresProPlan", "requires_pro_plan");
+  const requiresProPlan = proParsed !== undefined ? proParsed : caps.requiresProPlan;
   const rationaleRaw = r.rationale;
   const rationale = typeof rationaleRaw === "string" && rationaleRaw.trim().length > 0 ? rationaleRaw : null;
   const evidenceRaw = r.evidence;
@@ -1081,7 +1081,7 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
     rationale,
     evidence,
     level,
-    requiredScoreThreshold,
+    requiresProPlan,
     isMasked,
     ...targetSectionPayload,
   };
