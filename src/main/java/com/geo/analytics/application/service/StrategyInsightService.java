@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -277,13 +278,17 @@ public final class StrategyInsightService {
      * {@code StrategyInsight} は16箇所で生成されるためそこには足さず、この束ねた結果で運ぶ（#80）。
      */
     public record JobAdviceRollup(
-            StrategyInsight insight, AdviceSource source, List<MinorityReport> minorityReports) {
+            StrategyInsight insight,
+            AdviceSource source,
+            List<MinorityReport> minorityReports,
+            List<RoadmapItem> roadmapItems) {
         public JobAdviceRollup {
             minorityReports = minorityReports == null ? List.of() : List.copyOf(minorityReports);
+            roadmapItems = roadmapItems == null ? List.of() : List.copyOf(roadmapItems);
         }
 
         public JobAdviceRollup(StrategyInsight insight, AdviceSource source) {
-            this(insight, source, List.of());
+            this(insight, source, List.of(), List.of());
         }
     }
 
@@ -313,7 +318,8 @@ public final class StrategyInsightService {
         }
         try {
             var advice = generator.generateForJob(rows, project, plan);
-            return new JobAdviceRollup(advice.insight(), AdviceSource.AI, advice.minorityReports());
+            return new JobAdviceRollup(
+                    advice.insight(), AdviceSource.AI, advice.minorityReports(), advice.roadmapItems());
         } catch (RuntimeException exception) {
             SECURITY_AUDIT.info(
                     "advice_generated source=TEMPLATE_FALLBACK plan={} cause={}",

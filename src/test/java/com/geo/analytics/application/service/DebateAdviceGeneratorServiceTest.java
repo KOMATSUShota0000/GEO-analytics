@@ -224,6 +224,41 @@ class DebateAdviceGeneratorServiceTest {
     }
 
     @Test
+    void roadmapItemsAreParsedSortedByPhaseAndCapped() {
+        String json =
+                "{\"diagnostic_message\":\"B2B向けに独自データセットを活かすべき。\","
+                        + "\"recommended_actions\":[\"事例公開\",\"統計データ提供\",\"PR記事\"],"
+                        + "\"roadmap_items\":["
+                        + "{\"phase\":\"MID_TERM\",\"title\":\"業界レポートの定期刊行\","
+                        + "\"rationale\":\"一次情報の蓄積が要る\",\"expected_impact\":\"引用元としての定着\"},"
+                        + "{\"phase\":\"NOW\",\"title\":\" 構造化データの整備 \","
+                        + "\"rationale\":\"最短で効く\",\"expected_impact\":\"AI回答での認識率向上\"},"
+                        + "{\"phase\":\"UNKNOWN_PHASE\",\"title\":\"未知フェーズは落ちる\","
+                        + "\"rationale\":\"r\",\"expected_impact\":\"e\"},"
+                        + "{\"phase\":\"SHORT_TERM\",\"title\":\"事例ページの拡充\","
+                        + "\"rationale\":\"中間の打ち手\",\"expected_impact\":\"比較文脈での露出\"}]}";
+        ChatLanguageModel model = modelReturning(json);
+        DebateAdviceGeneratorService svc = newService(model);
+
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(advice.roadmapItems()).hasSize(3);
+        assertThat(advice.roadmapItems().stream().map(i -> i.phase().name()).toList())
+                .containsExactly("NOW", "SHORT_TERM", "MID_TERM");
+        assertThat(advice.roadmapItems().getFirst().title()).isEqualTo("構造化データの整備");
+    }
+
+    @Test
+    void missingRoadmapItemsFieldYieldsEmptyList() {
+        ChatLanguageModel model = modelReturning(VALID_JSON);
+        DebateAdviceGeneratorService svc = newService(model);
+
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(advice.roadmapItems()).isEmpty();
+    }
+
+    @Test
     void codeFencedJsonIsStripped() {
         String json =
                 "```json\n{\"diagnostic_message\":\"テスト診断\",\"recommended_actions\":[\"a\",\"b\",\"c\"]}\n```";

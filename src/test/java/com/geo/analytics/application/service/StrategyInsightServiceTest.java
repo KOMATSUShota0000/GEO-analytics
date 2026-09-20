@@ -14,7 +14,9 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.enums.RoadmapPhase;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,7 +50,9 @@ class StrategyInsightServiceTest {
         when(generator.generateForJob(any(), any(), any()))
                 .thenReturn(
                         new DebateAdviceGeneratorService.JobAdvice(
-                                aiResult, List.of(new MinorityReport("尖った案", "採らない理由", "根拠"))));
+                                aiResult,
+                                List.of(new MinorityReport("尖った案", "採らない理由", "根拠")),
+                                List.of(new RoadmapItem(RoadmapPhase.NOW, "構造化データ整備", "最短で効く", "認識率向上"))));
 
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
@@ -66,7 +70,9 @@ class StrategyInsightServiceTest {
         when(generator.generateForJob(any(), any(), any()))
                 .thenReturn(
                         new DebateAdviceGeneratorService.JobAdvice(
-                                aiResult, List.of(new MinorityReport("尖った案", "採らない理由", "根拠"))));
+                                aiResult,
+                                List.of(new MinorityReport("尖った案", "採らない理由", "根拠")),
+                                List.of(new RoadmapItem(RoadmapPhase.NOW, "構造化データ整備", "最短で効く", "認識率向上"))));
 
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
@@ -74,6 +80,8 @@ class StrategyInsightServiceTest {
 
         assertThat(rollup.minorityReports()).hasSize(1);
         assertThat(rollup.minorityReports().getFirst().insight()).isEqualTo("尖った案");
+        assertThat(rollup.roadmapItems()).hasSize(1);
+        assertThat(rollup.roadmapItems().getFirst().phase()).isEqualTo(RoadmapPhase.NOW);
     }
 
     @Test
@@ -87,6 +95,7 @@ class StrategyInsightServiceTest {
         var rollup = svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD);
 
         assertThat(rollup.minorityReports()).isEmpty();
+        assertThat(rollup.roadmapItems()).isEmpty();
     }
 
     @Test

@@ -1,11 +1,13 @@
 package com.geo.analytics.infrastructure.ai;
 
+import com.geo.analytics.domain.enums.RoadmapPhase;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
+import java.util.Arrays;
 
 /**
  * 解析ごとのジョブ全体アドバイス（DIRECTOR）の構造化出力スキーマ。
@@ -38,7 +40,24 @@ public final class DebateAdviceOutputSchema {
                 .addProperty(
                         "minority_reports",
                         JsonArraySchema.builder().items(minorityReportItemSchema()).build())
-                .required("diagnostic_message", "recommended_actions", "minority_reports")
+                .addProperty(
+                        "roadmap_items",
+                        JsonArraySchema.builder().items(roadmapItemSchema()).build())
+                .required(
+                        "diagnostic_message", "recommended_actions", "minority_reports", "roadmap_items")
+                .additionalProperties(false)
+                .build();
+    }
+
+    /** Why: フェーズは自由記述だと「短期」「中期」等が混在して並べ替えが壊れるため列挙に固定する（#77）。 */
+    private static JsonObjectSchema roadmapItemSchema() {
+        return JsonObjectSchema.builder()
+                .addEnumProperty(
+                        "phase", Arrays.stream(RoadmapPhase.values()).map(Enum::name).toList())
+                .addStringProperty("title")
+                .addStringProperty("rationale")
+                .addStringProperty("expected_impact")
+                .required("phase", "title", "rationale", "expected_impact")
                 .additionalProperties(false)
                 .build();
     }

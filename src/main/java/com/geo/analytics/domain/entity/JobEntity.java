@@ -3,6 +3,7 @@ import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -77,6 +78,9 @@ public class JobEntity extends BaseTenantEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
     private List<MinorityReport> minorityReports = new ArrayList<>();
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "roadmap_items", nullable = false, columnDefinition = "jsonb")
+    private List<RoadmapItem> roadmapItems = new ArrayList<>();
     @Column(name = "gap_batch_idempotency_key")
     private UUID gapBatchIdempotencyKey;
     @Column(name = "create_idempotency_key")
@@ -241,6 +245,12 @@ public class JobEntity extends BaseTenantEntity {
     }
     public List<MinorityReport> getMinorityReports() {
         return minorityReports;
+    }
+    public List<RoadmapItem> getRoadmapItems() {
+        return roadmapItems;
+    }
+    public void setRoadmapItems(List<RoadmapItem> roadmapItems) {
+        this.roadmapItems = roadmapItems == null ? new ArrayList<>() : roadmapItems;
     }
     public void setMinorityReports(List<MinorityReport> minorityReports) {
         this.minorityReports = minorityReports == null ? new ArrayList<>() : minorityReports;
