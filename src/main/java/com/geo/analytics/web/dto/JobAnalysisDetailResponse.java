@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
+import com.geo.analytics.domain.model.MinorityReport;
 import java.lang.StrictMath;
 import java.util.List;
 import java.util.UUID;
@@ -29,13 +30,15 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("remediation_tasks") List<RemediationTaskResponse> remediationTasks,
     @JsonProperty("ai_recognition_summary") AiRecognitionSummaryResponse aiRecognitionSummary,
     @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert,
-    @JsonProperty("reputation_average") Integer reputationAverage
+    @JsonProperty("reputation_average") Integer reputationAverage,
+    @JsonProperty("minority_reports") List<MinorityReportDto> minorityReports
 ) {
     public JobAnalysisDetailResponse {
         jobSummaryRecommendedActions =
                 jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of();
         contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
+        minorityReports = minorityReports != null ? List.copyOf(minorityReports) : List.of();
     }
     public static JobAnalysisDetailResponse from(
             JobEntity jobEntity,
@@ -79,7 +82,20 @@ public record JobAnalysisDetailResponse(
             remediationTasks != null ? List.copyOf(remediationTasks) : List.of(),
             aiRecognitionSummary,
             emotionalAlert,
-            reputationAverage);
+            reputationAverage,
+            toMinorityReportDtos(jobEntity));
+    }
+
+    /** Why: 合意案に入らなかった尖った提案は議論の成果物で、改善タスクとは別枠で画面に出す（#80）。 */
+    private static List<MinorityReportDto> toMinorityReportDtos(JobEntity jobEntity) {
+        List<MinorityReport> reports = jobEntity.getMinorityReports();
+        if (reports == null || reports.isEmpty()) {
+            return List.of();
+        }
+        return reports.stream()
+                .filter(r -> r != null && r.insight() != null && !r.insight().isBlank())
+                .map(r -> new MinorityReportDto(r.insight(), r.conflictReason(), r.evidence()))
+                .toList();
     }
 
     private static EmotionalAlertPayload parseEmotionalAlertJson(String json, ObjectMapper objectMapper) {

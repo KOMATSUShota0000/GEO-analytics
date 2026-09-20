@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,10 +68,16 @@ public final class GapAnalysisService {
                 : null;
         StrategyInsight rollup;
         String adviceSource;
+        // Why: マイノリティ・レポートは議論が成立したときにしか存在しない。テンプレへ落ちた回は null を渡し、
+        //      前回の議論結果を空配列で潰さない（#80）。議論が成立して0件だった場合は空配列で上書きする。
+        List<MinorityReport> minorityReports = null;
         if (projectContext != null) {
             var rollupWithSource = strategyInsightService.rollupJobWithSource(rows, projectContext, plan);
             rollup = rollupWithSource.insight();
             adviceSource = rollupWithSource.source().name();
+            if (rollupWithSource.source() == AdviceSource.AI) {
+                minorityReports = rollupWithSource.minorityReports();
+            }
         } else {
             rollup = strategyInsightService.rollupJob(rows);
             adviceSource = null;
@@ -79,7 +86,8 @@ public final class GapAnalysisService {
             jobId,
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()),
-            adviceSource);
+            adviceSource,
+            minorityReports);
         String trendFull = rollup.diagnosticMessage() != null ? rollup.diagnosticMessage() : "";
         String trendClip = trendFull.length() > 420 ? trendFull.substring(0, 420) : trendFull;
         var outlierRows = new ArrayList<AuditHistoryEntity>();

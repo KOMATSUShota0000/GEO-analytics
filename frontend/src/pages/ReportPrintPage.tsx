@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { ReputationBadge } from "../components/ReputationBadge";
+import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { getAccessToken, tryRestoreSession } from "../auth/authSession";
@@ -359,6 +360,7 @@ export default function ReportPrintPage(): JSX.Element {
               </ul>
             </div>
           )}
+          <MinorityReportPanel reports={data.minorityReports ?? []} variant="print" />
         </section>
       )}
       {data && isCompletedJobStatus(data.jobStatus) && somForTier !== null && (

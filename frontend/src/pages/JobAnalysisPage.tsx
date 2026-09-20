@@ -15,6 +15,7 @@ import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoar
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
 import { DebateAdviceTeaserBanner } from "../components/DebateAdviceTeaserBanner";
+import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import CircularProgress from "@mui/material/CircularProgress";
 
 const AI_ADVICE_LOADING_MESSAGES = [
@@ -675,6 +676,7 @@ export function JobAnalysisPage(): JSX.Element {
             {!isProPlanUi ? <DebateAdviceTeaserBanner /> : null}
           </div>
         )}
+        <MinorityReportPanel reports={data?.minorityReports ?? []} />
       </div>
       {showTierBlock && (
         <div className="pdf-avoid-break mb-6">
