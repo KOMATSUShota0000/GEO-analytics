@@ -516,6 +516,39 @@ export function parseEmotionalAlertPayload(raw: unknown): EmotionalAlertPayload 
   return { level: levelRaw, message, usedFallback };
 }
 
+/** 4ペルソナ議論で合意案に入らなかった尖った提案（#80） */
+export interface JobMinorityReport {
+  insight: string;
+  conflictReason: string;
+  evidence: string;
+}
+
+function parseMinorityReports(raw: unknown): JobMinorityReport[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: JobMinorityReport[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const o = item as JsonDict;
+    const insightRaw = o.insight;
+    const insight = typeof insightRaw === "string" ? insightRaw.trim() : "";
+    if (insight.length === 0) {
+      continue;
+    }
+    const conflictRaw = o.conflictReason ?? o.conflict_reason;
+    const evidenceRaw = o.evidence;
+    out.push({
+      insight,
+      conflictReason: typeof conflictRaw === "string" ? conflictRaw.trim() : "",
+      evidence: typeof evidenceRaw === "string" ? evidenceRaw.trim() : "",
+    });
+  }
+  return out;
+}
+
 export interface JobAnalysisDetail {
   jobId: string;
   jobStatus: string;
@@ -539,6 +572,8 @@ export interface JobAnalysisDetail {
   aiRecognitionSummary?: AiRecognitionSummary | null;
   remediationTasks?: RemediationTask[];
   emotionalAlert?: EmotionalAlertPayload | null;
+  /** 議論で合意に至らなかった尖った提案。無ければ空配列（#80） */
+  minorityReports?: JobMinorityReport[];
 }
 
 function auditDateString(v: unknown): string | null {
@@ -836,6 +871,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   );
   const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
   const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
+  const minorityReports = parseMinorityReports(r.minorityReports ?? r.minority_reports);
   return {
     jobId,
     jobStatus,
@@ -857,6 +893,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     aiRecognitionSummary,
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
+    minorityReports,
   };
 }
 

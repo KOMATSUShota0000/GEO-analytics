@@ -5,6 +5,7 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -269,8 +270,22 @@ public final class StrategyInsightService {
         return rollupJobFromTemplate(rows);
     }
 
-    /** ジョブ全体アドバイスと、その生成元（AI / テンプレフォールバック）を束ねた結果。 */
-    public record JobAdviceRollup(StrategyInsight insight, AdviceSource source) {}
+    /**
+     * ジョブ全体アドバイスと、その生成元（AI / テンプレフォールバック）、および議論のマイノリティ・レポート。
+     *
+     * <p>Why: マイノリティ・レポートは DIRECTOR が合意案に入れなかった尖った提案で、テンプレ経路には存在しない。
+     * {@code StrategyInsight} は16箇所で生成されるためそこには足さず、この束ねた結果で運ぶ（#80）。
+     */
+    public record JobAdviceRollup(
+            StrategyInsight insight, AdviceSource source, List<MinorityReport> minorityReports) {
+        public JobAdviceRollup {
+            minorityReports = minorityReports == null ? List.of() : List.copyOf(minorityReports);
+        }
+
+        public JobAdviceRollup(StrategyInsight insight, AdviceSource source) {
+            this(insight, source, List.of());
+        }
+    }
 
     /**
      * AI 議論駆動でジョブ全体アドバイスを生成する。
@@ -297,7 +312,8 @@ public final class StrategyInsightService {
             return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
         }
         try {
-            return new JobAdviceRollup(generator.generateForJob(rows, project, plan), AdviceSource.AI);
+            var advice = generator.generateForJob(rows, project, plan);
+            return new JobAdviceRollup(advice.insight(), AdviceSource.AI, advice.minorityReports());
         } catch (RuntimeException exception) {
             SECURITY_AUDIT.info(
                     "advice_generated source=TEMPLATE_FALLBACK plan={} cause={}",

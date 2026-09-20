@@ -48,7 +48,8 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
     @Autowired private BatchPersistenceService batchPersistenceService;
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    @MockitoBean(name = "geminiDebateDirector")
+    // 解析アドバイスの DIRECTOR はオンボーディング用と別ビーン（#80。スキーマが別物のため）
+    @MockitoBean(name = "geminiDebateAdviceDirector")
     private ChatLanguageModel directorModel;
 
     @MockitoBean(name = "geminiDebateAnalyst")
@@ -108,8 +109,9 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
 
         // 2) Pro プランで議論駆動アドバイス生成 → 0.2 チケット消費
         StrategyInsight result =
-                debateAdviceGeneratorService.generateForJob(
-                        List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO);
+                debateAdviceGeneratorService
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO)
+                        .insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         assertThat(result.recommendedActions()).hasSize(3);
@@ -148,8 +150,9 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
         long balanceBefore = creditBalance();
 
         StrategyInsight result =
-                debateAdviceGeneratorService.generateForJob(
-                        List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO);
+                debateAdviceGeneratorService
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO)
+                        .insight();
 
         // Free パス（単発 DIRECTOR）で結果は返る
         assertThat(result.diagnosticMessage()).contains("B2B");

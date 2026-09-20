@@ -2,6 +2,7 @@ package com.geo.analytics.domain.entity;
 import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -15,6 +16,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 @Entity
@@ -72,6 +74,9 @@ public class JobEntity extends BaseTenantEntity {
     private List<String> jobRecommendedActions;
     @Column(name = "job_advice_source", length = 32)
     private String jobAdviceSource;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
+    private List<MinorityReport> minorityReports = new ArrayList<>();
     @Column(name = "gap_batch_idempotency_key")
     private UUID gapBatchIdempotencyKey;
     @Column(name = "create_idempotency_key")
@@ -233,6 +238,12 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setJobRecommendedActions(List<String> jobRecommendedActions) {
         this.jobRecommendedActions = jobRecommendedActions;
+    }
+    public List<MinorityReport> getMinorityReports() {
+        return minorityReports;
+    }
+    public void setMinorityReports(List<MinorityReport> minorityReports) {
+        this.minorityReports = minorityReports == null ? new ArrayList<>() : minorityReports;
     }
     public String getJobAdviceSource() {
         return jobAdviceSource;

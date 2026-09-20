@@ -14,6 +14,7 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -44,7 +45,10 @@ class StrategyInsightServiceTest {
     void rollupJobWithProjectDelegatesToAiGenerator() {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
         StrategyInsight aiResult = new StrategyInsight("AI生成診断", List.of("a", "b", "c"), 0.3);
-        when(generator.generateForJob(any(), any(), any())).thenReturn(aiResult);
+        when(generator.generateForJob(any(), any(), any()))
+                .thenReturn(
+                        new DebateAdviceGeneratorService.JobAdvice(
+                                aiResult, List.of(new MinorityReport("尖った案", "採らない理由", "根拠"))));
 
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
@@ -53,6 +57,36 @@ class StrategyInsightServiceTest {
 
         assertThat(result.diagnosticMessage()).isEqualTo("AI生成診断");
         verify(generator, times(1)).generateForJob(any(), any(), any());
+    }
+
+    @Test
+    void rollupJobWithSourceCarriesMinorityReportsFromDebate() {
+        DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
+        StrategyInsight aiResult = new StrategyInsight("AI生成診断", List.of("a", "b", "c"), 0.3);
+        when(generator.generateForJob(any(), any(), any()))
+                .thenReturn(
+                        new DebateAdviceGeneratorService.JobAdvice(
+                                aiResult, List.of(new MinorityReport("尖った案", "採らない理由", "根拠"))));
+
+        StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
+
+        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.3, 5)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(rollup.minorityReports()).hasSize(1);
+        assertThat(rollup.minorityReports().getFirst().insight()).isEqualTo("尖った案");
+    }
+
+    @Test
+    void templateFallbackCarriesNoMinorityReports() {
+        DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
+        when(generator.generateForJob(any(), any(), any()))
+                .thenThrow(new DebateAdviceGeneratorService.DebateAdviceGenerationException("boom"));
+
+        StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
+
+        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(rollup.minorityReports()).isEmpty();
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.JapaneseNlpService;
 import com.geo.analytics.domain.service.DomainAnalysisAiModelNames;
 import com.geo.analytics.infrastructure.ai.ConsultantOutputSchema;
+import com.geo.analytics.infrastructure.ai.DebateAdviceOutputSchema;
 import com.geo.analytics.infrastructure.ai.DebateDirectorOutputSchema;
 import com.geo.analytics.infrastructure.ai.DomainAnalysisOutputSchema;
 import com.geo.analytics.infrastructure.ai.GeoOnboardingOutputSchema;
@@ -39,6 +40,7 @@ public class AiConfig {
     public static final String GEMINI_DEBATE_INNOVATOR = "geminiDebateInnovator";
     public static final String GEMINI_DEBATE_SKEPTIC = "geminiDebateSkeptic";
     public static final String GEMINI_DEBATE_DIRECTOR = "geminiDebateDirector";
+    public static final String GEMINI_DEBATE_ADVICE_DIRECTOR = "geminiDebateAdviceDirector";
     /** 検閲専用 Flash（プロンプトインジェクション・ガード）。 */
     public static final String GEMINI_PROMPT_INJECTION_GUARD = "geminiPromptInjectionGuardModel";
     public static final String GEMINI_RUBRIC_AUDIT = "geminiRubricAuditModel";
@@ -148,6 +150,28 @@ public class AiConfig {
                 .timeout(Duration.ofSeconds(180))
                 .maxOutputTokens(8192)
                 .responseFormat(DebateDirectorOutputSchema.debateDirectorResponseFormat())
+                .build();
+    }
+
+    /**
+     * 解析ごとのジョブ全体アドバイス用 DIRECTOR。
+     *
+     * <p>Why: オンボーディング用ビーンはモデル側に {@code debate_director_onboarding} スキーマを固定しており、
+     * LangChain4j は {@code ChatRequest} 側が未指定ならモデル側の書式を使う。解析アドバイスが同じビーンを
+     * 使っていたため、出力は常にオンボーディング形（{@code industry_type} 等）となり、
+     * {@code diagnostic_message} が取れずテンプレフォールバックに落ち続けていた（#80）。
+     * 温度・モデル・タイムアウトは従来どおりで、書式だけ解析用に差し替える。
+     */
+    @Bean
+    @Qualifier(GEMINI_DEBATE_ADVICE_DIRECTOR)
+    public ChatLanguageModel geminiDebateAdviceDirector() {
+        return GoogleAiGeminiChatModel.builder()
+                .apiKey(appProperties.getAi().getGemini().getApiKey())
+                .modelName(LlmModelNames.GEMINI_25_PRO)
+                .temperature(0.2)
+                .timeout(Duration.ofSeconds(180))
+                .maxOutputTokens(8192)
+                .responseFormat(DebateAdviceOutputSchema.debateAdviceResponseFormat())
                 .build();
     }
 

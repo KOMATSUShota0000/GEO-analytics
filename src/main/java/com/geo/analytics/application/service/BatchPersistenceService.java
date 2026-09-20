@@ -11,6 +11,7 @@ import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,20 +139,33 @@ public class BatchPersistenceService {
         updateJobStrategyRollup(jobId, diagnosticMessage, recommendedActions, null);
     }
 
-    /**
-     * ジョブ全体アドバイスと生成元（{@code adviceSource}）を永続化する。
-     * {@code adviceSource} が null の場合は生成元列を更新しない（テンプレ確定パス等の後方互換）。
-     */
     public void updateJobStrategyRollup(
             UUID jobId, String diagnosticMessage, List<String> recommendedActions, String adviceSource) {
+        updateJobStrategyRollup(jobId, diagnosticMessage, recommendedActions, adviceSource, null);
+    }
+
+    /**
+     * ジョブ全体アドバイスと生成元（{@code adviceSource}）、マイノリティ・レポートを永続化する。
+     * {@code adviceSource} / {@code minorityReports} が null の場合はその列を更新しない
+     * （テンプレ確定パス等の後方互換。テンプレ経路には議論そのものが無いため上書きしない）。
+     */
+    public void updateJobStrategyRollup(
+            UUID jobId,
+            String diagnosticMessage,
+            List<String> recommendedActions,
+            String adviceSource,
+            List<MinorityReport> minorityReports) {
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
                     "UPDATE jobs SET job_diagnostic_message = ?, job_recommended_actions = ?,"
-                            + " job_advice_source = COALESCE(?, job_advice_source), updated_at = now() WHERE id = ?");
+                            + " job_advice_source = COALESCE(?, job_advice_source),"
+                            + " minority_reports = COALESCE(?::jsonb, minority_reports), updated_at = now()"
+                            + " WHERE id = ?");
             ps.setString(1, diagnosticMessage);
             setJsonb(ps, 2, toJson(recommendedActions));
             ps.setString(3, adviceSource);
-            ps.setObject(4, jobId);
+            ps.setString(4, minorityReports == null ? null : toJson(minorityReports));
+            ps.setObject(5, jobId);
             return ps;
         });
     }

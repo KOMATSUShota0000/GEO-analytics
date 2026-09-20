@@ -10,6 +10,7 @@ import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -54,6 +55,10 @@ public class DebateAdviceGeneratorService {
     private static final int ACTION_MAX_CHARS = 60;
     private static final int RECOMMENDED_ACTIONS_COUNT = 3;
 
+    /** Why: マイノリティ・レポートは JSONB に載せて画面と PDF に出す。無制限に長いと表示が壊れるため上限を置く（#80）。 */
+    private static final int MINORITY_REPORT_MAX_COUNT = 2;
+    private static final int MINORITY_FIELD_MAX_CHARS = 200;
+
     /**
      * 短縮版議論のターン上限。<b>コスト試算（2026-05-30）の生命線</b>であり、
      * これを超えると履歴トークンが肥大して限界利益率 86% を割る恐れがあるためハード固定する。
@@ -72,7 +77,7 @@ public class DebateAdviceGeneratorService {
     private final CreditVaultService creditVaultService;
 
     public DebateAdviceGeneratorService(
-            @Qualifier(AiConfig.GEMINI_DEBATE_DIRECTOR) ChatLanguageModel directorChatModel,
+            @Qualifier(AiConfig.GEMINI_DEBATE_ADVICE_DIRECTOR) ChatLanguageModel directorChatModel,
             @Qualifier(AiConfig.GEMINI_DEBATE_ANALYST) ChatLanguageModel analystChatModel,
             @Qualifier(AiConfig.GEMINI_DEBATE_INNOVATOR) ChatLanguageModel innovatorChatModel,
             @Qualifier(AiConfig.GEMINI_DEBATE_SKEPTIC) ChatLanguageModel skepticChatModel,
@@ -90,10 +95,22 @@ public class DebateAdviceGeneratorService {
     }
 
     /**
+     * ジョブ全体アドバイスと、合意に入らなかった尖った提案（マイノリティ・レポート）。
+     *
+     * <p>Why: {@code StrategyInsight} は16箇所で生成されており、そこへ項目を足すと無関係な経路まで
+     * 巻き込む。議論の成果物として別の器で返す（#80）。
+     */
+    public record JobAdvice(StrategyInsight insight, List<MinorityReport> minorityReports) {
+        public JobAdvice {
+            minorityReports = minorityReports == null ? List.of() : List.copyOf(minorityReports);
+        }
+    }
+
+    /**
      * ジョブ全体アドバイスを AI で生成する。失敗時は {@link DebateAdviceGenerationException} を投げる。
      * 呼び出し元はテンプレフォールバックを実施すること。
      */
-    public StrategyInsight generateForJob(
+    public JobAdvice generateForJob(
             List<AuditHistoryEntity> rows, ProjectAdviceContext project, SubscriptionPlan plan) {
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(project, "project");
@@ -101,7 +118,7 @@ public class DebateAdviceGeneratorService {
 
         if (rows.isEmpty()) {
             // 行が無い場合はテンプレ実装と同じ空応答（呼び出し元の整合性のため）
-            return new StrategyInsight(null, List.of(), null);
+            return new JobAdvice(new StrategyInsight(null, List.of(), null), List.of());
         }
 
         Double medZ = strategyInsightService.medianModifiedZ(rows);
@@ -127,7 +144,7 @@ public class DebateAdviceGeneratorService {
      * Pro/Expert: チケットを予約し、短縮版議論を起動して結論を DIRECTOR プロンプトに注入する。
      * 議論〜生成のいずれかが失敗した場合はチケットを全額返金し、Free パス（議論なし単発）へフォールバックする。
      */
-    private StrategyInsight generateWithShortDebate(
+    private JobAdvice generateWithShortDebate(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
@@ -142,7 +159,7 @@ public class DebateAdviceGeneratorService {
                 .call(() -> reserveDebateAndGenerate(rows, project, plan, medZ, medSt, hint));
     }
 
-    private StrategyInsight reserveDebateAndGenerate(
+    private JobAdvice reserveDebateAndGenerate(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
@@ -152,8 +169,7 @@ public class DebateAdviceGeneratorService {
         UUID reservationId = creditVaultService.reserve(project.projectId(), DEBATE_CREDIT);
         try {
             String transcript = runShortDebate(rows, project, medZ, medSt);
-            StrategyInsight result =
-                    generateSingleShot(rows, project, plan, medZ, medSt, hint, transcript);
+            JobAdvice result = generateSingleShot(rows, project, plan, medZ, medSt, hint, transcript);
             creditVaultService.settle(reservationId, DEBATE_CREDIT, "debate_advice_pro");
             SECURITY_AUDIT.info(
                     "advice_generated source=AI_DEBATE plan={} turns={} medZ={}",
@@ -178,7 +194,7 @@ public class DebateAdviceGeneratorService {
      *
      * @param debateTranscript 短縮版議論のトランスクリプト。Free パスでは {@code null}。
      */
-    private StrategyInsight generateSingleShot(
+    private JobAdvice generateSingleShot(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
@@ -228,7 +244,39 @@ public class DebateAdviceGeneratorService {
                     medSt);
         }
 
-        return new StrategyInsight(diagnostic, actions, medZ);
+        return new JobAdvice(new StrategyInsight(diagnostic, actions, medZ), toMinorityReports(parsed));
+    }
+
+    /** Why: 空の項目しか無いレポートは提案の材料にならないため落とす（#80）。 */
+    private static List<MinorityReport> toMinorityReports(DebateAdviceJson parsed) {
+        if (parsed.minorityReports() == null || parsed.minorityReports().isEmpty()) {
+            return List.of();
+        }
+        List<MinorityReport> out = new ArrayList<>(MINORITY_REPORT_MAX_COUNT);
+        for (MinorityReportJson raw : parsed.minorityReports()) {
+            if (raw == null) {
+                continue;
+            }
+            String insight = clampField(raw.insight());
+            if (insight.isEmpty()) {
+                continue;
+            }
+            out.add(new MinorityReport(insight, clampField(raw.conflictReason()), clampField(raw.evidence())));
+            if (out.size() >= MINORITY_REPORT_MAX_COUNT) {
+                break;
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    private static String clampField(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        return trimmed.length() <= MINORITY_FIELD_MAX_CHARS
+                ? trimmed
+                : trimmed.substring(0, MINORITY_FIELD_MAX_CHARS);
     }
 
     /**
@@ -313,12 +361,17 @@ public class DebateAdviceGeneratorService {
                 + "出力 JSON スキーマ:\n"
                 + "{\n"
                 + "  \"diagnostic_message\": \"" + DIAGNOSTIC_MAX_CHARS + "文字以内の日本語の戦略診断\",\n"
-                + "  \"recommended_actions\": [\"" + ACTION_MAX_CHARS + "文字以内の改善案1\", \"改善案2\", \"改善案3\"]\n"
+                + "  \"recommended_actions\": [\"" + ACTION_MAX_CHARS + "文字以内の改善案1\", \"改善案2\", \"改善案3\"],\n"
+                + "  \"minority_reports\": [{\"insight\": \"合意に入らなかった尖った提案\","
+                + " \"conflict_reason\": \"採択しなかった理由（批判の要点と、どんな文脈なら化けるか）\","
+                + " \"evidence\": \"入力のどこに拠り所があるか\"}]\n"
                 + "}\n\n"
                 + "重要:\n"
                 + "- diagnostic_message は方向性ヒントの丸写しを禁止。業種・ターゲット・強みの固有要素を必ず含めること。\n"
                 + "- recommended_actions は必ず3件、各" + ACTION_MAX_CHARS + "文字以内、日本語、命令形で簡潔に。\n"
-                + "- JSON 以外の文字（前置き・後置き・コードフェンス）は出力しないこと。";
+                + "- minority_reports は0〜2件。合意案に入れなかったが捨てるに惜しい案があるときだけ書くこと。"
+                + "無理に埋めず、無ければ空配列にすること。evidence には入力に無い内容を書いてはならない。\n"
+                + "- JSON 以外の文字（前置き・後置き・コードフェンス）は出力しないこと。\n";
     }
 
     private String buildUserPrompt(
@@ -437,7 +490,14 @@ public class DebateAdviceGeneratorService {
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record DebateAdviceJson(
             @JsonProperty("diagnostic_message") String diagnosticMessage,
-            @JsonProperty("recommended_actions") List<String> recommendedActions) {}
+            @JsonProperty("recommended_actions") List<String> recommendedActions,
+            @JsonProperty("minority_reports") List<MinorityReportJson> minorityReports) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record MinorityReportJson(
+            @JsonProperty("insight") String insight,
+            @JsonProperty("conflict_reason") String conflictReason,
+            @JsonProperty("evidence") String evidence) {}
 
     /** LLM 呼び出し or パース失敗を表す内部例外。呼び出し元はテンプレフォールバックを実施すること。 */
     public static final class DebateAdviceGenerationException extends RuntimeException {

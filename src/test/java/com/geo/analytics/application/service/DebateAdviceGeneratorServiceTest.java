@@ -112,7 +112,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(director, persona, credit);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO);
+                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         // 2 ターン × 3 ペルソナ = 6 回の議論 LLM 呼び出し
@@ -137,7 +137,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(director, persona, credit);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO);
+                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO).insight();
 
         // 議論は失敗したが Free パス（単発 director）で結果が返る
         assertThat(result.diagnosticMessage()).contains("B2B");
@@ -157,7 +157,7 @@ class DebateAdviceGeneratorServiceTest {
 
         // 課金識別子を持たない context() を渡すと、PRO でも議論は起動しない
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.PRO);
+                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.PRO).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         verify(persona, never()).chat(any(ChatRequest.class));
@@ -169,7 +169,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = mock(ChatLanguageModel.class);
         DebateAdviceGeneratorService svc = newService(model);
 
-        StrategyInsight result = svc.generateForJob(List.of(), context(), SubscriptionPlan.STANDARD);
+        StrategyInsight result = svc.generateForJob(List.of(), context(), SubscriptionPlan.STANDARD).insight();
 
         assertThat(result.diagnosticMessage()).isNull();
         assertThat(result.recommendedActions()).isEmpty();
@@ -185,10 +185,42 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD);
+                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         assertThat(result.recommendedActions()).hasSize(3);
+    }
+
+    @Test
+    void minorityReportsAreParsedTrimmedAndCapped() {
+        String json =
+                "{\"diagnostic_message\":\"B2B向けに独自データセットを活かすべき。\","
+                        + "\"recommended_actions\":[\"事例公開\",\"統計データ提供\",\"PR記事\"],"
+                        + "\"minority_reports\":["
+                        + "{\"insight\":\" 業界統計を自社で作る \",\"conflict_reason\":\"工数が読めない\","
+                        + "\"evidence\":\"強み: 独自データ\"},"
+                        + "{\"insight\":\"\",\"conflict_reason\":\"空なので落ちる\",\"evidence\":\"\"},"
+                        + "{\"insight\":\"二件目\",\"conflict_reason\":\"理由2\",\"evidence\":\"根拠2\"},"
+                        + "{\"insight\":\"三件目は上限超過で落ちる\",\"conflict_reason\":\"r\",\"evidence\":\"e\"}]}";
+        ChatLanguageModel model = modelReturning(json);
+        DebateAdviceGeneratorService svc = newService(model);
+
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(advice.minorityReports()).hasSize(2);
+        assertThat(advice.minorityReports().getFirst().insight()).isEqualTo("業界統計を自社で作る");
+        assertThat(advice.minorityReports().getFirst().conflictReason()).isEqualTo("工数が読めない");
+        assertThat(advice.minorityReports().getLast().insight()).isEqualTo("二件目");
+    }
+
+    @Test
+    void missingMinorityReportsFieldYieldsEmptyList() {
+        ChatLanguageModel model = modelReturning(VALID_JSON);
+        DebateAdviceGeneratorService svc = newService(model);
+
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD);
+
+        assertThat(advice.minorityReports()).isEmpty();
     }
 
     @Test
@@ -199,7 +231,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.0, 6)), context(), SubscriptionPlan.STANDARD);
+                svc.generateForJob(List.of(rowWith(0.0, 6)), context(), SubscriptionPlan.STANDARD).insight();
 
         assertThat(result.diagnosticMessage()).isEqualTo("テスト診断");
         assertThat(result.recommendedActions()).containsExactly("a", "b", "c");
@@ -263,7 +295,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD);
+                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD).insight();
 
         assertThat(result.diagnosticMessage()).hasSize(300);
     }
@@ -299,7 +331,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD);
+                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD).insight();
 
         assertThat(result.recommendedActions()).hasSize(3);
         assertThat(result.recommendedActions().get(0)).hasSize(60);
