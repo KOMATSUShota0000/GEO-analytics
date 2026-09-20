@@ -340,11 +340,17 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
                 .jsonPath("$.details.plan_name").isEqualTo("PRO");
     }
 
-    /** 非同期処理が枠を払い戻し切るまで待つ。払い戻しはジョブが終端状態になった後には発生しない。 */
+    /**
+     * 非同期処理が枠を払い戻し切るまで待つ。払い戻しはジョブが終端状態になった後には発生しない。
+     *
+     * <p>Why: 進行中のステータスを列挙する書き方だと、まだ処理に入っていない CREATED / FILE_UPLOADED の
+     * ジョブを見落とし、枠を空けた直後にそれらが動き出して払い戻しで残量が復活する（#108 の再発）。
+     * 終端（COMPLETED / FAILED）以外が1件も無いことを条件にして、新しいステータスが増えても漏れないようにする。
+     */
     private void awaitNoJobsInFlight() {
         for (int attempt = 0; attempt < 300; attempt++) {
             Integer inFlight = jdbcTemplate.queryForObject(
-                    "SELECT count(*) FROM jobs WHERE job_status IN ('REALTIME_PROCESSING','RUNNING','SUBMITTED')",
+                    "SELECT count(*) FROM jobs WHERE job_status NOT IN ('COMPLETED','FAILED')",
                     Integer.class);
             if (inFlight != null && inFlight == 0) {
                 return;

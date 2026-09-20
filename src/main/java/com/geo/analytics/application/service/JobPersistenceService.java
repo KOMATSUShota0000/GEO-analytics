@@ -19,6 +19,8 @@ import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.model.CompetitorResult;
+import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.infrastructure.ai.JobPromptContextFormatter;
 import com.geo.analytics.domain.service.CompetitorShareAggregator;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
@@ -570,6 +572,32 @@ public class JobPersistenceService {
         List<List<CompetitorResult>> perQuery =
                 auditHistories.stream().map(AuditHistoryEntity::getCompetitorResults).toList();
         return CompetitorShareAggregator.aggregate(ownBrandLabel, ownScores, perQuery);
+    }
+
+    /**
+     * 解析プロンプトの前置き。プロジェクト単位の少数意見（#82）を含めて組み立てる。
+     *
+     * <p>Why: 呼び出し側（{@code GeminiVerificationAdapter}）がジョブとプロジェクトを別々に引くと、
+     * 前置きの材料がどこで決まるのかが散らばる。文脈の組み立ては1箇所に閉じる。
+     */
+    @Transactional(readOnly = true)
+    public String findJobPromptContext(UUID jobId) {
+        if (jobId == null) {
+            return null;
+        }
+        UUID tenantId = readWorkspaceIdForJob(jobId);
+        return TenantPlanScope.executeWithTenant(tenantId, () -> jobRepository.findById(jobId)
+                .map(job -> JobPromptContextFormatter.format(job, projectMinorityReportsOf(job)))
+                .orElse(null));
+    }
+
+    private List<MinorityReport> projectMinorityReportsOf(JobEntity job) {
+        if (job.getProjectId() == null) {
+            return List.of();
+        }
+        return projectRepository.findById(job.getProjectId())
+                .map(ProjectEntity::getMinorityReports)
+                .orElse(List.of());
     }
 
     private static Integer normalizedAiCitationPosition(Integer position) {

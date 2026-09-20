@@ -32,7 +32,6 @@ import java.lang.StrictMath;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
 
 public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private static final Logger log = LoggerFactory.getLogger(GeminiVerificationAdapter.class);
@@ -89,14 +88,8 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     }
 
     private String resolveJobPromptContext(VerificationRequest verificationRequest) {
-        UUID jobId = verificationRequest.jobId();
-        if (jobId == null) {
-            return null;
-        }
-        return jobPersistenceService
-                .findJobByIdOptional(jobId)
-                .map(JobPromptContextFormatter::format)
-                .orElse(null);
+        // Why: 前置きの材料（ジョブ文脈＋プロジェクトの少数意見 #82）の組み立ては JobPersistenceService に閉じる。
+        return jobPersistenceService.findJobPromptContext(verificationRequest.jobId());
     }
 
     private static String evaluatedBrandLabel(VerificationRequest verificationRequest) {
