@@ -214,9 +214,25 @@ public class AiRemediationService {
             }
             String content = item.content() == null ? "" : item.content();
             double impact = clampImpact(item.impactScore());
-            out.add(new RemediationTask(UUID.randomUUID(), category, priority, title, content, impact));
+            out.add(new RemediationTask(
+                    UUID.randomUUID(),
+                    category,
+                    priority,
+                    title,
+                    content,
+                    impact,
+                    trimOrNull(item.rationale()),
+                    trimOrNull(item.evidence())));
         }
         return List.copyOf(out);
+    }
+
+    private static String trimOrNull(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static double clampImpact(Double raw) {
@@ -268,5 +284,7 @@ public class AiRemediationService {
             @JsonProperty("priority") String priority,
             @JsonProperty("title") String title,
             @JsonProperty("content") String content,
-            @JsonProperty("impactScore") Double impactScore) {}
+            @JsonProperty("impactScore") Double impactScore,
+            @JsonProperty("rationale") String rationale,
+            @JsonProperty("evidence") String evidence) {}
 }

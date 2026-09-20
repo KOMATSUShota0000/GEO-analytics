@@ -54,7 +54,13 @@ public final class RemediationTaskOutputSchema {
                         JsonNumberSchema.builder()
                                 .description("Estimated business impact in [0.0, 1.0].")
                                 .build())
-                .required("category", "priority", "title", "content", "impactScore")
+                .addStringProperty(
+                        "rationale",
+                        "Why this task moves GEO exposure or LLM citation. One or two sentences.")
+                .addStringProperty(
+                        "evidence",
+                        "Which part of the given rubric findings this is based on. Quote or cite it. Do not invent.")
+                .required("category", "priority", "title", "content", "impactScore", "rationale", "evidence")
                 .additionalProperties(false)
                 .build();
     }
