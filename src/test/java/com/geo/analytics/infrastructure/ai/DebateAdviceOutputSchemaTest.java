@@ -24,7 +24,8 @@ class DebateAdviceOutputSchemaTest {
         JsonObjectSchema root = DebateAdviceOutputSchema.rootObjectSchema();
 
         assertThat(root.required())
-                .containsExactlyInAnyOrder("diagnostic_message", "recommended_actions", "minority_reports");
+                .containsExactlyInAnyOrder(
+                        "diagnostic_message", "recommended_actions", "minority_reports", "roadmap_items");
         assertThat(root.properties()).doesNotContainKeys("industry_type", "target_audience", "extracted_strengths");
     }
 

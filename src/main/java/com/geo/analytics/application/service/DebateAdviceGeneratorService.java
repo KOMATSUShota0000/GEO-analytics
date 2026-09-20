@@ -9,8 +9,10 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.IndustryType;
+import com.geo.analytics.domain.enums.RoadmapPhase;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -25,6 +27,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import java.lang.ScopedValue;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -58,6 +61,11 @@ public class DebateAdviceGeneratorService {
     /** Why: マイノリティ・レポートは JSONB に載せて画面と PDF に出す。無制限に長いと表示が壊れるため上限を置く（#80）。 */
     private static final int MINORITY_REPORT_MAX_COUNT = 2;
     private static final int MINORITY_FIELD_MAX_CHARS = 200;
+
+    /** Why: ロードマップは3段×最大2件。多すぎると「順番の提案」ではなくタスク一覧の再掲になる（#77）。 */
+    private static final int ROADMAP_MAX_COUNT = 6;
+    private static final int ROADMAP_TITLE_MAX_CHARS = 60;
+    private static final int ROADMAP_TEXT_MAX_CHARS = 120;
 
     /**
      * 短縮版議論のターン上限。<b>コスト試算（2026-05-30）の生命線</b>であり、
@@ -100,9 +108,11 @@ public class DebateAdviceGeneratorService {
      * <p>Why: {@code StrategyInsight} は16箇所で生成されており、そこへ項目を足すと無関係な経路まで
      * 巻き込む。議論の成果物として別の器で返す（#80）。
      */
-    public record JobAdvice(StrategyInsight insight, List<MinorityReport> minorityReports) {
+    public record JobAdvice(
+            StrategyInsight insight, List<MinorityReport> minorityReports, List<RoadmapItem> roadmapItems) {
         public JobAdvice {
             minorityReports = minorityReports == null ? List.of() : List.copyOf(minorityReports);
+            roadmapItems = roadmapItems == null ? List.of() : List.copyOf(roadmapItems);
         }
     }
 
@@ -118,7 +128,7 @@ public class DebateAdviceGeneratorService {
 
         if (rows.isEmpty()) {
             // 行が無い場合はテンプレ実装と同じ空応答（呼び出し元の整合性のため）
-            return new JobAdvice(new StrategyInsight(null, List.of(), null), List.of());
+            return new JobAdvice(new StrategyInsight(null, List.of(), null), List.of(), List.of());
         }
 
         Double medZ = strategyInsightService.medianModifiedZ(rows);
@@ -244,7 +254,53 @@ public class DebateAdviceGeneratorService {
                     medSt);
         }
 
-        return new JobAdvice(new StrategyInsight(diagnostic, actions, medZ), toMinorityReports(parsed));
+        return new JobAdvice(
+                new StrategyInsight(diagnostic, actions, medZ),
+                toMinorityReports(parsed),
+                toRoadmapItems(parsed));
+    }
+
+    /**
+     * Why: フェーズ順に並べ替えてから保存する。LLM が返す順序は保証されず、画面側で毎回並べ替えるより
+     * 保存時に確定させたほうが PDF・API・画面で同じ並びになる（#77）。
+     */
+    private static List<RoadmapItem> toRoadmapItems(DebateAdviceJson parsed) {
+        if (parsed.roadmapItems() == null || parsed.roadmapItems().isEmpty()) {
+            return List.of();
+        }
+        List<RoadmapItem> out = new ArrayList<>(ROADMAP_MAX_COUNT);
+        for (RoadmapItemJson raw : parsed.roadmapItems()) {
+            if (raw == null) {
+                continue;
+            }
+            RoadmapPhase phase = parsePhase(raw.phase());
+            String title = clamp(raw.title(), ROADMAP_TITLE_MAX_CHARS);
+            if (phase == null || title.isEmpty()) {
+                continue;
+            }
+            out.add(
+                    new RoadmapItem(
+                            phase,
+                            title,
+                            clamp(raw.rationale(), ROADMAP_TEXT_MAX_CHARS),
+                            clamp(raw.expectedImpact(), ROADMAP_TEXT_MAX_CHARS)));
+            if (out.size() >= ROADMAP_MAX_COUNT) {
+                break;
+            }
+        }
+        out.sort(Comparator.comparingInt(item -> item.phase().ordinal()));
+        return List.copyOf(out);
+    }
+
+    private static RoadmapPhase parsePhase(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return RoadmapPhase.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     /** Why: 空の項目しか無いレポートは提案の材料にならないため落とす（#80）。 */
@@ -257,11 +313,15 @@ public class DebateAdviceGeneratorService {
             if (raw == null) {
                 continue;
             }
-            String insight = clampField(raw.insight());
+            String insight = clamp(raw.insight(), MINORITY_FIELD_MAX_CHARS);
             if (insight.isEmpty()) {
                 continue;
             }
-            out.add(new MinorityReport(insight, clampField(raw.conflictReason()), clampField(raw.evidence())));
+            out.add(
+                    new MinorityReport(
+                            insight,
+                            clamp(raw.conflictReason(), MINORITY_FIELD_MAX_CHARS),
+                            clamp(raw.evidence(), MINORITY_FIELD_MAX_CHARS)));
             if (out.size() >= MINORITY_REPORT_MAX_COUNT) {
                 break;
             }
@@ -269,14 +329,12 @@ public class DebateAdviceGeneratorService {
         return List.copyOf(out);
     }
 
-    private static String clampField(String raw) {
+    private static String clamp(String raw, int maxChars) {
         if (raw == null) {
             return "";
         }
         String trimmed = raw.trim();
-        return trimmed.length() <= MINORITY_FIELD_MAX_CHARS
-                ? trimmed
-                : trimmed.substring(0, MINORITY_FIELD_MAX_CHARS);
+        return trimmed.length() <= maxChars ? trimmed : trimmed.substring(0, maxChars);
     }
 
     /**
@@ -364,13 +422,20 @@ public class DebateAdviceGeneratorService {
                 + "  \"recommended_actions\": [\"" + ACTION_MAX_CHARS + "文字以内の改善案1\", \"改善案2\", \"改善案3\"],\n"
                 + "  \"minority_reports\": [{\"insight\": \"合意に入らなかった尖った提案\","
                 + " \"conflict_reason\": \"採択しなかった理由（批判の要点と、どんな文脈なら化けるか）\","
-                + " \"evidence\": \"入力のどこに拠り所があるか\"}]\n"
+                + " \"evidence\": \"入力のどこに拠り所があるか\"}],\n"
+                + "  \"roadmap_items\": [{\"phase\": \"NOW|SHORT_TERM|MID_TERM\","
+                + " \"title\": \"" + ROADMAP_TITLE_MAX_CHARS + "文字以内の施策名\","
+                + " \"rationale\": \"なぜこのフェーズなのか\","
+                + " \"expected_impact\": \"見込まれる効果\"}]\n"
                 + "}\n\n"
                 + "重要:\n"
                 + "- diagnostic_message は方向性ヒントの丸写しを禁止。業種・ターゲット・強みの固有要素を必ず含めること。\n"
                 + "- recommended_actions は必ず3件、各" + ACTION_MAX_CHARS + "文字以内、日本語、命令形で簡潔に。\n"
                 + "- minority_reports は0〜2件。合意案に入れなかったが捨てるに惜しい案があるときだけ書くこと。"
                 + "無理に埋めず、無ければ空配列にすること。evidence には入力に無い内容を書いてはならない。\n"
+                + "- roadmap_items は改善ロードマップ。phase は NOW（今すぐ）/ SHORT_TERM（1〜3ヶ月）/ "
+                + "MID_TERM（3〜6ヶ月）のいずれか。3〜" + ROADMAP_MAX_COUNT + "件、各フェーズに最低1件を置き、"
+                + "前のフェーズの成果の上に次が積み上がる順序にすること。recommended_actions の丸写しは禁止。\n"
                 + "- JSON 以外の文字（前置き・後置き・コードフェンス）は出力しないこと。\n";
     }
 
@@ -491,7 +556,15 @@ public class DebateAdviceGeneratorService {
     private record DebateAdviceJson(
             @JsonProperty("diagnostic_message") String diagnosticMessage,
             @JsonProperty("recommended_actions") List<String> recommendedActions,
-            @JsonProperty("minority_reports") List<MinorityReportJson> minorityReports) {}
+            @JsonProperty("minority_reports") List<MinorityReportJson> minorityReports,
+            @JsonProperty("roadmap_items") List<RoadmapItemJson> roadmapItems) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RoadmapItemJson(
+            @JsonProperty("phase") String phase,
+            @JsonProperty("title") String title,
+            @JsonProperty("rationale") String rationale,
+            @JsonProperty("expected_impact") String expectedImpact) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record MinorityReportJson(

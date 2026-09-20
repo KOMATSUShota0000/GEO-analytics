@@ -549,6 +549,48 @@ function parseMinorityReports(raw: unknown): JobMinorityReport[] {
   return out;
 }
 
+/** 改善ロードマップの1項目。フェーズ順はサーバ側で確定済み（#77） */
+export interface JobRoadmapItem {
+  phase: "NOW" | "SHORT_TERM" | "MID_TERM";
+  phaseLabel: string;
+  title: string;
+  rationale: string;
+  expectedImpact: string;
+}
+
+function parseRoadmapItems(raw: unknown): JobRoadmapItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: JobRoadmapItem[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const o = item as JsonDict;
+    const phaseRaw = o.phase;
+    if (phaseRaw !== "NOW" && phaseRaw !== "SHORT_TERM" && phaseRaw !== "MID_TERM") {
+      continue;
+    }
+    const titleRaw = o.title;
+    const title = typeof titleRaw === "string" ? titleRaw.trim() : "";
+    if (title.length === 0) {
+      continue;
+    }
+    const labelRaw = o.phaseLabel ?? o.phase_label;
+    const rationaleRaw = o.rationale;
+    const impactRaw = o.expectedImpact ?? o.expected_impact;
+    out.push({
+      phase: phaseRaw,
+      phaseLabel: typeof labelRaw === "string" && labelRaw.length > 0 ? labelRaw : phaseRaw,
+      title,
+      rationale: typeof rationaleRaw === "string" ? rationaleRaw.trim() : "",
+      expectedImpact: typeof impactRaw === "string" ? impactRaw.trim() : "",
+    });
+  }
+  return out;
+}
+
 export interface JobAnalysisDetail {
   jobId: string;
   jobStatus: string;
@@ -574,6 +616,8 @@ export interface JobAnalysisDetail {
   emotionalAlert?: EmotionalAlertPayload | null;
   /** 議論で合意に至らなかった尖った提案。無ければ空配列（#80） */
   minorityReports?: JobMinorityReport[];
+  /** 改善ロードマップ。無ければ空配列（#77） */
+  roadmapItems?: JobRoadmapItem[];
 }
 
 function auditDateString(v: unknown): string | null {
@@ -872,6 +916,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
   const remediationTasks = parseRemediationTasks(r.remediationTasks ?? r.remediation_tasks);
   const emotionalAlertParsed = parseEmotionalAlertPayload(r.emotional_alert ?? r.emotionalAlert);
   const minorityReports = parseMinorityReports(r.minorityReports ?? r.minority_reports);
+  const roadmapItems = parseRoadmapItems(r.roadmapItems ?? r.roadmap_items);
   return {
     jobId,
     jobStatus,
@@ -894,6 +939,7 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     remediationTasks,
     ...(emotionalAlertParsed !== null ? { emotionalAlert: emotionalAlertParsed } : {}),
     minorityReports,
+    roadmapItems,
   };
 }
 

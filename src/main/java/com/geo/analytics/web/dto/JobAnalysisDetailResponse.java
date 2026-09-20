@@ -6,7 +6,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.ProjectEntity;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import java.lang.StrictMath;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -31,7 +33,8 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("ai_recognition_summary") AiRecognitionSummaryResponse aiRecognitionSummary,
     @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert,
     @JsonProperty("reputation_average") Integer reputationAverage,
-    @JsonProperty("minority_reports") List<MinorityReportDto> minorityReports
+    @JsonProperty("minority_reports") List<MinorityReportDto> minorityReports,
+    @JsonProperty("roadmap_items") List<RoadmapItemDto> roadmapItems
 ) {
     public JobAnalysisDetailResponse {
         jobSummaryRecommendedActions =
@@ -39,6 +42,7 @@ public record JobAnalysisDetailResponse(
         contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
         minorityReports = minorityReports != null ? List.copyOf(minorityReports) : List.of();
+        roadmapItems = roadmapItems != null ? List.copyOf(roadmapItems) : List.of();
     }
     public static JobAnalysisDetailResponse from(
             JobEntity jobEntity,
@@ -83,7 +87,22 @@ public record JobAnalysisDetailResponse(
             aiRecognitionSummary,
             emotionalAlert,
             reputationAverage,
-            toMinorityReportDtos(jobEntity));
+            toMinorityReportDtos(jobEntity),
+            toRoadmapItemDtos(jobEntity));
+    }
+
+    /** Why: 保存時点でフェーズ順に並べてあるが、古い行や手直しに備えて返す直前にも順序を確定させる（#77）。 */
+    private static List<RoadmapItemDto> toRoadmapItemDtos(JobEntity jobEntity) {
+        List<RoadmapItem> items = jobEntity.getRoadmapItems();
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        return items.stream()
+                .filter(i -> i != null && i.phase() != null && i.title() != null && !i.title().isBlank())
+                .sorted(Comparator.comparingInt(i -> i.phase().ordinal()))
+                .map(i -> new RoadmapItemDto(
+                        i.phase().name(), i.phase().label(), i.title(), i.rationale(), i.expectedImpact()))
+                .toList();
     }
 
     /** Why: 合意案に入らなかった尖った提案は議論の成果物で、改善タスクとは別枠で画面に出す（#80）。 */

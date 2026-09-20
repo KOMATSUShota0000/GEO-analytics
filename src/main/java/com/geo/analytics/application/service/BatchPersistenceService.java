@@ -12,6 +12,7 @@ import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -141,31 +142,35 @@ public class BatchPersistenceService {
 
     public void updateJobStrategyRollup(
             UUID jobId, String diagnosticMessage, List<String> recommendedActions, String adviceSource) {
-        updateJobStrategyRollup(jobId, diagnosticMessage, recommendedActions, adviceSource, null);
+        updateJobStrategyRollup(jobId, diagnosticMessage, recommendedActions, adviceSource, null, null);
     }
 
     /**
-     * ジョブ全体アドバイスと生成元（{@code adviceSource}）、マイノリティ・レポートを永続化する。
-     * {@code adviceSource} / {@code minorityReports} が null の場合はその列を更新しない
-     * （テンプレ確定パス等の後方互換。テンプレ経路には議論そのものが無いため上書きしない）。
+     * ジョブ全体アドバイスと生成元（{@code adviceSource}）、議論の成果物（マイノリティ・レポート・
+     * 改善ロードマップ）を永続化する。
+     * null を渡した列は更新しない（テンプレ確定パス等の後方互換。テンプレ経路には議論そのものが
+     * 無いため、前回の議論結果を空配列で潰さない）。
      */
     public void updateJobStrategyRollup(
             UUID jobId,
             String diagnosticMessage,
             List<String> recommendedActions,
             String adviceSource,
-            List<MinorityReport> minorityReports) {
+            List<MinorityReport> minorityReports,
+            List<RoadmapItem> roadmapItems) {
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
                     "UPDATE jobs SET job_diagnostic_message = ?, job_recommended_actions = ?,"
                             + " job_advice_source = COALESCE(?, job_advice_source),"
-                            + " minority_reports = COALESCE(?::jsonb, minority_reports), updated_at = now()"
+                            + " minority_reports = COALESCE(?::jsonb, minority_reports),"
+                            + " roadmap_items = COALESCE(?::jsonb, roadmap_items), updated_at = now()"
                             + " WHERE id = ?");
             ps.setString(1, diagnosticMessage);
             setJsonb(ps, 2, toJson(recommendedActions));
             ps.setString(3, adviceSource);
             ps.setString(4, minorityReports == null ? null : toJson(minorityReports));
-            ps.setObject(5, jobId);
+            ps.setString(5, roadmapItems == null ? null : toJson(roadmapItems));
+            ps.setObject(6, jobId);
             return ps;
         });
     }
