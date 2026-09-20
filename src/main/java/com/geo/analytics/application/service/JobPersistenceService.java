@@ -256,11 +256,15 @@ public class JobPersistenceService {
                     truncateStackTrace(runtimeException));
             rubricRows = List.of();
         }
-        BusinessModelType mode = jobRepository.findById(latest.getJobId())
-                .map(JobEntity::getBusinessModelType)
-                .orElse(BusinessModelType.LOCAL_STORE);
+        JobEntity job = jobRepository.findById(latest.getJobId()).orElse(null);
+        BusinessModelType mode = job != null && job.getBusinessModelType() != null
+                ? job.getBusinessModelType()
+                : BusinessModelType.LOCAL_STORE;
         ScoreBreakdown breakdown = computeBreakdown(rubricRows, mode, latest.getCalculationVersion());
-        List<RemediationTaskResponse> tasks = parseRemediationTasks(latest);
+        // Why: S級タスクの本文はプランで伏せる（オーナー確定 2026-09-20 / #84）。スコア基準の旧ゲートは
+        //      優先度が高いタスクほど高スコアを要求する循環だったため撤去した。
+        List<RemediationTaskResponse> tasks =
+                parseRemediationTasks(latest, job != null ? job.getAppliedPlan() : null);
         return new JobAnalysisAttachment(breakdown, tasks, buildContentEvidence(rubricRows));
     }
 
@@ -353,7 +357,8 @@ public class JobPersistenceService {
                 content, technical, authority, thirdPartyCore, localMeoSub, wikipediaKgBonus, calculationVersion);
     }
 
-    private List<RemediationTaskResponse> parseRemediationTasks(AuditHistoryEntity history) {
+    private List<RemediationTaskResponse> parseRemediationTasks(
+            AuditHistoryEntity history, SubscriptionPlan plan) {
         if (history == null) {
             return List.of();
         }
@@ -369,7 +374,7 @@ public class JobPersistenceService {
             ArrayList<RemediationTaskResponse> out = new ArrayList<>(parsed.size());
             for (int i = 0; i < parsed.size(); i++) {
                 RemediationTask task = parsed.get(i);
-                RemediationTaskResponse mapped = RemediationTaskResponse.from(task);
+                RemediationTaskResponse mapped = RemediationTaskResponse.from(task, plan);
                 if (mapped != null) {
                     out.add(mapped);
                 }
