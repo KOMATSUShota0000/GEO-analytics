@@ -3,6 +3,7 @@ import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { ReputationBadge } from "../components/ReputationBadge";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
+import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { getAccessToken, tryRestoreSession } from "../auth/authSession";
@@ -362,6 +363,14 @@ export default function ReportPrintPage(): JSX.Element {
             </div>
           )}
           <MinorityReportPanel reports={data.minorityReports ?? []} variant="print" />
+        </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && (data.competitorShares?.length ?? 0) > 0 && (
+        <section
+          className="pdf-inside-avoid mb-6"
+          style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
+        >
+          <CompetitorShareChart shares={data.competitorShares!} isPdfMode />
         </section>
       )}
       {data && isCompletedJobStatus(data.jobStatus) && (data.roadmapItems?.length ?? 0) > 0 && (

@@ -113,7 +113,8 @@ public class SyncVerificationService {
                 verificationResponse.calculationVersion(),
                 insightsJson,
                 verificationResponse.gbvsNormalizedScore(),
-                analysisTextLength);
+                analysisTextLength,
+                verificationResponse.competitorResults());
     }
 
     private String serializeInsights(VerificationResponse verificationResponse) {

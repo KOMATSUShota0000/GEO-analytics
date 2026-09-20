@@ -10,6 +10,7 @@ import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.model.QuotaCreditCalculator;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.CompetitorMeasurer;
 import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.SomScoreCalculator;
@@ -41,6 +42,7 @@ public class GeminiResultProcessor {
     private final JsonbOperations jsonbOperations;
     private final EntityNormalizer entityNormalizer;
     private final BrandMentionEngine brandMentionEngine;
+    private final CompetitorMeasurer competitorMeasurer;
     private final GapAnalysisService gapAnalysisService;
     private final StrategyInsightService strategyInsightService;
     private final PlanBasedQuotaManager planBasedQuotaManager;
@@ -51,6 +53,7 @@ public class GeminiResultProcessor {
             JsonbOperations jsonbOperations,
             EntityNormalizer entityNormalizer,
             BrandMentionEngine brandMentionEngine,
+            CompetitorMeasurer competitorMeasurer,
             GapAnalysisService gapAnalysisService,
             StrategyInsightService strategyInsightService,
             PlanBasedQuotaManager planBasedQuotaManager) {
@@ -60,6 +63,7 @@ public class GeminiResultProcessor {
         this.jsonbOperations = jsonbOperations;
         this.entityNormalizer = entityNormalizer;
         this.brandMentionEngine = brandMentionEngine;
+        this.competitorMeasurer = competitorMeasurer;
         this.gapAnalysisService = gapAnalysisService;
         this.strategyInsightService = strategyInsightService;
         this.planBasedQuotaManager = planBasedQuotaManager;
@@ -105,7 +109,7 @@ public class GeminiResultProcessor {
                 SomRawMetrics rawMetrics = measuredMetrics.toRawMetrics(
                         plan, si, responseTokenLength, measuredMention.mentionCount(),
                         measuredMention.mentionChars());
-                parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved));
+                parsedLines.add(new BatchParsedLine(queryId, consultantOutputData, rawMetrics, resolved, nlpSource));
             } catch (JsonProcessingException
                 | IllegalArgumentException
                 | JsonbSerializationException
@@ -156,7 +160,14 @@ public class GeminiResultProcessor {
                         insight.diagnosticMessage(),
                         new ArrayList<>(insight.recommendedActions()),
                         null,
-                        materialSourceFor(overviewBodies.get(line.queryId())));
+                        materialSourceFor(overviewBodies.get(line.queryId())),
+                        // Why: 競合の実測はリアルタイム経路と同じ実装を使う。バッチだけ競合が出ない状態を作らない（#112）。
+                        competitorMeasurer.measure(
+                            line.answerText(),
+                            mainBrand,
+                            namedBrandsOf(line.consultantOutputData()),
+                            isProPlan,
+                            lAvg));
                     quotaSettled.add(line.queryId());
                 });
         }
@@ -175,7 +186,8 @@ public class GeminiResultProcessor {
         UUID queryId,
         ConsultantOutputData consultantOutputData,
         SomRawMetrics rawMetrics,
-        String resolved) {
+        String resolved,
+        String answerText) {
     }
     private void markBatchQuotaRefundOnError(UUID tid, String key, Set<UUID> quotaSettled) {
         if (key == null || key.isBlank()) {

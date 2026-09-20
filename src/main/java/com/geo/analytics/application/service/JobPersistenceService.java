@@ -18,6 +18,8 @@ import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.BusinessModelType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
+import com.geo.analytics.domain.model.CompetitorResult;
+import com.geo.analytics.domain.service.CompetitorShareAggregator;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.PlanLimitsSnapshot;
 import com.geo.analytics.domain.support.TextWhitespaceNormalizer;
@@ -472,7 +474,8 @@ public class JobPersistenceService {
             Double modifiedZScore,
             Double gbvsNormalizedScore,
             String modelInsightsJson,
-            MaterialSource materialSource) {
+            MaterialSource materialSource,
+            List<CompetitorResult> competitorResults) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantPlanScope.executeWithTenant(tenantId, () -> {
             JobEntity jobEntity = jobRepository.findById(jobId)
@@ -515,6 +518,8 @@ public class JobPersistenceService {
                 existing.setWorkspaceId(workspaceId);
                 existing.setModelInsightsJson(modelInsightsJson);
                 existing.setMaterialSource(materialSource);
+                // Why: 再解析すると競合の顔ぶれも変わる。差分ではなく毎回まるごと置き換える（#112）。
+                existing.setCompetitorResults(competitorResults);
                 auditHistoryRepository.save(existing);
             } else {
                 AuditHistoryEntity auditHistoryEntity = new AuditHistoryEntity();
@@ -542,6 +547,7 @@ public class JobPersistenceService {
                 auditHistoryEntity.setAuditDate(LocalDate.now());
                 auditHistoryEntity.setModelInsightsJson(modelInsightsJson);
                 auditHistoryEntity.setMaterialSource(materialSource);
+                auditHistoryEntity.setCompetitorResults(competitorResults);
                 auditHistoryRepository.saveAndFlush(auditHistoryEntity);
             }
             queryRepository.findById(queryId).ifPresent(queryEntity -> {
@@ -549,6 +555,21 @@ public class JobPersistenceService {
                 queryRepository.save(queryEntity);
             });
         });
+    }
+
+    /**
+     * 解析全体の競合シェア（自社 vs 競合）。オーナー確定（2026-09-20）で円グラフは解析全体に1枚、
+     * 分母は SoM スコア比（#112）。
+     */
+    public List<CompetitorShareAggregator.CompetitorShare> findCompetitorShares(
+            String ownBrandLabel, List<AuditHistoryEntity> auditHistories) {
+        if (auditHistories == null || auditHistories.isEmpty()) {
+            return List.of();
+        }
+        List<Double> ownScores = auditHistories.stream().map(AuditHistoryEntity::getSomScore).toList();
+        List<List<CompetitorResult>> perQuery =
+                auditHistories.stream().map(AuditHistoryEntity::getCompetitorResults).toList();
+        return CompetitorShareAggregator.aggregate(ownBrandLabel, ownScores, perQuery);
     }
 
     private static Integer normalizedAiCitationPosition(Integer position) {

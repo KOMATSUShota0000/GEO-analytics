@@ -11,6 +11,7 @@ import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
@@ -198,7 +199,8 @@ public class BatchPersistenceService {
                                    Integer visibilityStage, String calculationVersion,
                                    double modifiedZScore, boolean negativeAlert,
                                    String diagnosticMessage, List<String> recommendedActions,
-                                   String modelInsightsJson, MaterialSource materialSource) {
+                                   String modelInsightsJson, MaterialSource materialSource,
+                                   List<CompetitorResult> competitorResults) {
         MaterialSource material = materialSource != null ? materialSource : MaterialSource.ESTIMATED;
         Integer persistedAiCitationPosition = normalizedAiCitationPosition(aiCitationPosition);
         Optional<UUID> existingId = findAuditIdByJobIdAndQuery(jobId, queryText);
@@ -273,6 +275,14 @@ public class BatchPersistenceService {
             });
         }
         jdbc.update("UPDATE job_queries SET processed = true WHERE id = ?", queryId);
+        // Why: 再解析すると競合の顔ぶれも変わる。差分ではなく毎回まるごと置き換える（#112）。
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement(
+                    "UPDATE audit_histories SET competitor_results = ?::jsonb WHERE id = ?");
+            ps.setString(1, toJson(competitorResults == null ? List.of() : competitorResults));
+            ps.setObject(2, auditId);
+            return ps;
+        });
         return auditId;
     }
 

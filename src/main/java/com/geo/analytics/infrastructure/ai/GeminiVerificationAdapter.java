@@ -1,6 +1,6 @@
 package com.geo.analytics.infrastructure.ai;
 
-import com.geo.analytics.application.dto.CompetitorResult;
+import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.application.dto.ConsultantOutputData;
 import com.geo.analytics.application.dto.SomScoreData;
 import com.geo.analytics.application.dto.VerificationRequest;
@@ -13,6 +13,7 @@ import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.SomRawMetrics;
 import com.geo.analytics.domain.service.EntityNormalizer;
 import com.geo.analytics.domain.service.BrandMentionEngine;
+import com.geo.analytics.domain.service.CompetitorMeasurer;
 import com.geo.analytics.domain.service.CompetitorSelection;
 import com.geo.analytics.domain.model.BrandMentionMetrics;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
@@ -39,6 +40,7 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
     private final SomScoreParser somScoreParser;
     private final EntityNormalizer entityNormalizer;
     private final BrandMentionEngine brandMentionEngine;
+    private final CompetitorMeasurer competitorMeasurer;
     private final JobPersistenceService jobPersistenceService;
 
     public GeminiVerificationAdapter(
@@ -46,11 +48,13 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
             SomScoreParser somScoreParser,
             EntityNormalizer entityNormalizer,
             BrandMentionEngine brandMentionEngine,
+            CompetitorMeasurer competitorMeasurer,
             JobPersistenceService jobPersistenceService) {
         this.geminiGbvsChatModel = geminiGbvsChatModel;
         this.somScoreParser = somScoreParser;
         this.entityNormalizer = entityNormalizer;
         this.brandMentionEngine = brandMentionEngine;
+        this.competitorMeasurer = competitorMeasurer;
         this.jobPersistenceService = jobPersistenceService;
     }
 
@@ -217,36 +221,9 @@ public class GeminiVerificationAdapter implements ModelTypedAiVerificationPort {
         var som = StrictMath.max(0.0, StrictMath.min(100.0, gbvsNormalizedScore));
         boolean brand = Boolean.TRUE.equals(full.brandMentioned());
         int overall = (int) StrictMath.round(StrictMath.max(0.0, StrictMath.min(100.0, som)));
-        // Why: 競合は「回答文に同時に登場した他ブランド」。名前は LLM が挙げ、数と順序は Java が本文から測る
-        //      （#64 / .cursorrules 12節）。自社・残余カテゴリ・表記ゆれの重複はここで落とす（#65）。
-        // Why: 競合は「回答文に同時に登場した他ブランド」。名前は LLM が挙げ、選別と計数は Java が行う
-        //      （#64 / #65 / .cursorrules 12節）。自社・残余カテゴリ・表記ゆれの重複は選別で落とす。
-        var compList = new ArrayList<CompetitorResult>();
-        var acceptedLabels = CompetitorSelection.accept(namedBrandsOf(full), main, entityNormalizer);
-        if (!acceptedLabels.isEmpty()) {
-            var rankingNames = new ArrayList<String>(acceptedLabels.size() + 1);
-            rankingNames.add(main);
-            rankingNames.addAll(acceptedLabels);
-            for (String label : acceptedLabels) {
-                BrandMentionMetrics competitorMention = brandMentionEngine.measure(nlpSource, label);
-                int competitorPosition = brandMentionEngine.citationPosition(nlpSource, label, rankingNames);
-                SomRawMetrics competitorMetrics = new SomRawMetrics(
-                        competitorMention.mentionChars(),
-                        competitorPosition > 0 ? competitorPosition : null,
-                        0.0,
-                        isProPlan,
-                        competitorMention.mentionCount() > 0,
-                        competitorMention.mentionCount(),
-                        competitorMention.totalTokens());
-                double competitorSom =
-                        SomScoreCalculator.compute(competitorMetrics, lAvgSingle).scorePercent();
-                compList.add(new CompetitorResult(
-                        label,
-                        competitorSom,
-                        competitorPosition > 0 ? competitorPosition : null,
-                        competitorMention.mentionCount()));
-            }
-        }
+        // Why: 競合の実測はリアルタイム経路とバッチ経路で同じ実装を使う（#112 / SSOT）。
+        //      自社・残余カテゴリ・表記ゆれの重複は CompetitorMeasurer の中で落とす（#64 / #65）。
+        var compList = competitorMeasurer.measure(nlpSource, main, namedBrandsOf(full), isProPlan, lAvgSingle);
         return new VerificationResponse(
                 ModelType.GEMINI,
                 rawAiResponseJson,

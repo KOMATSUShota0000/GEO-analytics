@@ -34,7 +34,8 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("emotional_alert") EmotionalAlertPayload emotionalAlert,
     @JsonProperty("reputation_average") Integer reputationAverage,
     @JsonProperty("minority_reports") List<MinorityReportDto> minorityReports,
-    @JsonProperty("roadmap_items") List<RoadmapItemDto> roadmapItems
+    @JsonProperty("roadmap_items") List<RoadmapItemDto> roadmapItems,
+    @JsonProperty("competitor_shares") List<CompetitorShareDto> competitorShares
 ) {
     public JobAnalysisDetailResponse {
         jobSummaryRecommendedActions =
@@ -43,6 +44,7 @@ public record JobAnalysisDetailResponse(
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
         minorityReports = minorityReports != null ? List.copyOf(minorityReports) : List.of();
         roadmapItems = roadmapItems != null ? List.copyOf(roadmapItems) : List.of();
+        competitorShares = competitorShares != null ? List.copyOf(competitorShares) : List.of();
     }
     public static JobAnalysisDetailResponse from(
             JobEntity jobEntity,
@@ -58,6 +60,7 @@ public record JobAnalysisDetailResponse(
             String technicalEvidence,
             List<RemediationTaskResponse> remediationTasks,
             AiRecognitionSummaryResponse aiRecognitionSummary,
+            List<CompetitorShareDto> competitorShares,
             ObjectMapper objectMapper) {
         JobProjectResponse projectResponse = projectEntity != null ? JobProjectResponse.from(projectEntity) : null;
         String bc = resolveBrandColor(jobEntity, projectEntity);
@@ -88,7 +91,8 @@ public record JobAnalysisDetailResponse(
             emotionalAlert,
             reputationAverage,
             toMinorityReportDtos(jobEntity),
-            toRoadmapItemDtos(jobEntity));
+            toRoadmapItemDtos(jobEntity),
+            competitorShares);
     }
 
     /** Why: 保存時点でフェーズ順に並べてあるが、古い行や手直しに備えて返す直前にも順序を確定させる（#77）。 */
