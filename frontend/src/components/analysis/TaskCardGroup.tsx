@@ -8,11 +8,9 @@ import { TaskCard } from "./TaskCard";
 
 export type TaskCardGroupProps = {
   tasks: RemediationTask[];
-  jobId: string;
-  onTaskReplaced?: (task: RemediationTask) => void;
 };
 
-export function TaskCardGroup({ tasks, jobId, onTaskReplaced }: TaskCardGroupProps): JSX.Element | null {
+export function TaskCardGroup({ tasks }: TaskCardGroupProps): JSX.Element | null {
   const groups = useMemo(() => groupTasksForDisplay(tasks), [tasks]);
   if (groups.length === 0) {
     return null;
@@ -35,7 +33,7 @@ export function TaskCardGroup({ tasks, jobId, onTaskReplaced }: TaskCardGroupPro
           </Typography>
           <Stack spacing={1.5}>
             {g.tasks.map((t) => (
-              <TaskCard key={t.id} task={t} jobId={jobId} onTaskReplaced={onTaskReplaced} />
+              <TaskCard key={t.id} task={t} />
             ))}
           </Stack>
         </Paper>
