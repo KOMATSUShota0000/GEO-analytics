@@ -325,7 +325,7 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
         //      復活して 204 が返っていた（全体実行のときだけ落ちる原因。#108）。処理中のジョブが
         //      無くなるのを待ってから空にする。
         awaitNoJobsInFlight();
-        planBasedQuotaManager.resolve(WID).tryConsumeAsMuchAsPossible();
+        drainQuotaUntilQuiet();
         webTestClient.post()
                 .uri("/api/v1/jobs/{jobId}/queries", jobId)
                 .header(TENANT_HEADER, WID.toString())
@@ -347,6 +347,31 @@ class SubscriptionIntegrationTest extends PostgresSuperuserTestBase {
      * ジョブを見落とし、枠を空けた直後にそれらが動き出して払い戻しで残量が復活する（#108 の再発）。
      * 終端（COMPLETED / FAILED）以外が1件も無いことを条件にして、新しいステータスが増えても漏れないようにする。
      */
+    /**
+     * Why: 先行シナリオが投入したクエリは SerpAPI ゲートで約0.5秒間隔に1件ずつ処理され、@AfterEach が
+     * ジョブ行を消した後も走り続ける。外部キー違反で失敗するたびに共有ワークスペースの枠を払い戻すため、
+     * ジョブ状態では検知できない（#136）。空にした後、払い戻し間隔より十分長く空のままになるまで待つ。
+     */
+    private void drainQuotaUntilQuiet() {
+        var bucket = planBasedQuotaManager.resolve(WID);
+        long quietNanos = Duration.ofMillis(1500).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        long quietSince = System.nanoTime();
+        while (System.nanoTime() < deadline) {
+            if (bucket.tryConsumeAsMuchAsPossible() > 0) {
+                quietSince = System.nanoTime();
+            } else if (System.nanoTime() - quietSince >= quietNanos) {
+                return;
+            }
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
     private void awaitNoJobsInFlight() {
         for (int attempt = 0; attempt < 300; attempt++) {
             Integer inFlight = jdbcTemplate.queryForObject(
