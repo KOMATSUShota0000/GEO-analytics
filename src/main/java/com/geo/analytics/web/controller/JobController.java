@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
 import com.geo.analytics.application.service.JobKnowledgeIngestionService;
 import com.geo.analytics.application.service.JobPersistenceService;
-import com.geo.analytics.application.service.TaskRegenerationService;
 import com.geo.analytics.application.service.StrategyInsightService;
 import com.geo.analytics.application.service.JobQueryGenerationService;
 import com.geo.analytics.application.service.JobQuerySubmissionService;
@@ -29,8 +28,6 @@ import com.geo.analytics.web.dto.ResultDetailResponse;
 import com.geo.analytics.web.dto.ResultSummaryResponse;
 import com.geo.analytics.web.dto.RemediationTaskResponse;
 import com.geo.analytics.web.dto.StreamErrorPayload;
-import com.geo.analytics.web.dto.TaskToneRegenerateRequest;
-import com.geo.analytics.web.dto.TaskToneRegenerateResponse;
 import com.geo.analytics.web.dto.VerifyStreamEvent;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -71,7 +68,6 @@ public class JobController {
     private final ObjectMapper objectMapper;
     private final StrategyInsightService strategyInsightService;
     private final JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler;
-    private final TaskRegenerationService taskRegenerationService;
     private final JobKnowledgeIngestionService jobKnowledgeIngestionService;
     private final WorkspacePlanResolver workspacePlanResolver;
     private final JobQueryGenerationService jobQueryGenerationService;
@@ -84,7 +80,6 @@ public class JobController {
             ObjectMapper objectMapper,
             StrategyInsightService strategyInsightService,
             JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
-            TaskRegenerationService taskRegenerationService,
             JobKnowledgeIngestionService jobKnowledgeIngestionService,
             WorkspacePlanResolver workspacePlanResolver,
             JobQueryGenerationService jobQueryGenerationService) {
@@ -95,7 +90,6 @@ public class JobController {
         this.objectMapper = objectMapper;
         this.strategyInsightService = strategyInsightService;
         this.jobAnalysisBenchmarkAssembler = jobAnalysisBenchmarkAssembler;
-        this.taskRegenerationService = taskRegenerationService;
         this.jobKnowledgeIngestionService = jobKnowledgeIngestionService;
         this.workspacePlanResolver = workspacePlanResolver;
         this.jobQueryGenerationService = jobQueryGenerationService;
@@ -220,14 +214,6 @@ public class JobController {
             @RequestBody @Valid AddQueriesRequest addQueriesRequest) {
         jobQuerySubmissionService.submitQueries(jobId, addQueriesRequest.queries(), addQueriesRequest.plan());
         return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/{jobId}/tasks/{taskId}/regenerate")
-    public ResponseEntity<TaskToneRegenerateResponse> regenerateTaskTone(
-            @PathVariable UUID jobId,
-            @PathVariable UUID taskId,
-            @RequestBody @Valid TaskToneRegenerateRequest request) {
-        return ResponseEntity.ok(taskRegenerationService.regenerate(jobId, taskId, request.tone()));
     }
 
     @GetMapping("/{jobId}/analysis")

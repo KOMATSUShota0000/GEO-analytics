@@ -9,12 +9,10 @@ import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Chip from "@mui/material/Chip";
 import Paper from "@mui/material/Paper";
-import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { buildClipboardText } from "../../lib/taskUtils";
 import { SafeHtmlRenderer } from "../SafeHtmlRenderer";
-import { TaskToneToggle } from "./TaskToneToggle";
 import type {
   RemediationTask,
   RemediationTaskCategory,
@@ -81,11 +79,9 @@ function categoryChipLabel(cat: RemediationTaskCategory): string {
 
 export type TaskCardProps = {
   task: RemediationTask;
-  jobId: string;
-  onTaskReplaced?: (next: RemediationTask) => void;
 };
 
-export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.Element {
+export function TaskCard({ task }: TaskCardProps): JSX.Element {
   const theme = useTheme();
   const accent = priorityAccent(task.priority);
   const masked = task.isMasked === true;
@@ -95,7 +91,6 @@ export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.El
     [task.content, masked],
   );
   const [copiedFeedback, setCopiedFeedback] = useState(false);
-  const [regenBusy, setRegenBusy] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -184,16 +179,8 @@ export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.El
                 }}
               />
             </Stack>
-            {masked || onTaskReplaced === undefined ? null : (
-              <TaskToneToggle
-                jobId={jobId}
-                task={task}
-                onTaskReplaced={onTaskReplaced}
-                onBusyChange={setRegenBusy}
-              />
-            )}
           </Stack>
-          <Button size="small" variant="outlined" disabled={masked || regenBusy} onClick={handleCopy}>
+          <Button size="small" variant="outlined" disabled={masked} onClick={handleCopy}>
             {copiedFeedback ? "コピー完了" : "内容をコピー"}
           </Button>
         </Stack>
@@ -224,12 +211,6 @@ export function TaskCard({ task, jobId, onTaskReplaced }: TaskCardProps): JSX.El
                 {task.content}
               </Typography>
             </Paper>
-          </Stack>
-        ) : regenBusy ? (
-          <Stack spacing={1} sx={{ mt: 1.5 }}>
-            <Skeleton variant="rounded" height={22} sx={{ bgcolor: "rgba(15,23,42,0.08)" }} />
-            <Skeleton variant="rounded" height={22} sx={{ bgcolor: "rgba(15,23,42,0.08)" }} />
-            <Skeleton variant="rounded" height={140} sx={{ bgcolor: "rgba(15,23,42,0.06)" }} />
           </Stack>
         ) : (
           <Box

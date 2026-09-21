@@ -441,21 +441,7 @@ export function JobAnalysisPage(): JSX.Element {
     Array.isArray(data.remediationTasks) &&
     data.remediationTasks.length > 0 ? (
       <div className="pdf-avoid-break mb-6">
-        <RemediationTaskBoard
-          jobId={data.jobId}
-          tasks={data.remediationTasks}
-          onRemediationTaskReplaced={(updated) => {
-            setData((prev) => {
-              if (prev === null || !Array.isArray(prev.remediationTasks)) {
-                return prev;
-              }
-              const nextTasks = prev.remediationTasks.map((t) =>
-                t.id === updated.id ? updated : t,
-              );
-              return { ...prev, remediationTasks: nextTasks };
-            });
-          }}
-        />
+        <RemediationTaskBoard tasks={data.remediationTasks} />
       </div>
     ) : null;
 

@@ -488,8 +488,6 @@ export interface RemediationTask {
   targetSection?: string;
 }
 
-export type RemediationTaskTone = "PROFESSIONAL" | "FRIENDLY" | "AGGRESSIVE";
-
 export type EmotionalAlertLevel = "DANGER" | "WARNING" | "INFO";
 
 export interface EmotionalAlertPayload {
@@ -1085,15 +1083,6 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
     isMasked,
     ...targetSectionPayload,
   };
-}
-
-export function parseTaskToneRegenerateEnvelope(raw: unknown): RemediationTask | null {
-  if (raw === null || typeof raw !== "object") {
-    return null;
-  }
-  const r = raw as JsonDict;
-  const t = r.task;
-  return parseRemediationTaskItem(t);
 }
 
 function parseRemediationTasks(raw: unknown): RemediationTask[] {

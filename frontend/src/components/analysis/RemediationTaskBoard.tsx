@@ -8,15 +8,9 @@ import { TaskCardGroup } from "./TaskCardGroup";
 
 export interface RemediationTaskBoardProps {
   tasks: RemediationTask[];
-  jobId: string;
-  onRemediationTaskReplaced?: (task: RemediationTask) => void;
 }
 
-export function RemediationTaskBoard({
-  tasks,
-  jobId,
-  onRemediationTaskReplaced,
-}: RemediationTaskBoardProps): JSX.Element | null {
+export function RemediationTaskBoard({ tasks }: RemediationTaskBoardProps): JSX.Element | null {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return null;
   }
@@ -45,7 +39,7 @@ export function RemediationTaskBoard({
           まずは基礎改修（Level 1）を完了させてください。AIからの認知度が上がると、より高度な戦略が解放されます。
         </Alert>
       )}
-      <TaskCardGroup tasks={tasks} jobId={jobId} onTaskReplaced={onRemediationTaskReplaced} />
+      <TaskCardGroup tasks={tasks} />
     </Box>
   );
 }
