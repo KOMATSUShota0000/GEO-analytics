@@ -43,7 +43,7 @@ export function DebateAdviceTeaserBanner(): JSX.Element {
         </span>
         <span className="flex items-center gap-1.5 text-sm font-semibold text-indigo-950">
           <Sparkles className="h-4 w-4 text-violet-600" aria-hidden />
-          Proプランでは解析ごとに新規AI議論を起動し、より精密なアドバイスを生成します
+          Proプランでは解析ごとに4人のAIが議論をして、より精密なアドバイスを生成します
         </span>
         <span className="text-xs font-medium text-violet-700 underline-offset-2 hover:underline">
           プランを確認する →
