@@ -4,6 +4,7 @@ import com.geo.analytics.application.service.SubscriptionManagementService;
 import com.geo.analytics.web.dto.ChangeSubscriptionRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,7 @@ public class WorkspaceSubscriptionController {
     }
 
     @PatchMapping("/{workspaceId}/subscription")
+    @PreAuthorize("@tenantAccessEvaluator.canAccessTenant(authentication, #workspaceId)")
     public ResponseEntity<Void> changeSubscription(
             @PathVariable UUID workspaceId,
             @RequestBody @Valid ChangeSubscriptionRequest changeSubscriptionRequest) {

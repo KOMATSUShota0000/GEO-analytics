@@ -16,8 +16,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
+// Why: @PreAuthorize はトランザクション外で評価される。RlsConnectionInterceptor は @Transactional 境界でしか
+//      app.current_org_id を設定しないため、ここで境界を張らないと RLS で自組織の workspaces 行すら見えず常に拒否になる。
 @Component("tenantAccessEvaluator")
+@Transactional(readOnly = true)
 public class TenantAccessEvaluator {
 
     private static final String ROLE_ADMIN = "ROLE_" + OrganizationUserRole.ADMIN.name();
