@@ -1,5 +1,6 @@
 import { Lock, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { pricingReturnState } from "../pricing/pricingReturn";
 
 /**
  * Free（STANDARD）プラン向けの Teaser バナー（仕様書 F-4）。
@@ -9,6 +10,7 @@ import { useNavigate } from "react-router-dom";
  */
 export function DebateAdviceTeaserBanner(): JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
   return (
     <div className="pdf-no-print relative mt-4 overflow-hidden rounded-xl border border-violet-200 bg-gradient-to-r from-sky-50 via-violet-50/90 to-indigo-50 shadow-sm">
       {/* ぼかしたダミー議論プレビュー（核心の価値を匂わせる） */}
@@ -33,7 +35,7 @@ export function DebateAdviceTeaserBanner(): JSX.Element {
       {/* 南京錠オーバーレイ + CTA */}
       <button
         type="button"
-        onClick={() => navigate("/pricing")}
+        onClick={() => navigate("/pricing", { state: pricingReturnState(location) })}
         className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/55 px-4 text-center backdrop-blur-[1px] transition hover:bg-white/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
         aria-label="Proプランの議論駆動アドバイスを確認する"
       >

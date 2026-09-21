@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useBranding } from "../branding/useBranding";
 import {
   changeWorkspacePlan,
@@ -8,6 +8,7 @@ import {
 } from "../api/workspace-api";
 import { PlanComparison, type PlanSpec } from "../pricing/planCatalog";
 import { createCheckoutSession } from "../api/billing-api";
+import { resolvePricingReturnTo } from "../pricing/pricingReturn";
 
 // Stripe 連携までは mailto: で問い合わせを受ける
 const CONTACT_EMAIL = "hariboikatu.2525@gmail.com";
@@ -83,6 +84,7 @@ function PlanSwitcher(): JSX.Element {
 
 export default function PricingPage(): JSX.Element {
   const { brandColor } = useBranding();
+  const returnTo = resolvePricingReturnTo(useLocation().state);
   const [checkoutPlan, setCheckoutPlan] = useState<WorkspaceSubscriptionPlan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
@@ -165,10 +167,10 @@ export default function PricingPage(): JSX.Element {
       {/* 戻るリンク */}
       <div className="mx-auto mt-8 max-w-5xl text-center">
         <RouterLink
-          to="/"
+          to={returnTo ?? "/"}
           className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
         >
-          ← ジョブ解析に戻る
+          {returnTo ? "← 解析結果に戻る" : "← ジョブ解析に戻る"}
         </RouterLink>
       </div>
     </div>

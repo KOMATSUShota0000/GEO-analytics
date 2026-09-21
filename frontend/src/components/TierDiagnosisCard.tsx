@@ -1,5 +1,6 @@
 import { Lightbulb, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { pricingReturnState } from "../pricing/pricingReturn";
 import { getSomTierInfo, somScoreProgressRatio, type SomTierInfo } from "../utils/somTierUtils";
 
 const R = 52;
@@ -66,6 +67,7 @@ function ProgressRing({ score, tier }: { score: number; tier: SomTierInfo }): JS
 
 export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnosisCardProps): JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
   if (skeleton) {
     return <TierSkeleton />;
   }
@@ -103,7 +105,7 @@ export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnos
           </p>
           <button
             type="button"
-            onClick={() => navigate("/pricing")}
+            onClick={() => navigate("/pricing", { state: pricingReturnState(location) })}
             className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:w-auto"
           >
             プランを確認する
