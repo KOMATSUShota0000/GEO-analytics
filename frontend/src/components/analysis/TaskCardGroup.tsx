@@ -19,7 +19,7 @@ export function TaskCardGroup({ tasks }: TaskCardGroupProps): JSX.Element | null
     <Stack spacing={2.5}>
       {groups.map((g) => (
         <Paper
-          key={g.sectionLabel}
+          key={g.category}
           elevation={0}
           sx={{
             p: 2,
@@ -28,12 +28,15 @@ export function TaskCardGroup({ tasks }: TaskCardGroupProps): JSX.Element | null
             backgroundColor: "#fafafa",
           }}
         >
-          <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#0f172a", mb: 1.5 }}>
-            {g.sectionLabel}
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#0f172a" }}>
+            {g.heading}
+          </Typography>
+          <Typography variant="body2" sx={{ color: "#64748b", mb: 1.5 }}>
+            {g.note}
           </Typography>
           <Stack spacing={1.5}>
-            {g.tasks.map((t) => (
-              <TaskCard key={t.id} task={t} />
+            {g.tasks.map(({ number, task }) => (
+              <TaskCard key={task.id} task={task} number={number} />
             ))}
           </Stack>
         </Paper>

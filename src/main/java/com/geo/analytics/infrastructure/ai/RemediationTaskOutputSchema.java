@@ -14,7 +14,7 @@ import java.util.List;
 public final class RemediationTaskOutputSchema {
 
     private static final String TASKS_DESCRIPTION =
-            "List of remediation tasks. Must contain at least one SPIKE and at least one SLAB.";
+            "List of remediation tasks. For each gap item, exactly one SPIKE and one SLAB.";
 
     private RemediationTaskOutputSchema() {}
 
@@ -47,8 +47,10 @@ public final class RemediationTaskOutputSchema {
         return JsonObjectSchema.builder()
                 .addEnumProperty("category", categoryNames)
                 .addEnumProperty("priority", priorityNames)
-                .addStringProperty("title")
-                .addStringProperty("content")
+                .addStringProperty(
+                        "title", "What to do, as a short Japanese action phrase ending in する. At most 30 characters.")
+                .addStringProperty(
+                        "content", "Execution steps only, as a Markdown numbered list. No headings, no reasons.")
                 .addProperty(
                         "impactScore",
                         JsonNumberSchema.builder()
@@ -56,10 +58,11 @@ public final class RemediationTaskOutputSchema {
                                 .build())
                 .addStringProperty(
                         "rationale",
-                        "Why this task moves GEO exposure or LLM citation. One or two sentences.")
+                        "Why this task makes AI answers more likely to mention the brand. One or two plain sentences.")
                 .addStringProperty(
                         "evidence",
-                        "Which part of the given rubric findings this is based on. Quote or cite it. Do not invent.")
+                        "The basis in plain Japanese: the check item name and the state of our site and competitors."
+                                + " Never output input field names or YES/NO/PARTIAL. Do not invent.")
                 .required("category", "priority", "title", "content", "impactScore", "rationale", "evidence")
                 .additionalProperties(false)
                 .build();

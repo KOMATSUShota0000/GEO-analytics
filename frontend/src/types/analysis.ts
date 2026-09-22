@@ -482,10 +482,9 @@ export interface RemediationTask {
   /** どこが根拠か（ルーブリック監査の所見の引用）。古いデータには無い（#79） */
   evidence?: string | null;
   level: number;
-  /** S級のみ true。本文の解放にProプラン以上が要る（#84。旧スコア閾値は撤去） */
+  /** S級（画面表記は「効果 大」）のみ true。本文の解放にProプラン以上が要る（#84。旧スコア閾値は撤去） */
   requiresProPlan: boolean;
   isMasked: boolean;
-  targetSection?: string;
 }
 
 export type EmotionalAlertLevel = "DANGER" | "WARNING" | "INFO";
@@ -1053,9 +1052,6 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
   if (priorityRaw !== "S" && priorityRaw !== "A" && priorityRaw !== "B") {
     return null;
   }
-  const tsRaw = r.targetSection !== undefined ? r.targetSection : r.target_section;
-  const sectionTrimmed =
-    typeof tsRaw === "string" ? tsRaw.trim() : "";
   const caps = remediationCapsFromPriority(priorityRaw);
   const levelParsed = pickNum(r, "level", "level");
   const level = levelParsed !== undefined ? levelParsed : caps.level;
@@ -1067,8 +1063,6 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
   const evidence = typeof evidenceRaw === "string" && evidenceRaw.trim().length > 0 ? evidenceRaw : null;
   const maskedRaw = pickBool(r, "isMasked", "is_masked");
   const isMasked = maskedRaw === true;
-  const targetSectionPayload =
-    sectionTrimmed.length > 0 ? ({ targetSection: sectionTrimmed } as const) : ({} as const);
   return {
     id,
     category: categoryRaw,
@@ -1081,7 +1075,6 @@ export function parseRemediationTaskItem(item: unknown): RemediationTask | null 
     level,
     requiresProPlan,
     isMasked,
-    ...targetSectionPayload,
   };
 }
 

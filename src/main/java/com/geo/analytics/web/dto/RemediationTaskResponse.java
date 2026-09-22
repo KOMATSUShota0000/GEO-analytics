@@ -22,10 +22,11 @@ public record RemediationTaskResponse(
         @JsonProperty("requires_pro_plan") boolean requiresProPlan,
         @JsonProperty("is_masked") boolean isMasked) {
 
-    /** Why: ロック時の文面はサーバが content に入れて返す。表示側に解除条件の知識を持たせない（#84）。 */
-    private static final String LOCKED_CONTENT =
-            "🔒 Proプランで解放されます。S級タスクは効果が大きいぶん実装の難度も高く、"
-                    + "根拠と手順を含む全文をProプラン以上でご覧いただけます。";
+    /**
+     * Why: ロック時の文面はサーバが content に入れて返す。表示側に解除条件の知識を持たせない（#84）。
+     * 旧文面の「S級は実装の難度も高い」は、数時間で終わるS級タスクもあるため事実と違っていた（#139）。
+     */
+    private static final String LOCKED_CONTENT = "🔒 効果「大」の対策です。具体的な手順と根拠は Pro プラン以上でご覧いただけます。";
 
     public static RemediationTaskResponse from(RemediationTask task) {
         return from(task, null);

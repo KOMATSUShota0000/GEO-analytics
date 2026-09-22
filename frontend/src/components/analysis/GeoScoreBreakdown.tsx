@@ -1,5 +1,6 @@
 import { Box, Chip, Collapse, LinearProgress, Stack, Typography } from "@mui/material";
 import { useState } from "react";
+import { criterionLabel } from "../../lib/rubricLabels";
 import type { ContentEvidenceItem, ScoreBreakdown } from "../../types/analysis";
 
 // V13_GEO4AXIS の3軸配点（バックエンドと一致）。MEO単独軸は「権威・エンティティ認知」へ昇華済み。
@@ -16,20 +17,6 @@ const MAX_AUTHORITY_BONUS = 10;
 const AXIS_CONTENT = "#6366F1";
 const AXIS_TECHNICAL = "#F59E0B";
 const AXIS_AUTHORITY = "#10B981";
-
-// ルーブリックLLM10項目の人間可読ラベル（criterionId→日本語）。バックエンドのenum名に対応。
-const CRITERION_LABELS: Record<string, string> = {
-  DIRECT_ANSWER_FIRST: "結論ファースト構成",
-  ATOMIC_FACTS: "数値化された実績データ",
-  SOLUTION_SCENARIOS: "導入事例・活用シーン",
-  VERIFIABLE_AUTHORITY: "証明できる専門性",
-  FAQ_PRESENCE: "FAQ（よくある質問）の記述",
-  NUMBERED_PROCESS_FLOW: "番号付きの詳細な手順フロー",
-  ENTITY_BIOGRAPHY: "具体的な経歴・バイオグラフィー",
-  LOCAL_CONTEXT: "地域特有のコンテキスト",
-  PRICE_AND_CONSTRAINTS: "詳細な料金体系と制約",
-  EXTERNAL_CITATIONS: "外部ソースへの言及",
-};
 
 interface VerdictVisual {
   label: string;
@@ -180,7 +167,7 @@ function ContentEvidencePanel({ items }: { items: ContentEvidenceItem[] }): JSX.
       <Stack spacing={1} sx={{ mt: 1 }}>
         {items.map((it) => {
           const v = VERDICT_VISUALS[it.verdict] ?? VERDICT_VISUALS.NO;
-          const label = CRITERION_LABELS[it.criterionId] ?? it.criterionId;
+          const label = criterionLabel(it.criterionId);
           const quote = it.evidence.trim();
           return (
             <Box
