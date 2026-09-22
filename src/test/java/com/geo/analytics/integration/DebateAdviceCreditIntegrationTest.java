@@ -110,11 +110,12 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
         // 2) Pro プランで議論駆動アドバイス生成 → 0.2 チケット消費
         StrategyInsight result =
                 debateAdviceGeneratorService
-                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO)
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of())
                         .insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
-        assertThat(result.recommendedActions()).hasSize(3);
+        // 推奨アクションは使わない（#141）。旧形式の応答に含まれていても捨てる
+        assertThat(result.recommendedActions()).isEmpty();
 
         // 3) 残高が DEBATE_CREDIT 分だけ減っていること（reserve→settle で消費確定）
         long balanceAfter = creditBalance();
@@ -151,7 +152,7 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
 
         StrategyInsight result =
                 debateAdviceGeneratorService
-                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO)
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of())
                         .insight();
 
         // Free パス（単発 DIRECTOR）で結果は返る

@@ -8,6 +8,10 @@ const PHASE_ORDER = ["NOW", "SHORT_TERM", "MID_TERM"] as const;
  *
  * <p>改善タスクが「何をやるか」なのに対し、ここは「どの順番で・どのフェーズで」を見せる。
  * フェーズを横に並べて前段の上に次段が積み上がることを示し、タスク一覧との役割の違いを一目で分からせる。
+ *
+ * <p>Why: ロードマップと改善タスクが別々のやることリストに見え、どちらをやればよいかわからなかった（#141）。
+ * 改善タスクの番号の範囲を各フェーズに出し、ロードマップは改善タスクの時間割であることを示す。
+ * 印刷用は改善タスクがレポートに載っていないため（#138）、番号を出さない。
  */
 export function RoadmapTimeline({
   items,
@@ -25,6 +29,7 @@ export function RoadmapTimeline({
     rows: items.filter((i) => i.phase === phase),
   })).filter((group) => group.rows.length > 0);
   const isPrint = variant === "print";
+  const showsTaskRanges = !isPrint && items.some((i) => i.taskRange !== null);
   return (
     <section
       className={
@@ -36,7 +41,9 @@ export function RoadmapTimeline({
     >
       <h2 className="text-sm font-semibold text-indigo-950">改善ロードマップ</h2>
       <p className="mt-1 text-xs leading-relaxed text-slate-600">
-        AI議論が導いた実行順序です。前のフェーズの成果の上に次のフェーズが積み上がります。
+        {showsTaskRanges
+          ? "下の「改善タスク」を番号順に進めたときの時間割です。4人のAIの議論をもとに、いつまでに何番まで終えるかを区切っています。"
+          : "4人のAIの議論が導いた実行順序です。前のフェーズの成果の上に次のフェーズが積み上がります。"}
       </p>
       <div className={isPrint ? "mt-4 space-y-4" : "mt-4 grid gap-4 md:grid-cols-3"}>
         {phases.map((group, groupIndex) => (
@@ -55,6 +62,13 @@ export function RoadmapTimeline({
                   key={`${group.phase}-${index}-${item.title.slice(0, 24)}`}
                   className="rounded-lg border border-slate-200 bg-white p-3"
                 >
+                  {showsTaskRanges && item.taskRange !== null ? (
+                    <p className="mb-1 text-[11px] font-semibold text-indigo-700">
+                      {item.taskRange.first === item.taskRange.last
+                        ? `改善タスク ${item.taskRange.first}`
+                        : `改善タスク ${item.taskRange.first}〜${item.taskRange.last}`}
+                    </p>
+                  ) : null}
                   <p className="text-sm font-medium leading-relaxed text-slate-900">{item.title}</p>
                   {item.rationale.length > 0 && (
                     <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{item.rationale}</p>

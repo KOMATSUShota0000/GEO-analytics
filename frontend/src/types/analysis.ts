@@ -36,7 +36,6 @@ export interface JobStatusResponse {
   createdAt: string;
   updatedAt: string;
   diagnosticMessage: string | null;
-  recommendedActions: string[];
   jobMedianModifiedZ: number | null;
   adviceSource: string | null;
 }
@@ -87,11 +86,6 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
       : typeof dmRaw === "string"
         ? dmRaw
         : null;
-  const raRaw = r.recommendedActions;
-  const recommendedActions =
-    Array.isArray(raRaw) && raRaw.every((x): x is string => typeof x === "string")
-      ? raRaw
-      : [];
   const jmzRaw = r.jobMedianModifiedZ;
   const jmz =
     jmzRaw === undefined || jmzRaw === null
@@ -115,7 +109,6 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
     createdAt,
     updatedAt,
     diagnosticMessage: dm,
-    recommendedActions,
     jobMedianModifiedZ: jmz,
     adviceSource,
   };
@@ -586,6 +579,17 @@ export interface JobRoadmapItem {
   title: string;
   rationale: string;
   expectedImpact: string;
+  /** このフェーズで取り組む改善タスクの番号の範囲（#141）。改善タスクの無い解析と古いデータには無い */
+  taskRange: { first: number; last: number } | null;
+}
+
+function parseTaskRange(o: JsonDict): { first: number; last: number } | null {
+  const first = pickNum(o, "firstTaskNumber", "first_task_number");
+  const last = pickNum(o, "lastTaskNumber", "last_task_number");
+  if (first === undefined || last === undefined || first < 1 || last < first) {
+    return null;
+  }
+  return { first, last };
 }
 
 function parseRoadmapItems(raw: unknown): JobRoadmapItem[] {
@@ -616,6 +620,7 @@ function parseRoadmapItems(raw: unknown): JobRoadmapItem[] {
       title,
       rationale: typeof rationaleRaw === "string" ? rationaleRaw.trim() : "",
       expectedImpact: typeof impactRaw === "string" ? impactRaw.trim() : "",
+      taskRange: parseTaskRange(o),
     });
   }
   return out;
@@ -630,7 +635,6 @@ export interface JobAnalysisDetail {
   logoUrl: string | null;
   project: JobProjectInfo | null;
   jobSummaryDiagnostic?: string | null;
-  jobSummaryRecommendedActions?: string[];
   jobMedianModifiedZ?: number | null;
   jobMedianVisibilityStage?: number | null;
   results: ResultDetail[];
@@ -864,10 +868,6 @@ export function mergeJobAnalysisWithPdfContext(data: JobAnalysisDetail): JobAnal
   if (typeof c.jobSummaryDiagnostic === "string") {
     next.jobSummaryDiagnostic = c.jobSummaryDiagnostic;
   }
-  const acts = c.jobSummaryRecommendedActions;
-  if (Array.isArray(acts) && acts.every((x): x is string => typeof x === "string")) {
-    next.jobSummaryRecommendedActions = acts;
-  }
   if (typeof c.jobMedianModifiedZ === "number" && !Number.isNaN(c.jobMedianModifiedZ)) {
     next.jobMedianModifiedZ = c.jobMedianModifiedZ;
   }
@@ -916,9 +916,6 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
       : typeof r.jobSummaryDiagnostic === "string"
         ? r.jobSummaryDiagnostic
         : null;
-  const jsraRaw = r.jobSummaryRecommendedActions;
-  const jobSummaryRecommendedActions =
-    Array.isArray(jsraRaw) && jsraRaw.every((x): x is string => typeof x === "string") ? jsraRaw : [];
   const jmz =
     r.jobMedianModifiedZ === undefined || r.jobMedianModifiedZ === null
       ? null
@@ -959,7 +956,6 @@ export function parseJobAnalysisDetail(raw: unknown): JobAnalysisDetail | null {
     logoUrl: lu,
     project: parseJobProjectInfo(r.project),
     jobSummaryDiagnostic: jsd,
-    jobSummaryRecommendedActions,
     jobMedianModifiedZ: jmz,
     jobMedianVisibilityStage: jmvs,
     results,

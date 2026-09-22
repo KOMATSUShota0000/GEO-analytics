@@ -6,7 +6,6 @@ import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
-import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import java.util.Arrays;
 
 /**
@@ -35,29 +34,32 @@ public final class DebateAdviceOutputSchema {
         return JsonObjectSchema.builder()
                 .addStringProperty("diagnostic_message")
                 .addProperty(
-                        "recommended_actions",
-                        JsonArraySchema.builder().items(JsonStringSchema.builder().build()).build())
-                .addProperty(
                         "minority_reports",
                         JsonArraySchema.builder().items(minorityReportItemSchema()).build())
                 .addProperty(
                         "roadmap_items",
                         JsonArraySchema.builder().items(roadmapItemSchema()).build())
-                .required(
-                        "diagnostic_message", "recommended_actions", "minority_reports", "roadmap_items")
+                .required("diagnostic_message", "minority_reports", "roadmap_items")
                 .additionalProperties(false)
                 .build();
     }
 
-    /** Why: フェーズは自由記述だと「短期」「中期」等が混在して並べ替えが壊れるため列挙に固定する（#77）。 */
-    private static JsonObjectSchema roadmapItemSchema() {
+    /**
+     * Why: フェーズは自由記述だと「短期」「中期」等が混在して並べ替えが壊れるため列挙に固定する（#77）。
+     * ロードマップは改善タスクの時間割なので、各フェーズで最後に終えるタスク番号を持たせる。範囲の整合は
+     * サーバー側で補正する（#141）。スキーマは静的なため、改善タスクが無い回も必須のまま 0 を返させる。
+     */
+    static JsonObjectSchema roadmapItemSchema() {
         return JsonObjectSchema.builder()
                 .addEnumProperty(
                         "phase", Arrays.stream(RoadmapPhase.values()).map(Enum::name).toList())
+                .addIntegerProperty(
+                        "last_task_number",
+                        "Number of the last remediation task finished in this phase. 0 when no tasks are given.")
                 .addStringProperty("title")
                 .addStringProperty("rationale")
                 .addStringProperty("expected_impact")
-                .required("phase", "title", "rationale", "expected_impact")
+                .required("phase", "last_task_number", "title", "rationale", "expected_impact")
                 .additionalProperties(false)
                 .build();
     }

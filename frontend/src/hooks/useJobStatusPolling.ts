@@ -31,7 +31,6 @@ function mergeJobStatusPreservingSummary(
 ): JobStatusResponse {
   const incomingHasSummary =
     (incoming.diagnosticMessage != null && incoming.diagnosticMessage.trim().length > 0) ||
-    incoming.recommendedActions.length > 0 ||
     (incoming.jobMedianModifiedZ != null && !Number.isNaN(incoming.jobMedianModifiedZ));
   if (incomingHasSummary) {
     return incoming;
@@ -41,7 +40,6 @@ function mergeJobStatusPreservingSummary(
   }
   const previousHasSummary =
     (previous.diagnosticMessage != null && previous.diagnosticMessage.trim().length > 0) ||
-    previous.recommendedActions.length > 0 ||
     (previous.jobMedianModifiedZ != null && !Number.isNaN(previous.jobMedianModifiedZ));
   if (!previousHasSummary) {
     return incoming;
@@ -49,7 +47,6 @@ function mergeJobStatusPreservingSummary(
   return {
     ...incoming,
     diagnosticMessage: previous.diagnosticMessage,
-    recommendedActions: previous.recommendedActions,
     jobMedianModifiedZ: previous.jobMedianModifiedZ,
     adviceSource: previous.adviceSource,
   };

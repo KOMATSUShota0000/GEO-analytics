@@ -24,9 +24,20 @@ class DebateAdviceOutputSchemaTest {
         JsonObjectSchema root = DebateAdviceOutputSchema.rootObjectSchema();
 
         assertThat(root.required())
-                .containsExactlyInAnyOrder(
-                        "diagnostic_message", "recommended_actions", "minority_reports", "roadmap_items");
+                .containsExactlyInAnyOrder("diagnostic_message", "minority_reports", "roadmap_items");
         assertThat(root.properties()).doesNotContainKeys("industry_type", "target_audience", "extracted_strengths");
+    }
+
+    /** #141: 推奨アクションは作らせない。やることは改善タスク、いつやるかはロードマップが受け持つ。 */
+    @Test
+    void adviceSchemaDoesNotAskForRecommendedActions() {
+        assertThat(DebateAdviceOutputSchema.rootObjectSchema().properties()).doesNotContainKey("recommended_actions");
+    }
+
+    /** #141: ロードマップは改善タスクの時間割なので、各フェーズで終えるタスク番号を必須にする。 */
+    @Test
+    void roadmapItemRequiresLastTaskNumber() {
+        assertThat(DebateAdviceOutputSchema.roadmapItemSchema().required()).contains("last_task_number");
     }
 
     @Test

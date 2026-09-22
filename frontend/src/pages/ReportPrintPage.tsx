@@ -343,24 +343,14 @@ export default function ReportPrintPage(): JSX.Element {
           }}
         >
           <h2 className="text-xl font-semibold tracking-tight" style={{ color: "var(--brand-color)" }}>
-            ジョブ全体の戦略診断
+            総合診断
           </h2>
           {data.jobSummaryDiagnostic != null && data.jobSummaryDiagnostic.trim().length > 0 ? (
             <p className="mt-6 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
               {data.jobSummaryDiagnostic}
             </p>
           ) : (
-            <p className="mt-6 text-sm text-slate-500">ジョブ全体の診断文は準備中です。</p>
-          )}
-          {(data.jobSummaryRecommendedActions?.length ?? 0) > 0 && (
-            <div className="mt-8">
-              <h3 className="text-sm font-semibold text-slate-800">推奨アクション</h3>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
-                {data.jobSummaryRecommendedActions!.map((a, i) => (
-                  <li key={`summary-${i}-${a.slice(0, 24)}`}>{a}</li>
-                ))}
-              </ul>
-            </div>
+            <p className="mt-6 text-sm text-slate-500">総合診断は準備中です。</p>
           )}
           <MinorityReportPanel reports={data.minorityReports ?? []} variant="print" />
         </section>
