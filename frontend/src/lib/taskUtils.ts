@@ -19,15 +19,10 @@ export const PRIORITY_LABELS: Record<RemediationTaskPriority, string> = {
 
 const CATEGORY_ORDER: readonly RemediationTaskCategory[] = ["SPIKE", "SLAB"];
 
-const CATEGORY_GROUP_TEXT: Record<RemediationTaskCategory, { heading: string; note: string }> = {
-  SPIKE: {
-    heading: "まず取り組む：すぐ直せる対策",
-    note: "既存ページへの書き足し・書き直しなど、数時間で終わる作業です。",
-  },
-  SLAB: {
-    heading: "次に取り組む：時間がかかる対策",
-    note: "新しいページの制作や社内の体制づくりなど、計画を立てて進める作業です。",
-  },
+const PRIORITY_GROUP_TEXT: Record<RemediationTaskPriority, { heading: string; note: string }> = {
+  S: { heading: "効果 大", note: "効果が特に大きい対策です。まずここを終わらせましょう。" },
+  A: { heading: "効果 中", note: "効果 大の対策が終わったら取り組みます。" },
+  B: { heading: "効果 小", note: "余裕があれば取り組みます。" },
 };
 
 function getPriorityRank(priority: string): number {
@@ -44,20 +39,21 @@ function getPriorityRank(priority: string): number {
 }
 
 /**
- * Why: 旧実装は効果（S/A/B）だけで並べていたため、数時間で終わる作業と数か月かかる作業が交互に並び、
- * 何から手をつければよいかが読み取れなかった（#139）。すぐ直せるものを先に、その中を効果の大きい順にする。
- * Pro未満で本文が伏せられるタスクも同じ位置に置き、プランによって番号が変わらないようにする（オーナー確定 2026-09-22）。
+ * Why: 旧実装は効果（S/A/B）だけで並べていたため、同じ効果の中で数時間で終わる作業と数か月かかる作業が
+ * 混ざり、何から手をつければよいかが読み取れなかった（#139）。効果の大きい順に並べ、同じ効果の中は
+ * すぐ直せるものを先にする。効果 大をすべて終えてから効果 中へ進む順序（オーナー確定 2026-09-22）。
+ * Pro未満で本文が伏せられるタスクも同じ位置に置き、プランによって番号が変わらないようにする。
  */
 function compareTasks(a: RemediationTask, b: RemediationTask): number {
-  const ca = CATEGORY_ORDER.indexOf(a.category);
-  const cb = CATEGORY_ORDER.indexOf(b.category);
-  if (ca !== cb) {
-    return ca - cb;
-  }
   const ra = getPriorityRank(a.priority);
   const rb = getPriorityRank(b.priority);
   if (ra !== rb) {
     return ra - rb;
+  }
+  const ca = CATEGORY_ORDER.indexOf(a.category);
+  const cb = CATEGORY_ORDER.indexOf(b.category);
+  if (ca !== cb) {
+    return ca - cb;
   }
   if (b.impactScore !== a.impactScore) {
     return b.impactScore - a.impactScore;
@@ -70,8 +66,8 @@ export type NumberedTask = {
   task: RemediationTask;
 };
 
-export type TaskEffortGroup = {
-  category: RemediationTaskCategory;
+export type TaskEffectGroup = {
+  priority: RemediationTaskPriority;
   heading: string;
   note: string;
   tasks: NumberedTask[];
@@ -85,17 +81,17 @@ export function hasLockedRemediationTasks(tasks: RemediationTask[]): boolean {
 }
 
 /** 番号はグループをまたいだ通し番号にする。「上から番号順に進める」をそのまま指示として読めるようにするため。 */
-export function groupTasksForDisplay(tasks: RemediationTask[]): TaskEffortGroup[] {
+export function groupTasksForDisplay(tasks: RemediationTask[]): TaskEffectGroup[] {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return [];
   }
   const sorted = [...tasks].sort((a, b) => compareTasks(a, b));
-  const out: TaskEffortGroup[] = [];
+  const out: TaskEffectGroup[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const task = sorted[i];
     let group = out.length > 0 ? out[out.length - 1] : undefined;
-    if (group === undefined || group.category !== task.category) {
-      group = { category: task.category, ...CATEGORY_GROUP_TEXT[task.category], tasks: [] };
+    if (group === undefined || group.priority !== task.priority) {
+      group = { priority: task.priority, ...PRIORITY_GROUP_TEXT[task.priority], tasks: [] };
       out.push(group);
     }
     group.tasks.push({ number: i + 1, task });

@@ -30,7 +30,7 @@ export function RemediationTaskBoard({ tasks }: RemediationTaskBoardProps): JSX.
             改善タスク
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
-            番号の小さいものから順に進めてください。「効果」は、AIの回答で取り上げられやすくなる度合いの目安です。
+            番号の小さいものから順に進めてください。効果の大きいものから、同じ効果の中ではすぐ直せるものから並べています。「効果」は、AIの回答で取り上げられやすくなる度合いの目安です。
           </Typography>
         </Stack>
       </Stack>

@@ -19,7 +19,7 @@ export function TaskCardGroup({ tasks }: TaskCardGroupProps): JSX.Element | null
     <Stack spacing={2.5}>
       {groups.map((g) => (
         <Paper
-          key={g.category}
+          key={g.priority}
           elevation={0}
           sx={{
             p: 2,
