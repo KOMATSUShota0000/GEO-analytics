@@ -15,6 +15,7 @@ public class AppProperties {
     private Notifications notifications = new Notifications();
     private Mail mail = new Mail();
     private Bootstrap bootstrap = new Bootstrap();
+    private Auth auth = new Auth();
     private Security security;
     private Branding branding = new Branding();
 
@@ -80,6 +81,14 @@ public class AppProperties {
 
     public void setBootstrap(Bootstrap bootstrap) {
         this.bootstrap = bootstrap != null ? bootstrap : new Bootstrap();
+    }
+
+    public Auth getAuth() {
+        return auth;
+    }
+
+    public void setAuth(Auth auth) {
+        this.auth = auth != null ? auth : new Auth();
     }
 
     public Security getSecurity() {
@@ -290,6 +299,31 @@ public class AppProperties {
         // Why: .env に「APP_BOOTSTRAP_EMAIL=」と空で書かれると空文字が入り、空アドレスのユーザーが作られるため既定へ戻す。
         public void setEmail(String email) {
             this.email = email == null || email.isBlank() ? DEFAULT_EMAIL : email.trim();
+        }
+    }
+
+    public static class Auth {
+        private LoginCodePolicy loginCode = new LoginCodePolicy();
+
+        public LoginCodePolicy getLoginCode() {
+            return loginCode;
+        }
+
+        public void setLoginCode(LoginCodePolicy loginCode) {
+            this.loginCode = loginCode != null ? loginCode : new LoginCodePolicy();
+        }
+    }
+
+    public static class LoginCodePolicy {
+        // Why: オーナー確定（#144 確定事項4）。メールの遅延を見込みつつ、総当たりに使える時間を短く保つ。
+        private Duration ttl = Duration.ofMinutes(10);
+
+        public Duration getTtl() {
+            return ttl;
+        }
+
+        public void setTtl(Duration ttl) {
+            this.ttl = ttl;
         }
     }
 

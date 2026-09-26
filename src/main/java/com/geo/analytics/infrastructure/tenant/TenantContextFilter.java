@@ -29,6 +29,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/code"),
                     PATHS.matcher("/api/public/**"));
 
     private final WorkspacePlanResolver workspacePlanResolver;

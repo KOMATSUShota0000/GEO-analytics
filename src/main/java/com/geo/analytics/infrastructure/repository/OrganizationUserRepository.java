@@ -12,6 +12,11 @@ public interface OrganizationUserRepository extends JpaRepository<OrganizationUs
     @GlobalAccess
     Optional<OrganizationUser> findByEmailAndDeletedAtIsNull(String email);
 
+    // Why: ログインコードは入力の大文字・小文字を区別しない（#146）。一意制約は区別するため、
+    //      大文字違いの行が複数あり得る。登録の早い方に決め打ちして結果を一意にする。
+    @GlobalAccess
+    Optional<OrganizationUser> findFirstByEmailIgnoreCaseAndDeletedAtIsNullOrderByCreatedAtAsc(String email);
+
     Optional<OrganizationUser> findFirstByOrganizationIdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID organizationId);
 
     Optional<OrganizationUser> findFirstByOrganizationIdAndRoleAndDeletedAtIsNullOrderByCreatedAtAsc(
