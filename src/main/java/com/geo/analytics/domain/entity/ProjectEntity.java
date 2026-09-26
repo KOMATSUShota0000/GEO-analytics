@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 @Entity
 @Table(name = "projects")
+//Entityが付くクラスはテーブルの一行を表すクラス。
 public class ProjectEntity extends BaseTenantEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

@@ -34,10 +34,17 @@ public class ProjectManagementService {
 
     @Transactional
     public ProjectEntity getOrCreateDefaultProject(String brandName, String targetUrl) {
+        //requireNonNullはbrandNameがnullなら例外を投げる。nullじゃなければbrandNameを返す。
+        //@validで@NotBlankでbrandNameの空白・空文字・nullをすべて検査しているので、
+        // web経由のリクエストではこのメソッドは実行されない。
+        //@Valid はコントローラの入口、つまりWeb経由のリクエストにしか効かない。
+        //定期監査の機能などはweb経由ではないので、nullチェックをしている。
         Objects.requireNonNull(brandName, "brandName");
+        //workspaceIdはテナントごとに分けてるid
         UUID workspaceId = DefaultTenantIds.WORKSPACE_ID;
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             workspaceRepository.findById(workspaceId).orElseGet(() -> {
+                // デフォルトワークスペースが存在しない場合は以下で作成する
                 WorkspaceEntity workspaceEntity = new WorkspaceEntity();
                 workspaceEntity.setId(workspaceId);
                 workspaceEntity.setOrganizationId(DefaultTenantIds.DEFAULT_ORGANIZATION_ID);

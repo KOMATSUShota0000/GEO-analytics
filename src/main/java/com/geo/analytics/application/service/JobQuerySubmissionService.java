@@ -81,22 +81,41 @@ public class JobQuerySubmissionService {
         this.gapAnalysisService = Objects.requireNonNull(gapAnalysisService);
     }
 
+    //ここから読む
+
+    //queryTextsはaiに投げる想定質問の一覧List
     public void submitQueries(UUID jobId, List<String> queryTexts, SubscriptionPlan plan) {
+        //メソッドチェーンは左から右に順に実行される。
+        //クエリを.stream()でコンベアに流して、それ上で.map()でTextWhitespaceNormalizer::normalizeを適用(空白をなくしてる)
+        //加工後、またListに戻してる。
+        //実物の Stream は、「どのリストから取るか」と「どんな加工をするか」をメモしておくだけのオブジェクト
+        //TextWhitespaceNormalizer::normalizeは流れてきた1件ごとにTextWhitespaceNormalizer.normalize を呼び、戻り値に置き換える
+        //メソッド参照という書き方。
         queryTexts = queryTexts.stream().map(TextWhitespaceNormalizer::normalize).toList();
         var keywordCount = queryTexts.size();
         if (keywordCount <= 0) {
             return;
         }
         var job = jobPersistenceService.findJobById(jobId);
+        //requireNonNullElse()は引数の左で無理なら右を返すメソッド
+        //job.getAppliedPlan()はjob作成時に紐づけられたプランを返す。nullなら現在のテナントが契約してるplanを返す。
+        //つまりプランをアップグレードしても、既存のjobは作成時のプランで処理される。新規ジョブにのみアップグレード後のプランが適用される。
         var planEnum = Objects.requireNonNullElse(job.getAppliedPlan(), plan);
         var limits = effectiveLimits(job, plan);
+        //jobIdに紐づくクエリの件数をDBから取得して、今回のkeywordCountと合わせて上限を超えていないかチェックしてる。
         var existing = jobPersistenceService.countQueriesByJobId(jobId);
+        //existing が0でなくなるのは同じジョブに対して submitQueries が2回目に呼ばれたときだけ。今は二回呼ばれるルートがない。
+        //現状existingは常に0件なので、keywordCountが上限を超えていないかチェックしてる。
         if (existing + keywordCount > limits.totalLimit()) {
             throw new InsufficientQuotaException(
                     "登録上限を超過しています。",
                     limits.totalLimit(),
                     planEnum.name());
         }
+
+
+        //ここまで読んだ。
+
         if (limits.isRealtimeAllowed(keywordCount)) {
             UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
             long realtimeDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
@@ -196,6 +215,8 @@ public class JobQuerySubmissionService {
             jobPersistenceService.updateJobStatus(jobId, JobStatus.FAILED, failurePreview(throwable));
         }
     }
+
+    //ここまで読む
 
     private void continueAfterCompetitorsPersisted(
             UUID jobId,

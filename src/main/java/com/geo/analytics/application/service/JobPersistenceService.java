@@ -77,6 +77,7 @@ public class JobPersistenceService {
         public JobCreateFields {
             brandName = TextWhitespaceNormalizer.normalize(brandName);
             targetUrl = TextWhitespaceNormalizer.normalize(targetUrl);
+            //値がないか、値が空白か↓　　brandnameは@validのほうでcreateJobRequestの中の条件でカバーされているからこの条件には書けなくてok
             if (targetUrl == null || targetUrl.isBlank()) {
                 throw new IllegalArgumentException("targetUrl must not be blank");
             }
@@ -659,11 +660,16 @@ public class JobPersistenceService {
             UUID organizationId) {
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             if (idempotencyKey != null) {
+                //過去に同じjobがないか確認する。
                 var existing = jobRepository.findByTenantIdAndCreateIdempotencyKey(workspaceId.toString(), idempotencyKey);
+                //同じjobがあればそれを返す
                 if (existing.isPresent()) {
                     return new JobCreateOutcome(existing.get(), false);
                 }
             }
+            //ScopedValueのメソッドで.whereは予約（実行はされない、ほとんどメモと同じ）で.callは実行。
+            //.where(代入先の箱, 代入する値)って意味。TenantIdentityをcontextに入れてる。
+            //TenantIdentityは、組織ID・テナントID・ユーザーIDを一つにまとめたもの。
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, workspaceId, null))
                     .call(
                             () -> {
@@ -676,11 +682,13 @@ public class JobPersistenceService {
                                                     idempotencyKey,
                                                     projectEntity.getBrandColor(),
                                                     projectEntity.getLogoUrl());
+                                    //ここでJobCreateOutcome（レコード）をよぶ意味はこのメソッドの戻り値として二つの値を返すため。javaは一個しか戻り値返せないので裏技。
                                     return new JobCreateOutcome(created, true);
                                 } catch (DataIntegrityViolationException exception) {
                                     if (idempotencyKey == null) {
                                         throw exception;
                                     }
+                                    // idempotencyKey（冪等キー）が指定されている場合、同じjobが作成されてしまった場合は、例外を投げるのではなく、既存のjobを返す。
                                     return jobRepository
                                             .findByTenantIdAndCreateIdempotencyKey(
                                                     workspaceId.toString(), idempotencyKey)
@@ -731,6 +739,8 @@ public class JobPersistenceService {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         SubscriptionPlan resolvedPlan =
                 Objects.requireNonNull(subscriptionPlan, "subscriptionPlan");
+        //fromPlan()はplanを渡すと三種のlimit(プランの上限)とバージョン(プラン上限値のバージョン、変わってきたりして来てるから)を返してくれる。
+        //serialize()でDBのカラムに合うようにjavaのオブジェクトをJSON型に変換してる。
         String planLimitsSnapshotJson =
                 jsonbOperations.serialize(PlanLimitsSnapshot.fromPlan(resolvedPlan));
         TenantPlanScope.executeWithTenant(tenantId, () -> {
@@ -742,6 +752,7 @@ public class JobPersistenceService {
                     "Queries can only be added to a CREATED job. Current status: "
                             + jobEntity.getJobStatus());
             }
+            //ここでDBに値をセットしている。spring bootが自動でinsert文を発行してくれる。
             normalizedQueryTexts.forEach(queryText -> {
                 QueryEntity queryEntity = new QueryEntity();
                 queryEntity.setJobId(jobId);

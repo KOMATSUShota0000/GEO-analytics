@@ -23,8 +23,11 @@ public final class TextWhitespaceNormalizer {
         if (input == null) {
             return null;
         }
+        //前後の空白削ってる。
         String s = input.strip();
+        //この\u3000は全角スペースをあらわす。半角スペースに置換してる。
         s = s.replace('\u3000', ' ');
+        //連続する空白を1つの半角スペースに置換してる。
         return CONSECUTIVE_WHITESPACE.matcher(s).replaceAll(" ");
     }
 }
