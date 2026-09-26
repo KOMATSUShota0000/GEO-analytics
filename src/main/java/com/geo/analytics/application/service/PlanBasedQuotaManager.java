@@ -40,6 +40,10 @@ public class PlanBasedQuotaManager {
 
     public Bucket resolve(UUID workspaceId) {
         var key = workspaceId.toString();
+        //caffeineはjavaのdbみたいな感じ、それに対してProxyManagerはDBMSみたいな通信・操作役。
+        //Bucket4j はレート制限のトークンバケットアルゴリズムを実装したライブラリ（つまりBucket4j＝アルゴリズム、Caffeine＝そのアルゴリズムが状態を置く場所）
+        //渡したkeyがキャッシュにあればそれを返して、
+        // なければ新規作成（Bucket4j（レート制限ライブラリ）のバケット（＝ワークスペースごとの残クォータを表すオブジェクト）を）
         return proxyManager.builder().build(key, () -> configurationForWorkspace(workspaceId));
     }
 
@@ -49,15 +53,18 @@ public class PlanBasedQuotaManager {
         }
         resolve(workspaceId).addTokens(tokens);
     }
-
+    //このワークスペースがどの契約プランに入っているかDBに問い合わせて、契約プランを返す。
     public SubscriptionPlan resolveWorkspacePlan(UUID workspaceId) {
         return TenantPlanScope.executeWithTenant(workspaceId, () -> workspaceRepository.findById(workspaceId)
+                //メソッド参照は、WorkspaceEntity型のgetSubscriptionPlanメソッドを呼び出すことを意味している。
                 .map(WorkspaceEntity::getSubscriptionPlan)
                 .filter(Objects::nonNull)
                 .orElse(SubscriptionPlan.STANDARD));
     }
 
     private BucketConfiguration configurationForWorkspace(UUID workspaceId) {
+        //executeWithTenantはテナント情報をsetするメソッドなのでRLSを突破するためにここで実行してる
+        //つまり、dbに触る前はこのメソッドを見ることが多いと思う。（上流でまとめてセットしてるからあんま見ないはず、そのルートを通らんやつとかに個々でじっこうしとるんや）
         return TenantPlanScope.executeWithTenant(workspaceId, () -> {
             var plan = workspaceRepository.findById(workspaceId)
                     .map(WorkspaceEntity::getSubscriptionPlan)

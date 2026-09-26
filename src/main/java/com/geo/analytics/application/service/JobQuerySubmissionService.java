@@ -113,18 +113,24 @@ public class JobQuerySubmissionService {
                     planEnum.name());
         }
 
-
-        //ここまで読んだ。
-
         if (limits.isRealtimeAllowed(keywordCount)) {
+            //左がnullなら右を返す。右に指定するもの(今回は、DefaultTenantIds.WORKSPACE_ID)は非nullでないといけない。
             UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+            //クエリの数×１クエリの原価を計算してる。
             long realtimeDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+            //resolve()でworkspaceIdに紐づくBucket4jのバケットをとってきてる
+            //tryConsumeAndReturnRemaining()はBucket4j の「トークンを消費できるか試して、結果と一緒に詳細情報も返す」メソッド
             var realtimeProbe = quotaManager.resolve(workspaceId).tryConsumeAndReturnRemaining(realtimeDeposit);
             if (!realtimeProbe.isConsumed()) {
+                //resolveはIDを使ってdbから値をとってくるよーってメソッドの命名の仕方
                 var workspacePlan = quotaManager.resolveWorkspacePlan(workspaceId);
                 throw new RateLimitExceededException(
                         realtimeProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
             }
+
+
+            //ここまで読んだ。
+
             UUID organizationId = resolveOrganizationId(workspaceId);
             // Why: 新しいクエリ束の投入はジョブを再オープンする（完了済みジョブにも追加できる）。
             //      旧実装はこれを EXTRACTING_COMPETITORS への巻き戻しで表現していたが、競合とは
