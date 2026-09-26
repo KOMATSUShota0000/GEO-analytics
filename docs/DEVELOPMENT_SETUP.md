@@ -16,6 +16,7 @@
 | フロント | Node.js | 22 | 同上 |
 | コンテナ | Docker Engine | 29系 | `scripts/setup-docker-wsl.sh`（**要 sudo**） |
 | DB | PostgreSQL | 17（コンテナ） | `scripts/db.sh up` |
+| メール受信箱 | Mailpit | 1.31（コンテナ） | `scripts/mail.sh up` |
 | DBクライアント | psql | 18 | Docker導入時に同梱 |
 
 JDK/Maven/Node は `~/.local/share/devtools/` に置く。ディストリのパッケージ版に引きずられず、
@@ -100,6 +101,7 @@ openssl rand -hex 64   # JWT_SECRET
 | `SERPAPI_API_KEY` | 不要 | 競合エビデンスが空リストに縮退。4ペルソナ議論の質が下がる（起動時 WARN） |
 | `GOOGLE_PLACES_API_KEY` | 不要 | Places 検索を呼んだときだけ `IllegalStateException` |
 | `STRIPE_*` | 不要 | 決済フローが使えない |
+| `MAIL_*` | 不要 | 開発用の受信箱 Mailpit へ送る（手順5）。**空で書くと起動不可**（下記） |
 
 > Gemini だけ起動を止めるのは、ビルダー内で即検証しているため。
 > Spring は起動時に全 Bean を生成するので、コンストラクタ内の検証は実質「起動時チェック」になる。
@@ -124,6 +126,55 @@ WSL や Docker デーモンを再起動しても自動復帰する。
 
 **スキーマはこの時点ではまだ空。** Flyway はアプリ起動時に走るので、次のステップで作られる。
 
+### 5. 開発用のメール受信箱を起動する
+
+```bash
+bash scripts/mail.sh up
+```
+
+ログインコードなど、アプリが送るメールを受け止める開発用の受信箱（Mailpit）を立てる。
+メールは外に出ず、ブラウザの **http://localhost:8025** で読める。宛先が `bootstrap@example.com` のような
+架空のアドレスでも届く。`.env` に `MAIL_*` を書かなければ、アプリはここ（`localhost:1025`）へ送る。
+
+| サブコマンド | 用途 |
+|---|---|
+| `bash scripts/mail.sh up` | 起動（無ければ作成） |
+| `bash scripts/mail.sh down` | 停止（受信したメールは消える） |
+| `bash scripts/mail.sh status` | 状態確認 |
+
+> **メールの送信先が無いとアプリは起動しない**（`MailSettingsStartupCheck`）。ログインコードはメールでしか届かないため。
+> 開発は既定で Mailpit を指すので普段は気にしなくてよいが、`.env` に `MAIL_HOST=` と**空で**書くと空文字が入り止まる。
+> 使わない `MAIL_*` の行はコメントのままにする。
+
+#### Gmail で実際に受け取る（任意）
+
+Mailpit と Gmail は `.env` だけで切り替わる。**ログイン画面の表示はどちらでも変わらない。**
+
+1. Google アカウントで2段階認証を有効にする
+2. https://myaccount.google.com/apppasswords で「アプリパスワード」（16文字）を発行する。
+   通常のパスワードでは送れない。会社の Google Workspace では管理者が発行を禁止していることがある
+3. `.env` に次を書く（`.env.example` のコメントを外して埋める）
+
+   ```bash
+   MAIL_HOST=smtp.gmail.com
+   MAIL_PORT=587
+   MAIL_USERNAME=自分@gmail.com
+   MAIL_PASSWORD=発行したアプリパスワード
+   APP_NOTIFICATIONS_MAIL_FROM=自分@gmail.com   # 送信元。MAIL_USERNAME と違うと Gmail 側で書き換えられる
+   APP_BOOTSTRAP_EMAIL=自分@gmail.com           # ログインに使う初期ユーザー
+   ```
+
+4. アプリを起動し直す。起動ログに `メール送信先: smtp.gmail.com:587` と出れば切り替わっている
+
+Mailpit に戻すときは `MAIL_*` の4行をコメントアウトする。
+
+- **複数のユーザーで試す**: Gmail は `自分+a@gmail.com` のように `+` を付けたアドレスにも届く。
+  別ユーザーとして登録でき、どれも自分の受信箱に入る
+- `APP_BOOTSTRAP_EMAIL` のユーザーは、起動時に**無ければ作る**（既存の開発DBにも反映される）。
+  元の `bootstrap@example.com` はそのまま残る
+- Gmail に切り替えると、プロジェクト設定の「通知先メール」宛ての監査完了通知も実際に送られる
+- Gmail は1日に送れる数に上限がある。**本番の送信には使わない**（[`DEPLOYMENT_ENV.md`](./DEPLOYMENT_ENV.md)）
+
 ---
 
 ## 動作確認
@@ -137,7 +188,8 @@ npm run dev              # Vite(5173) と Spring Boot(8080) を同時起動
 
 `npm run dev` の初回起動時に Flyway が37本のマイグレーションを流し、
 39テーブル・39 RLSポリシー・`api_worker` / `batch_worker` ロールを作る。
-続いて `DataSeeder` が初期ワークスペースとユーザーを作成する。
+続いて `DataSeeder` が初期ワークスペースと初期ユーザーを作成する。
+初期ユーザーのアドレスは `.env` の `APP_BOOTSTRAP_EMAIL`（未指定なら `bootstrap@example.com`）。
 
 > **統合テストに `scripts/db.sh` のコンテナは不要。**
 > `PostgresTestBase` / `PostgresSuperuserTestBase` の派生テストは Testcontainers が
@@ -194,5 +246,8 @@ Envers 由来の死んだ監査テーブル14本と `flyway_schema_history` は 
 | 起動時に `apiKey cannot be null or blank` | `.env` の `GEMINI_API_KEY` が空。必須 |
 | DBeaver で全テーブルが空 | `api_worker` で接続している。`postgres` で繋ぎ直す |
 | DBに繋がらない | コンテナが停止している。`bash scripts/db.sh up` |
+| 起動時に「メール送信の設定がありません」 | `.env` に空の `MAIL_HOST=` がある。行を消すかコメントアウトすると Mailpit へ送る |
+| メールが Mailpit に届かない | コンテナが停止している。`bash scripts/mail.sh up` |
+| Gmail で `535` 認証エラー | 通常のパスワードを入れている。アプリパスワードを発行して `MAIL_PASSWORD` に入れる |
 | テーブルはあるのに行が無い | Flyway はスキーマだけを作る。データは `DataSeeder`（アプリ起動時）と実際の操作で入る |
 | `./mvnw` が動かない | Maven Wrapper は only-script 型。`unzip` が無い環境では `.tar.gz` に自動フォールバックするので追加導入は不要 |

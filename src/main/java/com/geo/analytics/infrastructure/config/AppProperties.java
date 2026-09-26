@@ -13,6 +13,8 @@ public class AppProperties {
     private Places places = new Places();
     private Pdf pdf = new Pdf();
     private Notifications notifications = new Notifications();
+    private Mail mail = new Mail();
+    private Bootstrap bootstrap = new Bootstrap();
     private Security security;
     private Branding branding = new Branding();
 
@@ -62,6 +64,22 @@ public class AppProperties {
 
     public void setNotifications(Notifications notifications) {
         this.notifications = notifications;
+    }
+
+    public Mail getMail() {
+        return mail;
+    }
+
+    public void setMail(Mail mail) {
+        this.mail = mail != null ? mail : new Mail();
+    }
+
+    public Bootstrap getBootstrap() {
+        return bootstrap;
+    }
+
+    public void setBootstrap(Bootstrap bootstrap) {
+        this.bootstrap = bootstrap != null ? bootstrap : new Bootstrap();
     }
 
     public Security getSecurity() {
@@ -243,6 +261,35 @@ public class AppProperties {
 
         public void setMailFrom(String mailFrom) {
             this.mailFrom = mailFrom;
+        }
+    }
+
+    public static class Mail {
+        // Why: メールがログインの唯一の入口になるため、送信先の設定漏れを起動時に止める。
+        //      既定を true にし、自動テストのプロファイルだけ明示的に false へ倒す（新しい環境で黙って外れないように）。
+        private boolean required = true;
+
+        public boolean isRequired() {
+            return required;
+        }
+
+        public void setRequired(boolean required) {
+            this.required = required;
+        }
+    }
+
+    public static class Bootstrap {
+        public static final String DEFAULT_EMAIL = "bootstrap@example.com";
+
+        private String email = DEFAULT_EMAIL;
+
+        public String getEmail() {
+            return email;
+        }
+
+        // Why: .env に「APP_BOOTSTRAP_EMAIL=」と空で書かれると空文字が入り、空アドレスのユーザーが作られるため既定へ戻す。
+        public void setEmail(String email) {
+            this.email = email == null || email.isBlank() ? DEFAULT_EMAIL : email.trim();
         }
     }
 
