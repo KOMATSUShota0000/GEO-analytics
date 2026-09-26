@@ -3,6 +3,7 @@ package com.geo.analytics.web.controller;
 import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.application.dto.LoginResponse;
 import com.geo.analytics.application.service.AuthService;
+import com.geo.analytics.application.service.LoginCodeService;
 import com.geo.analytics.application.service.AuthService.AuthTokenPair;
 import com.geo.analytics.domain.exception.TokenExpiredException;
 import com.geo.analytics.infrastructure.security.JwtTokenException;
@@ -10,6 +11,7 @@ import com.geo.analytics.infrastructure.security.RefreshTokenCookieFactory;
 import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.web.dto.LoginCodeRequest;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -28,14 +30,17 @@ public class AuthController {
     private final AuthService authService;
     private final RefreshTokenCookieFactory refreshTokenCookieFactory;
     private final TokenService tokenService;
+    private final LoginCodeService loginCodeService;
 
     public AuthController(
             AuthService authService,
             RefreshTokenCookieFactory refreshTokenCookieFactory,
-            TokenService tokenService) {
+            TokenService tokenService,
+            LoginCodeService loginCodeService) {
         this.authService = authService;
         this.refreshTokenCookieFactory = refreshTokenCookieFactory;
         this.tokenService = tokenService;
+        this.loginCodeService = loginCodeService;
     }
 
     @PostMapping("/login")
@@ -44,6 +49,13 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookieFactory.build(tokens.refreshToken()).toString())
                 .body(new LoginResponse(tokens.accessToken()));
+    }
+
+    // Why: 登録の有無で応答を変えない（#144 確定事項3）。送ったかどうかは返さず、常に 202 を返す。
+    @PostMapping("/auth/code")
+    public ResponseEntity<Void> requestLoginCode(@Valid @RequestBody LoginCodeRequest request) {
+        loginCodeService.requestCode(request.email());
+        return ResponseEntity.accepted().build();
     }
 
     @PostMapping("/auth/refresh")
