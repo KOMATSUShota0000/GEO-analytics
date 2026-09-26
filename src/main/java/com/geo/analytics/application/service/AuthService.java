@@ -50,11 +50,19 @@ public class AuthService {
                             authenticationManager.authenticate(
                                     new UsernamePasswordAuthenticationToken(
                                             request.getEmail(), request.getPassword()));
-                            UUID sessionId = sessionManagementService.createNewSession(user.getId());
-                            String accessToken = tokenService.generateAccessToken(user, sessionId);
-                            String refreshToken = tokenService.generateRefreshToken(user, sessionId);
-                            return new AuthTokenPair(accessToken, refreshToken);
+                            return issueTokens(user);
                         });
+    }
+
+    /**
+     * 本人確認が済んだユーザーの新しいセッションを作り、アクセストークンとリフレッシュトークンを発行する。
+     * パスワードでのログインとコードでのログイン（{@link LoginCodeService}）の共通部分。呼び出し側でユーザーの組織を束縛すること。
+     */
+    public AuthTokenPair issueTokens(OrganizationUser user) {
+        UUID sessionId = sessionManagementService.createNewSession(user.getId());
+        String accessToken = tokenService.generateAccessToken(user, sessionId);
+        String refreshToken = tokenService.generateRefreshToken(user, sessionId);
+        return new AuthTokenPair(accessToken, refreshToken);
     }
 
     /**

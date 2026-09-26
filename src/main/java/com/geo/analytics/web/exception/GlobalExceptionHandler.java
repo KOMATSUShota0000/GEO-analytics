@@ -1,5 +1,6 @@
 package com.geo.analytics.web.exception;
 
+import com.geo.analytics.domain.exception.LoginCodeRejectedException;
 import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
 import com.geo.analytics.domain.exception.CredentialsRevokedException;
@@ -68,6 +69,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleCredentialsRevoked(CredentialsRevokedException exception) {
         logger.warn("Credentials revoked: {}", exception.getMessage());
         return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("credentials_revoked", exception.getMessage()));
+    }
+
+    @ExceptionHandler(LoginCodeRejectedException.class)
+    public ResponseEntity<ApiErrorResponse> handleLoginCodeRejected(LoginCodeRejectedException exception) {
+        logger.info("Login code rejected");
+        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("login_code_rejected", exception.getMessage()));
     }
 
     @ExceptionHandler(UnauthenticatedApiException.class)

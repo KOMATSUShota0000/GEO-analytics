@@ -317,6 +317,8 @@ public class AppProperties {
     public static class LoginCodePolicy {
         // Why: オーナー確定（#144 確定事項4）。メールの遅延を見込みつつ、総当たりに使える時間を短く保つ。
         private Duration ttl = Duration.ofMinutes(10);
+        // Why: オーナー確定（#144 確定事項4）。5回間違えたらそのコードは正しくても使えない。
+        private int maxFailedAttempts = 5;
 
         public Duration getTtl() {
             return ttl;
@@ -324,6 +326,14 @@ public class AppProperties {
 
         public void setTtl(Duration ttl) {
             this.ttl = ttl;
+        }
+
+        public int getMaxFailedAttempts() {
+            return maxFailedAttempts;
+        }
+
+        public void setMaxFailedAttempts(int maxFailedAttempts) {
+            this.maxFailedAttempts = maxFailedAttempts;
         }
     }
 
