@@ -9,6 +9,7 @@ public record PlanLimitsSnapshot(int dailyLimit, int totalLimit, int realtimeBat
     }
 
     public boolean isRealtimeAllowed(int queryCount) {
+        //realtimeBatchMaxはリアルタイムで処理できる最大値。これを超えるとバッチ処理に回される。
         return queryCount > 0 && queryCount <= realtimeBatchMax;
     }
 }
