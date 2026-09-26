@@ -1,16 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Container,
-  CssBaseline,
-  Snackbar,
-  Stack,
-  TextField,
-  ThemeProvider,
-  Typography,
-  createTheme,
-} from "@mui/material";
+import { Alert, Snackbar } from "@mui/material";
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { resetCsrfPrime } from "../api/apiFetch";
@@ -19,16 +7,20 @@ import {
   CODE_LENGTH,
   RESEND_INTERVAL_SECONDS,
   describeLoginCodeError,
-  normalizeCode,
   requestLoginCode,
   verifyLoginCode,
 } from "../auth/loginCode";
+import CodeInput from "../components/auth/CodeInput";
+import LoginBrandPanel, { BrandMark, PRODUCT_NAME } from "../components/auth/LoginBrandPanel";
 import { toRefreshFailureReason } from "../types/auth";
 import { getRefreshFailureMessage } from "../utils/authMessages";
 
-const theme = createTheme();
-
 type Step = "email" | "code";
+
+const PRIMARY_BUTTON =
+  "flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none";
+const TEXT_BUTTON =
+  "rounded-md px-1 py-1 text-sm font-medium text-indigo-600 transition hover:text-indigo-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:text-slate-400";
 
 export default function LoginPage(): JSX.Element {
   const navigate = useNavigate();
@@ -40,6 +32,7 @@ export default function LoginPage(): JSX.Element {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [codeInputKey, setCodeInputKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -117,6 +110,7 @@ export default function LoginPage(): JSX.Element {
     setCode("");
     if (await sendCode()) {
       setInfo("新しいコードを送りました。前に届いたコードは使えなくなります。");
+      setCodeInputKey((k) => k + 1);
     }
   };
 
@@ -147,88 +141,91 @@ export default function LoginPage(): JSX.Element {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Container maxWidth="sm" sx={{ py: 6 }}>
-        <Typography variant="h5" component="h1" gutterBottom>
-          ログイン
-        </Typography>
-        {step === "email" ? (
-          <>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              登録済みのメールアドレスを入力してください。ログイン用の6桁のコードをお送りします。
-            </Typography>
-            <Box component="form" onSubmit={(e) => void handleEmailSubmit(e)}>
-              <Stack spacing={2}>
-                {error !== null ? <Alert severity="error">{error}</Alert> : null}
-                <TextField
-                  label="メールアドレス"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(ev) => setEmail(ev.target.value)}
-                  required
-                  fullWidth
-                  autoFocus
-                />
-                <Button type="submit" variant="contained" disabled={submitting} fullWidth>
+    <div className="min-h-screen bg-white lg:grid lg:grid-cols-2">
+      <LoginBrandPanel />
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:bg-white">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <BrandMark />
+            <span className="text-lg font-semibold text-slate-900">{PRODUCT_NAME}</span>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 lg:border-0 lg:p-0 lg:shadow-none">
+            <h1 className="text-2xl font-bold text-slate-900">ログイン</h1>
+            <StepIndicator step={step} />
+
+            {step === "email" ? (
+              <form className="mt-6 space-y-5" onSubmit={(e) => void handleEmailSubmit(e)}>
+                <p className="text-sm leading-relaxed text-slate-500">
+                  登録済みのメールアドレスを入力してください。ログイン用の6桁のコードをお送りします。
+                </p>
+                {error !== null ? <Notice tone="error">{error}</Notice> : null}
+                <div className="space-y-1.5">
+                  <label htmlFor="login-email" className="block text-sm font-semibold text-slate-700">
+                    メールアドレス
+                  </label>
+                  <input
+                    id="login-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(ev) => setEmail(ev.target.value)}
+                    required
+                    autoFocus
+                    placeholder="name@example.com"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+                <button type="submit" disabled={submitting} className={PRIMARY_BUTTON}>
+                  {submitting ? <Spinner /> : null}
                   {submitting ? "送信中…" : "コードを送る"}
-                </Button>
-              </Stack>
-            </Box>
-          </>
-        ) : (
-          <>
-            <Typography variant="body2" color="text.secondary">
-              次のメールアドレスに6桁のコードを送りました。
-            </Typography>
-            <Typography variant="h6" component="p" sx={{ mb: 2, wordBreak: "break-all" }}>
-              {email.trim()}
-            </Typography>
-            <Box component="form" onSubmit={(e) => void handleCodeSubmit(e)}>
-              <Stack spacing={2}>
-                {info !== null ? <Alert severity="info">{info}</Alert> : null}
-                {error !== null ? <Alert severity="error">{error}</Alert> : null}
-                <TextField
-                  label="6桁のコード"
+                </button>
+              </form>
+            ) : (
+              <form className="mt-6 space-y-5" onSubmit={(e) => void handleCodeSubmit(e)}>
+                <div>
+                  <p className="text-sm text-slate-500">次のメールアドレスに6桁のコードを送りました。</p>
+                  <p className="mt-1 break-all text-base font-semibold text-slate-900">{email.trim()}</p>
+                </div>
+                {info !== null ? <Notice tone="info">{info}</Notice> : null}
+                {error !== null ? <Notice tone="error">{error}</Notice> : null}
+                <CodeInput
+                  key={codeInputKey}
                   value={code}
-                  onChange={(ev) => setCode(normalizeCode(ev.target.value))}
-                  autoComplete="one-time-code"
-                  inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
-                  required
-                  fullWidth
+                  onChange={setCode}
+                  disabled={submitting}
+                  invalid={error !== null}
                   autoFocus
                 />
-                <Typography variant="body2" color="text.secondary">
+                <p className="text-xs leading-relaxed text-slate-500">
                   コードは10分で使えなくなります。届かない場合は、迷惑メールフォルダも確認してください。
-                </Typography>
-                <Button
+                </p>
+                <button
                   type="submit"
-                  variant="contained"
                   disabled={submitting || code.length !== CODE_LENGTH}
-                  fullWidth
+                  className={PRIMARY_BUTTON}
                 >
+                  {submitting ? <Spinner /> : null}
                   {submitting ? "確認中…" : "ログイン"}
-                </Button>
-                <Stack direction="row" justifyContent="space-between" flexWrap="wrap" gap={1}>
-                  <Button
-                    variant="text"
+                </button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
                     onClick={() => void handleResend()}
                     disabled={submitting || resendSecondsLeft > 0}
+                    className={TEXT_BUTTON}
                   >
-                    {resendSecondsLeft > 0
-                      ? `コードを再送する（あと${resendSecondsLeft}秒）`
-                      : "コードを再送する"}
-                  </Button>
-                  <Button variant="text" onClick={backToEmail} disabled={submitting}>
+                    {resendSecondsLeft > 0 ? `コードを再送する（あと${resendSecondsLeft}秒）` : "コードを再送する"}
+                  </button>
+                  <button type="button" onClick={backToEmail} disabled={submitting} className={TEXT_BUTTON}>
                     メールアドレスを直す
-                  </Button>
-                </Stack>
-              </Stack>
-            </Box>
-          </>
-        )}
-      </Container>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      </main>
       <Snackbar
         open={toastMessage !== null}
         autoHideDuration={6000}
@@ -244,6 +241,63 @@ export default function LoginPage(): JSX.Element {
           {toastMessage}
         </Alert>
       </Snackbar>
-    </ThemeProvider>
+    </div>
+  );
+}
+
+function StepIndicator({ step }: { step: Step }) {
+  const items: { key: Step; label: string }[] = [
+    { key: "email", label: "メールアドレス" },
+    { key: "code", label: "コード" },
+  ];
+  const currentIndex = items.findIndex((item) => item.key === step);
+  return (
+    <ol className="mt-3 flex items-center gap-2 text-xs font-medium" aria-label="ログインの手順">
+      {items.map((item, index) => {
+        const done = index < currentIndex;
+        const current = index === currentIndex;
+        return (
+          <li key={item.key} className="flex items-center gap-2" aria-current={current ? "step" : undefined}>
+            {index > 0 ? <span aria-hidden className="h-px w-6 bg-slate-200" /> : null}
+            <span
+              className={[
+                "flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold",
+                current || done ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-500",
+              ].join(" ")}
+            >
+              {done ? "✓" : index + 1}
+            </span>
+            <span className={current ? "text-indigo-700" : done ? "text-slate-600" : "text-slate-400"}>
+              {item.label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function Notice({ tone, children }: { tone: "error" | "info"; children: string }) {
+  return (
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      className={[
+        "rounded-lg border px-3 py-2.5 text-sm leading-relaxed",
+        tone === "error"
+          ? "border-red-200 bg-red-50 text-red-700"
+          : "border-indigo-100 bg-indigo-50 text-indigo-700",
+      ].join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+    />
   );
 }
