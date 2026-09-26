@@ -27,16 +27,16 @@ export function RemediationTaskBoard({ tasks }: RemediationTaskBoardProps): JSX.
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
         <Stack>
           <Typography variant="h6" sx={{ fontWeight: 700, color: "#0f172a" }}>
-            改善タスク（セクション別）
+            改善タスク
           </Typography>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
-            制作・見積りにそのまま貼れるよう、優先度とページ部位で整理しています。
+            番号の小さいものから順に進めてください。効果の大きいものから、同じ効果の中ではすぐ直せるものから並べています。「効果」は、AIの回答で取り上げられやすくなる度合いの目安です。
           </Typography>
         </Stack>
       </Stack>
       {hasLockedRemediationTasks(tasks) && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          まずは基礎改修（Level 1）を完了させてください。AIからの認知度が上がると、より高度な戦略が解放されます。
+          効果「大」の対策は、具体的な手順と根拠を Pro プラン以上で表示します。タイトルと「なぜ効くか」はそのままご覧いただけます。
         </Alert>
       )}
       <TaskCardGroup tasks={tasks} />
