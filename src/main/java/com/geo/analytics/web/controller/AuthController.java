@@ -6,6 +6,7 @@ import com.geo.analytics.application.service.AuthService;
 import com.geo.analytics.application.service.LoginCodeService;
 import com.geo.analytics.application.service.AuthService.AuthTokenPair;
 import com.geo.analytics.domain.exception.TokenExpiredException;
+import com.geo.analytics.infrastructure.ratelimit.ClientIpResolver;
 import com.geo.analytics.infrastructure.security.JwtTokenException;
 import com.geo.analytics.infrastructure.security.RefreshTokenCookieFactory;
 import com.geo.analytics.infrastructure.security.TokenService;
@@ -32,16 +33,19 @@ public class AuthController {
     private final RefreshTokenCookieFactory refreshTokenCookieFactory;
     private final TokenService tokenService;
     private final LoginCodeService loginCodeService;
+    private final ClientIpResolver clientIpResolver;
 
     public AuthController(
             AuthService authService,
             RefreshTokenCookieFactory refreshTokenCookieFactory,
             TokenService tokenService,
-            LoginCodeService loginCodeService) {
+            LoginCodeService loginCodeService,
+            ClientIpResolver clientIpResolver) {
         this.authService = authService;
         this.refreshTokenCookieFactory = refreshTokenCookieFactory;
         this.tokenService = tokenService;
         this.loginCodeService = loginCodeService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @PostMapping("/login")
@@ -54,8 +58,10 @@ public class AuthController {
 
     // Why: 登録の有無で応答を変えない（#144 確定事項3）。送ったかどうかは返さず、常に 202 を返す。
     @PostMapping("/auth/code")
-    public ResponseEntity<Void> requestLoginCode(@Valid @RequestBody LoginCodeRequest request) {
-        loginCodeService.requestCode(request.email());
+    public ResponseEntity<Void> requestLoginCode(
+            @Valid @RequestBody LoginCodeRequest request, HttpServletRequest httpRequest) {
+        // 送信回数の上限（#147）に当たったときだけ 429 になる。上限は登録の有無に関係なく数えるので、応答から登録の有無は分からない。
+        loginCodeService.requestCode(request.email(), clientIpResolver.resolve(httpRequest));
         return ResponseEntity.accepted().build();
     }
 

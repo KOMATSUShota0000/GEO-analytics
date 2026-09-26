@@ -335,6 +335,44 @@ public class AppProperties {
         public void setMaxFailedAttempts(int maxFailedAttempts) {
             this.maxFailedAttempts = maxFailedAttempts;
         }
+
+        // Why: オーナー確定（#144 確定事項5）。1日10回×1コード5回で、総当たりで当たる確率を1か月で約0.15%に抑える。
+        private Duration resendInterval = Duration.ofSeconds(60);
+        private int maxSendsPerAddressPerHour = 5;
+        private int maxSendsPerAddressPerDay = 10;
+        private int maxSendsPerClientPerHour = 20;
+
+        public Duration getResendInterval() {
+            return resendInterval;
+        }
+
+        public void setResendInterval(Duration resendInterval) {
+            this.resendInterval = resendInterval;
+        }
+
+        public int getMaxSendsPerAddressPerHour() {
+            return maxSendsPerAddressPerHour;
+        }
+
+        public void setMaxSendsPerAddressPerHour(int maxSendsPerAddressPerHour) {
+            this.maxSendsPerAddressPerHour = maxSendsPerAddressPerHour;
+        }
+
+        public int getMaxSendsPerAddressPerDay() {
+            return maxSendsPerAddressPerDay;
+        }
+
+        public void setMaxSendsPerAddressPerDay(int maxSendsPerAddressPerDay) {
+            this.maxSendsPerAddressPerDay = maxSendsPerAddressPerDay;
+        }
+
+        public int getMaxSendsPerClientPerHour() {
+            return maxSendsPerClientPerHour;
+        }
+
+        public void setMaxSendsPerClientPerHour(int maxSendsPerClientPerHour) {
+            this.maxSendsPerClientPerHour = maxSendsPerClientPerHour;
+        }
     }
 
     public static class Security {
