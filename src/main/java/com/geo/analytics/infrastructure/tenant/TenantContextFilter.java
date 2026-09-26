@@ -27,7 +27,6 @@ public class TenantContextFilter extends OncePerRequestFilter {
     private static final List<RequestMatcher> SKIP_TENANT_HEADER =
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
-                    PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/code"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/code/verify"),

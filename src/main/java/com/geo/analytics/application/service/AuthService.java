@@ -1,20 +1,12 @@
 package com.geo.analytics.application.service;
 
-import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.exception.AccountDisabledException;
-import com.geo.analytics.domain.exception.CredentialsRevokedException;
 import com.geo.analytics.domain.exception.SessionRevokedException;
 import com.geo.analytics.domain.exception.TenantSuspendedException;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.TokenService;
-import com.geo.analytics.infrastructure.tenant.TenantIdentity;
-import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
-import java.lang.ScopedValue;
 import java.util.UUID;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,40 +15,22 @@ public class AuthService {
 
     public record AuthTokenPair(String accessToken, String refreshToken) {}
 
-    private final AuthenticationManager authenticationManager;
     private final OrganizationUserRepository organizationUserRepository;
     private final SessionManagementService sessionManagementService;
     private final TokenService tokenService;
 
     public AuthService(
-            AuthenticationManager authenticationManager,
             OrganizationUserRepository organizationUserRepository,
             SessionManagementService sessionManagementService,
             TokenService tokenService) {
-        this.authenticationManager = authenticationManager;
         this.organizationUserRepository = organizationUserRepository;
         this.sessionManagementService = sessionManagementService;
         this.tokenService = tokenService;
     }
 
-    public AuthTokenPair login(LoginRequest request) {
-        OrganizationUser user = organizationUserRepository
-                .findByEmailAndDeletedAtIsNull(request.getEmail())
-                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
-        TenantIdentity loginScope = new TenantIdentity(user.getOrganizationId(), null, null);
-        return ScopedValue.where(TenantContextHolder.CONTEXT, loginScope)
-                .call(
-                        () -> {
-                            authenticationManager.authenticate(
-                                    new UsernamePasswordAuthenticationToken(
-                                            request.getEmail(), request.getPassword()));
-                            return issueTokens(user);
-                        });
-    }
-
     /**
      * 本人確認が済んだユーザーの新しいセッションを作り、アクセストークンとリフレッシュトークンを発行する。
-     * パスワードでのログインとコードでのログイン（{@link LoginCodeService}）の共通部分。呼び出し側でユーザーの組織を束縛すること。
+     * コードでのログイン（{@link LoginCodeService}）から呼ぶ。呼び出し側でユーザーの組織を束縛すること。
      */
     public AuthTokenPair issueTokens(OrganizationUser user) {
         UUID sessionId = sessionManagementService.createNewSession(user.getId());
@@ -86,12 +60,6 @@ public class AuthService {
                         .findById(parsed.userId())
                         .filter(u -> u.getDeletedAt() == null)
                         .orElseThrow(() -> new AccountDisabledException());
-
-        // TODO: [Phase X] TokenService から iat を取得し、ユーザーの passwordChangedAt と比較する
-        boolean isCredentialsRevoked = false;
-        if (isCredentialsRevoked) {
-            throw new CredentialsRevokedException();
-        }
 
         return tokenService.generateAccessToken(activeUser, parsed.sessionId());
     }

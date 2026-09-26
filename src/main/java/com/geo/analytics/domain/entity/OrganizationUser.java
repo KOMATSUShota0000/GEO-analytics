@@ -30,9 +30,6 @@ public class OrganizationUser {
     @Column(name = "email", nullable = false, length = 320, unique = true)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 255)
-    private String passwordHash;
-
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "role", nullable = false, length = 32)
@@ -71,14 +68,6 @@ public class OrganizationUser {
 
     public void setEmail(String email) {
         this.email = email;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
     }
 
     public OrganizationUserRole getRole() {

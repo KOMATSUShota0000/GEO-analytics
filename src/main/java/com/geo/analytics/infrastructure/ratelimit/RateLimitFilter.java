@@ -25,7 +25,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final List<RequestMatcher> SKIP_RATE_LIMIT =
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
-                    PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     // Why: ログイン前はワークスペースIDが無く、ワークスペース単位の上限では常に 429 になる。専用の上限は AUTH-3（#147）
                     PATHS.matcher(HttpMethod.POST, "/api/auth/code"),

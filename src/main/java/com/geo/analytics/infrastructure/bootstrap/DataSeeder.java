@@ -19,7 +19,6 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class DataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
-    private static final String SEED_PASSWORD = "bootstrap";
 
     static final long DEV_CREDIT_TOPUP = 1_000_000L;
 
@@ -36,7 +34,6 @@ public class DataSeeder implements CommandLineRunner {
     private final WorkspaceRepository workspaceRepository;
     private final OrganizationUserRepository organizationUserRepository;
     private final OrganizationRepository organizationRepository;
-    private final PasswordEncoder passwordEncoder;
     private final String seedEmail;
 
     public DataSeeder(
@@ -44,13 +41,11 @@ public class DataSeeder implements CommandLineRunner {
             WorkspaceRepository workspaceRepository,
             OrganizationUserRepository organizationUserRepository,
             OrganizationRepository organizationRepository,
-            PasswordEncoder passwordEncoder,
             AppProperties appProperties) {
         this.self = self;
         this.workspaceRepository = workspaceRepository;
         this.organizationUserRepository = organizationUserRepository;
         this.organizationRepository = organizationRepository;
-        this.passwordEncoder = passwordEncoder;
         this.seedEmail = appProperties.getBootstrap().getEmail();
     }
 
@@ -95,15 +90,13 @@ public class DataSeeder implements CommandLineRunner {
             OrganizationUser u = new OrganizationUser();
             u.setOrganizationId(orgId);
             u.setEmail(seedEmail);
-            u.setPasswordHash(passwordEncoder.encode(SEED_PASSWORD));
             u.setRole(OrganizationUserRole.ADMIN);
             organizationUserRepository.saveAndFlush(u);
             log.info("[DEV] 初期ユーザーを作成しました: {}", seedEmail);
         }
         log.info("\n=========================================\n"
-                + "[DEV] 初期ユーザーでのログイン情報:\n"
-                + "Email: {}\n"
-                + "Password: {}\n"
-                + "=========================================", seedEmail, SEED_PASSWORD);
+                + "[DEV] 初期ユーザー: {}\n"
+                + "ログインはメールに届くコードで行う（開発では Mailpit http://localhost:8025）\n"
+                + "=========================================", seedEmail);
     }
 }
