@@ -11,6 +11,8 @@ geo-analytics を本番運用する際に設定すべき環境変数の一覧と
 | Gemini APIキー | メイン AI（`gemini-2.5-flash`） | AI 解析全般が不可。**本番前に application.yml ハードコードを環境変数化必須** | 必須 |
 | JWT secret（`app.security.jwt.secret`） | 認証トークン署名 | 起動不可/不安全 | 必須 |
 | `app.security.jwt.cookie-secure=true` | リフレッシュ Cookie の Secure 属性 | HTTPS 本番では true 必須 | 必須 |
+| `MAIL_HOST` / `MAIL_PORT`（既定 587） / `MAIL_USERNAME` / `MAIL_PASSWORD` | メール送信（ログインコード・監査完了通知） | **起動不可**（`MailSettingsStartupCheck`）。ログインコードを送れず誰もログインできなくなるため | 必須 |
+| `APP_NOTIFICATIONS_MAIL_FROM` | 送信元アドレス | `noreply@example.com` から送られ、届かないか迷惑メール扱いになる | 必須 |
 
 ## 起動時の可視化
 
@@ -20,6 +22,16 @@ geo-analytics を本番運用する際に設定すべき環境変数の一覧と
 - 設定済: `INFO  SERPAPI key configured (masked=abcd****). 競合エビデンス実取得が有効です。`
 
 → 本番デプロイ後はこのログを確認し、競合データ取得が有効かを必ず検証すること。
+
+## メール送信
+
+ログインはメールに届くコードでしか行えない（#144）。**メールが唯一の入口**なので、届かないことは「誰もログインできない」に直結する。
+
+- **送信サービスは未選定**（#144 確定事項7）。Amazon SES / SendGrid などの SMTP を `MAIL_*` に設定する。公開準備のときに選ぶ
+- **送信元ドメインの認証（SPF / DKIM / DMARC）が必要。** 無いと迷惑メールに振り分けられやすい。送信元は独自ドメインのアドレスにし、`APP_NOTIFICATIONS_MAIL_FROM` に設定する
+- 本番プロファイルは STARTTLS を必須にしている（`application-prod.yml`）。暗号化できない送信先には送らない
+- **Gmail は本番に使わない。** 1日に送れる数に上限があり、送信元が個人のアドレスになる
+- 起動時に `メール送信先: host:port` をログに出す。本番デプロイ後に送信先が意図どおりか確認すること
 
 ## PDF レポート
 

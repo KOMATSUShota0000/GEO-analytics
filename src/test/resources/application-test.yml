@@ -63,3 +63,5 @@ app:
     max-concurrent: 2
   notifications:
     mail-from: noreply@example.com
+  mail:
+    required: false

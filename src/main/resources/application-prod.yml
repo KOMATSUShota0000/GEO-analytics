@@ -14,6 +14,20 @@ spring:
       "[hibernate.format_sql]": false
     show-sql: false
     open-in-view: false
+  # Why: 既定の送信先を持たせない。未設定なら MailSettingsStartupCheck が起動を止める（ログインコードを送れないため）。
+  mail:
+    host: "${MAIL_HOST:}"
+    port: "${MAIL_PORT:587}"
+    username: "${MAIL_USERNAME:}"
+    password: "${MAIL_PASSWORD:}"
+    default-encoding: UTF-8
+    properties:
+      "[mail.smtp.starttls.enable]": true
+      "[mail.smtp.starttls.required]": true
+      # Why: JavaMail の既定タイムアウトは無限。送信先が固まると送信スレッドが戻らない。
+      "[mail.smtp.connectiontimeout]": 10000
+      "[mail.smtp.timeout]": 10000
+      "[mail.smtp.writetimeout]": 10000
 
 app:
   security:

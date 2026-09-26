@@ -3,6 +3,7 @@ package com.geo.analytics.infrastructure.bootstrap;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.entity.WorkspaceEntity;
 import com.geo.analytics.domain.enums.OrganizationUserRole;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.OrganizationRepository;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class DataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
-    private static final String SEED_EMAIL = "bootstrap@example.com";
     private static final String SEED_PASSWORD = "bootstrap";
 
     static final long DEV_CREDIT_TOPUP = 1_000_000L;
@@ -36,18 +37,21 @@ public class DataSeeder implements CommandLineRunner {
     private final OrganizationUserRepository organizationUserRepository;
     private final OrganizationRepository organizationRepository;
     private final PasswordEncoder passwordEncoder;
+    private final String seedEmail;
 
     public DataSeeder(
             @Lazy DataSeeder self,
             WorkspaceRepository workspaceRepository,
             OrganizationUserRepository organizationUserRepository,
             OrganizationRepository organizationRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            AppProperties appProperties) {
         this.self = self;
         this.workspaceRepository = workspaceRepository;
         this.organizationUserRepository = organizationUserRepository;
         this.organizationRepository = organizationRepository;
         this.passwordEncoder = passwordEncoder;
+        this.seedEmail = appProperties.getBootstrap().getEmail();
     }
 
     @Override
@@ -55,7 +59,16 @@ public class DataSeeder implements CommandLineRunner {
         UUID orgId = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
         UUID wid = DefaultTenantIds.WORKSPACE_ID;
         ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(orgId, wid, null))
-                .run(() -> TenantPlanScope.executeWithTenant(wid, () -> self.seedData(orgId, wid)));
+                .run(() -> TenantPlanScope.executeWithTenant(wid, () -> {
+                    self.seedData(orgId, wid);
+                    // Why: 同じアドレスのユーザーが削除済み・別組織にいると RLS で見えず一意制約に当たる。
+                    //      クレジット補充と別トランザクションにし、作れなくても起動は続ける。
+                    try {
+                        self.ensureSeedUser(orgId);
+                    } catch (DataIntegrityViolationException e) {
+                        log.warn("[DEV] 初期ユーザー {} を作成できませんでした（同じアドレスのユーザーが削除済み、または別の組織に存在します）", seedEmail);
+                    }
+                }));
     }
 
     @Transactional
@@ -72,19 +85,25 @@ public class DataSeeder implements CommandLineRunner {
             w.setOrganizationId(orgId);
             w.setName("Default");
             workspaceRepository.save(w);
-            if (organizationUserRepository.findByEmailAndDeletedAtIsNull(SEED_EMAIL).isEmpty()) {
-                OrganizationUser u = new OrganizationUser();
-                u.setOrganizationId(orgId);
-                u.setEmail(SEED_EMAIL);
-                u.setPasswordHash(passwordEncoder.encode(SEED_PASSWORD));
-                u.setRole(OrganizationUserRole.ADMIN);
-                organizationUserRepository.save(u);
-            }
+        }
+    }
+
+    // Why: 作成をワークスペース0件（初回起動）に限ると、既存の開発DBで .env のアドレスを変えても反映されない。
+    @Transactional
+    public void ensureSeedUser(UUID orgId) {
+        if (organizationUserRepository.findByEmailAndDeletedAtIsNull(seedEmail).isEmpty()) {
+            OrganizationUser u = new OrganizationUser();
+            u.setOrganizationId(orgId);
+            u.setEmail(seedEmail);
+            u.setPasswordHash(passwordEncoder.encode(SEED_PASSWORD));
+            u.setRole(OrganizationUserRole.ADMIN);
+            organizationUserRepository.saveAndFlush(u);
+            log.info("[DEV] 初期ユーザーを作成しました: {}", seedEmail);
         }
         log.info("\n=========================================\n"
                 + "[DEV] 初期ユーザーでのログイン情報:\n"
                 + "Email: {}\n"
                 + "Password: {}\n"
-                + "=========================================", SEED_EMAIL, SEED_PASSWORD);
+                + "=========================================", seedEmail, SEED_PASSWORD);
     }
 }

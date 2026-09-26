@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.geo.analytics.domain.entity.OrganizationEntity;
+import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.OrganizationRepository;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.repository.WorkspaceRepository;
@@ -24,7 +25,7 @@ class DataSeederCreditTopupTest {
 
     private DataSeeder seederWith(OrganizationRepository orgRepo, WorkspaceRepository wsRepo,
                                    OrganizationUserRepository userRepo, PasswordEncoder encoder) {
-        return new DataSeeder(null, wsRepo, userRepo, orgRepo, encoder);
+        return new DataSeeder(null, wsRepo, userRepo, orgRepo, encoder, new AppProperties());
     }
 
     private OrganizationEntity orgWithBalance(long balance) {
