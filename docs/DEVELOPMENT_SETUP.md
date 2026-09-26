@@ -191,6 +191,10 @@ npm run dev              # Vite(5173) と Spring Boot(8080) を同時起動
 続いて `DataSeeder` が初期ワークスペースと初期ユーザーを作成する。
 初期ユーザーのアドレスは `.env` の `APP_BOOTSTRAP_EMAIL`（未指定なら `bootstrap@example.com`）。
 
+**ログインのしかた**: パスワードは使わない。ログイン画面（http://localhost:5173/login）で初期ユーザーのアドレスを入れて
+「コードを送る」を押し、メールに届いた6桁のコードを入れる。コードは Mailpit（http://localhost:8025、手順5）に届く。
+`.env` で Gmail に切り替えていれば Gmail に届く。60秒以内の再送はできず、同じアドレスへの送信は1時間5回・1日10回まで。
+
 > **統合テストに `scripts/db.sh` のコンテナは不要。**
 > `PostgresTestBase` / `PostgresSuperuserTestBase` の派生テストは Testcontainers が
 > 使い捨てコンテナ（`postgres:16-alpine` / `postgres:17-alpine`）を自前で起動し、
