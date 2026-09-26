@@ -2,7 +2,6 @@ export type RefreshFailureReason =
   | "token_expired"
   | "session_revoked"
   | "account_disabled"
-  | "credentials_revoked"
   | "tenant_suspended"
   | "maintenance"
   | "version_mismatch"
@@ -17,7 +16,6 @@ const KNOWN_REASONS: ReadonlySet<string> = new Set<RefreshFailureReason>([
   "token_expired",
   "session_revoked",
   "account_disabled",
-  "credentials_revoked",
   "tenant_suspended",
   "maintenance",
   "version_mismatch",

@@ -1,6 +1,5 @@
 package com.geo.analytics.web.controller;
 
-import com.geo.analytics.application.dto.LoginRequest;
 import com.geo.analytics.application.dto.LoginResponse;
 import com.geo.analytics.application.service.AuthService;
 import com.geo.analytics.application.service.LoginCodeService;
@@ -46,14 +45,6 @@ public class AuthController {
         this.tokenService = tokenService;
         this.loginCodeService = loginCodeService;
         this.clientIpResolver = clientIpResolver;
-    }
-
-    @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        AuthTokenPair tokens = authService.login(request);
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshTokenCookieFactory.build(tokens.refreshToken()).toString())
-                .body(new LoginResponse(tokens.accessToken()));
     }
 
     // Why: 登録の有無で応答を変えない（#144 確定事項3）。送ったかどうかは返さず、常に 202 を返す。

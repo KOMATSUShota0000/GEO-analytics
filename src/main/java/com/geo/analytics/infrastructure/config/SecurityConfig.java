@@ -7,14 +7,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -29,11 +25,6 @@ import java.util.List;
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
-    @Bean
-    AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
-        return configuration.getAuthenticationManager();
-    }
-
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -52,7 +43,6 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/csrf").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/code").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/code/verify").permitAll()
@@ -66,13 +56,12 @@ public class SecurityConfig {
                         .csrfTokenRepository(tokenRepository)
                         .csrfTokenRequestHandler(requestHandler)
                         .ignoringRequestMatchers(
-                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/code"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/code/verify"),
                                 PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
-                .httpBasic(basic -> basic.authenticationEntryPoint(authenticationEntryPoint))
-                .formLogin(Customizer.withDefaults())
+                .httpBasic(basic -> basic.disable())
+                .formLogin(form -> form.disable())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -86,9 +75,5 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
-    }
-    @Bean
-    PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
     }
 }

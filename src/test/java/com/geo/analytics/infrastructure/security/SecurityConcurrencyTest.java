@@ -135,7 +135,6 @@ class SecurityConcurrencyTest {
         organizationUser = new OrganizationUser();
         organizationUser.setOrganizationId(ORG_ID);
         organizationUser.setEmail(SEED_EMAIL);
-        organizationUser.setPasswordHash("{noop}x");
         organizationUser.setRole(OrganizationUserRole.ADMIN);
         organizationUser = organizationUserRepository.save(organizationUser);
         userId = organizationUser.getId();

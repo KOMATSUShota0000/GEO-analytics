@@ -434,8 +434,6 @@ public class BatchPersistenceService {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
-    public record OrgUserInfo(UUID id, String email, String passwordHash) {}
-
     public List<JobEntity> findJobsByStatus(JobStatus status) {
         return jdbc.query("SELECT " + JOB_COLS + " FROM jobs WHERE job_status = ?",
                 this::mapJobRow, status.name());
@@ -480,18 +478,6 @@ public class BatchPersistenceService {
     public void saveGapAnalysisGeminiJobName(UUID jobId, String geminiJobName) {
         jdbc.update("UPDATE jobs SET gap_analysis_gemini_job_name = ?, updated_at = now() WHERE id = ?",
                 geminiJobName, jobId);
-    }
-
-    public Optional<OrgUserInfo> findFirstActiveOrgUser(UUID organizationId) {
-        List<OrgUserInfo> rows = jdbc.query(
-                "SELECT id, email, password_hash FROM organization_users "
-                + "WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1",
-                (rs, rn) -> new OrgUserInfo(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("email"),
-                        rs.getString("password_hash")),
-                organizationId);
-        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
     private JobEntity mapJobRow(ResultSet rs, int rowNum) throws SQLException {

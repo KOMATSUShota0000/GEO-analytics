@@ -34,7 +34,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final List<RequestMatcher> SKIP_MATCHERS =
             List.of(
                     PATHS.matcher(HttpMethod.GET, "/api/csrf"),
-                    PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.OPTIONS, "/**"),
                     PATHS.matcher(HttpMethod.GET, "/api/v1/jobs/*/stream"),

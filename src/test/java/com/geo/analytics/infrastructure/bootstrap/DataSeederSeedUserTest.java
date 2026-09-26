@@ -18,26 +18,23 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 class DataSeederSeedUserTest {
 
     private static final UUID ORG_ID = DefaultTenantIds.DEFAULT_ORGANIZATION_ID;
 
     private final OrganizationUserRepository userRepo = mock(OrganizationUserRepository.class);
-    private final PasswordEncoder encoder = mock(PasswordEncoder.class);
 
     private DataSeeder seederWithEmail(String email) {
         AppProperties props = new AppProperties();
         props.getBootstrap().setEmail(email);
         return new DataSeeder(
-                null, mock(WorkspaceRepository.class), userRepo, mock(OrganizationRepository.class), encoder, props);
+                null, mock(WorkspaceRepository.class), userRepo, mock(OrganizationRepository.class), props);
     }
 
     @Test
     void createsAdminWithConfiguredEmail_whenAbsent() {
         when(userRepo.findByEmailAndDeletedAtIsNull("me+dev@gmail.com")).thenReturn(Optional.empty());
-        when(encoder.encode("bootstrap")).thenReturn("hashed");
 
         seederWithEmail("me+dev@gmail.com").ensureSeedUser(ORG_ID);
 

@@ -4,7 +4,6 @@ import com.geo.analytics.domain.exception.LoginCodeRejectedException;
 import com.geo.analytics.domain.exception.LoginCodeSendLimitedException;
 import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
-import com.geo.analytics.domain.exception.CredentialsRevokedException;
 import com.geo.analytics.domain.exception.ForbiddenApiException;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
@@ -64,12 +63,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleSessionRevoked(SessionRevokedException exception) {
         logger.warn("Session revoked: {}", exception.getMessage());
         return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("session_revoked", exception.getMessage()));
-    }
-
-    @ExceptionHandler(CredentialsRevokedException.class)
-    public ResponseEntity<ApiErrorResponse> handleCredentialsRevoked(CredentialsRevokedException exception) {
-        logger.warn("Credentials revoked: {}", exception.getMessage());
-        return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("credentials_revoked", exception.getMessage()));
     }
 
     @ExceptionHandler(LoginCodeRejectedException.class)

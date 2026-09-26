@@ -8,8 +8,6 @@ export function getRefreshFailureMessage(reason: RefreshFailureReason): string {
       return "セキュリティ保護のため、別端末でのログインを検知しログアウトしました。再度ログインしてください。";
     case "account_disabled":
       return "アカウントが無効化されました。管理者にお問い合わせください。";
-    case "credentials_revoked":
-      return "パスワードが変更されたため、再ログインが必要です。";
     case "tenant_suspended":
       return "ご利用中の組織が一時停止されています。管理者にお問い合わせください。";
     case "maintenance":

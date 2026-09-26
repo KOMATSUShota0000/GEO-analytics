@@ -16,7 +16,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 class DataSeederCreditTopupTest {
 
@@ -24,8 +23,8 @@ class DataSeederCreditTopupTest {
     private static final UUID WS_ID = DefaultTenantIds.WORKSPACE_ID;
 
     private DataSeeder seederWith(OrganizationRepository orgRepo, WorkspaceRepository wsRepo,
-                                   OrganizationUserRepository userRepo, PasswordEncoder encoder) {
-        return new DataSeeder(null, wsRepo, userRepo, orgRepo, encoder, new AppProperties());
+                                   OrganizationUserRepository userRepo) {
+        return new DataSeeder(null, wsRepo, userRepo, orgRepo, new AppProperties());
     }
 
     private OrganizationEntity orgWithBalance(long balance) {
@@ -45,12 +44,11 @@ class DataSeederCreditTopupTest {
         OrganizationRepository orgRepo = mock(OrganizationRepository.class);
         WorkspaceRepository wsRepo = mock(WorkspaceRepository.class);
         OrganizationUserRepository userRepo = mock(OrganizationUserRepository.class);
-        PasswordEncoder encoder = mock(PasswordEncoder.class);
         OrganizationEntity org = orgWithBalance(0);
         when(orgRepo.findByIdForUpdate(ORG_ID)).thenReturn(Optional.of(org));
         when(wsRepo.count()).thenReturn(1L);
 
-        seederWith(orgRepo, wsRepo, userRepo, encoder).seedData(ORG_ID, WS_ID);
+        seederWith(orgRepo, wsRepo, userRepo).seedData(ORG_ID, WS_ID);
 
         assertThat(org.getCreditBalance()).isEqualTo(DataSeeder.DEV_CREDIT_TOPUP);
     }
@@ -60,12 +58,11 @@ class DataSeederCreditTopupTest {
         OrganizationRepository orgRepo = mock(OrganizationRepository.class);
         WorkspaceRepository wsRepo = mock(WorkspaceRepository.class);
         OrganizationUserRepository userRepo = mock(OrganizationUserRepository.class);
-        PasswordEncoder encoder = mock(PasswordEncoder.class);
         OrganizationEntity org = orgWithBalance(500);
         when(orgRepo.findByIdForUpdate(ORG_ID)).thenReturn(Optional.of(org));
         when(wsRepo.count()).thenReturn(1L);
 
-        seederWith(orgRepo, wsRepo, userRepo, encoder).seedData(ORG_ID, WS_ID);
+        seederWith(orgRepo, wsRepo, userRepo).seedData(ORG_ID, WS_ID);
 
         assertThat(org.getCreditBalance()).isEqualTo(500L);
     }
@@ -75,11 +72,10 @@ class DataSeederCreditTopupTest {
         OrganizationRepository orgRepo = mock(OrganizationRepository.class);
         WorkspaceRepository wsRepo = mock(WorkspaceRepository.class);
         OrganizationUserRepository userRepo = mock(OrganizationUserRepository.class);
-        PasswordEncoder encoder = mock(PasswordEncoder.class);
         when(orgRepo.findByIdForUpdate(ORG_ID)).thenReturn(Optional.empty());
         when(wsRepo.count()).thenReturn(1L);
 
         // should not throw
-        seederWith(orgRepo, wsRepo, userRepo, encoder).seedData(ORG_ID, WS_ID);
+        seederWith(orgRepo, wsRepo, userRepo).seedData(ORG_ID, WS_ID);
     }
 }

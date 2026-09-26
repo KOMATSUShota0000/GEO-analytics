@@ -194,6 +194,17 @@ class LoginCodeVerifyIntegrationTest extends PostgresTestBase {
         verify(ADMIN_EMAIL, "").expectStatus().isBadRequest();
     }
 
+    @Test
+    void passwordLogin_isGone() {
+        byte[] body = webTestClient.post().uri("/api/login").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("email", ADMIN_EMAIL, "password", "bootstrap"))
+                .exchange()
+                .expectStatus().is4xxClientError()
+                .expectBody().returnResult().getResponseBody();
+
+        assertThat(body == null ? "" : new String(body, StandardCharsets.UTF_8)).doesNotContain("accessToken");
+    }
+
     private void race(CountDownLatch start, String code, ConcurrentLinkedQueue<HttpStatusCode> statuses) {
         try {
             start.await();

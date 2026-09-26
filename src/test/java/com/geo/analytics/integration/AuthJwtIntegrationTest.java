@@ -1,27 +1,30 @@
 package com.geo.analytics.integration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.AsyncBatchService;
+import com.geo.analytics.application.service.AuthService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.infrastructure.ai.GeminiBatchClient;
+import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.infrastructure.api.GeoCompetitorSearchAdapter;
+import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import com.geo.analytics.infrastructure.tenant.TenantContextFilter;
+import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
+import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import java.lang.ScopedValue;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Map;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -41,7 +44,10 @@ class AuthJwtIntegrationTest extends PostgresSuperuserTestBase {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private AuthService authService;
+
+    @Autowired
+    private OrganizationUserRepository organizationUserRepository;
 
     @MockitoBean
     private GeoCompetitorSearchAdapter geoCompetitorSearchAdapter;
@@ -108,19 +114,15 @@ class AuthJwtIntegrationTest extends PostgresSuperuserTestBase {
                 .isUnauthorized();
     }
 
-    private String loginAccessToken() throws Exception {
-        String body = webTestClient
-                .post()
-                .uri("/api/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("email", "bootstrap@example.com", "password", "bootstrap"))
-                .exchange()
-                .expectStatus()
-                .isOk()
-                .expectBody(String.class)
-                .returnResult()
-                .getResponseBody();
-        return objectMapper.readTree(body).get("accessToken").asText();
+    // パスワードでのログインは撤去した（#149）。このテストは JWT の扱いを確かめるものなので、
+    // ログインに成功したときと同じ発行処理（AuthService#issueTokens）でトークンを得る。
+    private String loginAccessToken() {
+        OrganizationUser user = organizationUserRepository
+                .findByEmailAndDeletedAtIsNull("bootstrap@example.com")
+                .orElseThrow();
+        return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(user.getOrganizationId(), null, null))
+                .call(() -> authService.issueTokens(user))
+                .accessToken();
     }
 
     private Claims parseClaims(String access) {
