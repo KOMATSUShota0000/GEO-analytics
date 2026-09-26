@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorkspacePlanResolver {
     public record WorkspaceInfo(UUID organizationId, SubscriptionPlan plan) {}
 
+    //ここでDBからプランと組織IDをとってきてる。
     private static final String SQL = """
             SELECT organization_id, subscription_plan
             FROM workspaces
@@ -29,6 +30,7 @@ public class WorkspacePlanResolver {
     @Transactional(readOnly = true)
     @GlobalAccess
     public SubscriptionPlan resolvePlan(UUID workspaceId) {
+        //planを引数に持ったレコードクラスが定義されているのでそこに飛ぶ。レコードクラスはgetter()と同じだからね。
         return resolveWorkspaceInfo(workspaceId).plan();
     }
 

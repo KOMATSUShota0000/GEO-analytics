@@ -95,31 +95,52 @@ public class JobController {
         this.jobQueryGenerationService = jobQueryGenerationService;
     }
 
+    //ここから重要。読もう。
+
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<JobStatusResponse> createJob(
+        //required = falseはHTTPリクエストの中にヘッダの値が存在しなくてもその場で400エラーを返さず、nullを入れる
+        //value = "Idempotency-Key"は拾うヘッダの名前
+        // UUID idempotencyKeyHeaderは拾ったヘッダの文字列をUUIDに変換して入れた箱
+        //現在はヘッダはないので常にnull（あれば既存のjobに、なければ新規job作成ってかんじ。）
+        //partがリクエストのボディの部分。
             @RequestHeader(value = "Idempotency-Key", required = false) UUID idempotencyKeyHeader,
+            //@Validは変数に対して条件（エラーハンドリング的な）を検査してくれる。
+            //条件はその変数の型のクラス（今回ならCreateJobRequest）に書く。
             @RequestPart("request") @Valid CreateJobRequest createJobRequest,
             @RequestPart(value = "files", required = false) MultipartFile[] files) {
         log.info("createJob request brandName={}", createJobRequest.brandName());
         UUID idempotencyKey = idempotencyKeyHeader != null ? idempotencyKeyHeader : createJobRequest.idempotencyKey();
         var fields = new JobPersistenceService.JobCreateFields(
+            //CreateJobRequestはrecordクラスなので、brandNameと変数定義するとgetterのようなメソッドが自動生成されている。brandName()とか。
+            //ただ値をreturnするやつな。
                 createJobRequest.brandName(),
                 createJobRequest.targetUrl(),
                 createJobRequest.businessSummary(),
                 createJobRequest.targetAudience(),
                 createJobRequest.focusPoints(),
                 createJobRequest.businessModelType());
+        //結局ここがやってるのは、ジョブを1件作って返す。ただし同じ冪等キーで既に作られていたら、作らずにそれを返す
         var outcome = jobPersistenceService.createJobWithIdempotency(fields, idempotencyKey);
+
+            //ここまで読んだ。9/24
+
+
         JobEntity createdJobEntity = outcome.jobEntity();
+        //ここのfilesはヘッダのpartから取ってきた
         if (outcome.created() && files != null && files.length > 0) {
             jobKnowledgeIngestionService.ingest(createdJobEntity.getId(), files);
         }
         if (!outcome.created()) {
             return ResponseEntity.ok(JobStatusResponse.from(createdJobEntity));
         }
+        //テナントごとに課金させるというかプランを選択できるからテナントidがなければとかの分岐でプランが決まる。
         SubscriptionPlan plan = createdJobEntity.getWorkspaceId() != null
                 ? workspacePlanResolver.resolvePlan(createdJobEntity.getWorkspaceId())
                 : SubscriptionPlan.STANDARD;
+
+        //ここまで読もう。
+        
         List<String> initialQueries = jobQueryGenerationService.generate(
                 createJobRequest.brandName(),
                 createJobRequest.targetUrl(),
@@ -127,6 +148,8 @@ public class JobController {
                 createJobRequest.targetAudience(),
                 createJobRequest.focusPoints(),
                 plan.defaultQueryCount());
+        //.getId()はjobIdをとってきてる。ワークスペースIDの下にprojectIDがあって、その下にjobIdがある。同じブランドに対して時間を空けて結果的に複数のジョブを作るって感じ。（定期的に診断する想定なので）
+        //ジョブの下に各クエリがある。
         jobQuerySubmissionService.submitQueries(createdJobEntity.getId(), initialQueries, plan);
         JobEntity responseEntity = jobPersistenceService.findJobById(createdJobEntity.getId());
         URI createdResourceLocation = ServletUriComponentsBuilder.fromCurrentRequest()

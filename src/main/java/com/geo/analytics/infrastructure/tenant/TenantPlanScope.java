@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -62,6 +63,7 @@ public final class TenantPlanScope {
 
     public static <T, X extends Throwable> T executeWithTenant(UUID tenantId, Supplier<T> supplier) throws X {
         Optional<TenantIdentity> cur = TenantContextHolder.current();
+        //テナント情報からorganizationIdとuserIdをとってきてorgとuidに入れてる。
         UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
         UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
@@ -78,9 +80,12 @@ public final class TenantPlanScope {
     }
 
     public static void executeWithTenantAndPlan(UUID tenantId, SubscriptionPlan plan, Runnable runnable) {
+        //テナント情報が入ったoptionalをとってきて、curに入れてる。
         Optional<TenantIdentity> cur = TenantContextHolder.current();
+        //curに入ってるテナント情報から、organizationIdとuserIdをとってきてorgとuidに入れてる。
         UUID org = cur.map(TenantIdentity::organizationId).orElse(null);
         UUID uid = cur.map(TenantIdentity::userId).orElse(null);
+        //今のスレッドの認証情報をとってくる。
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
             ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
@@ -102,10 +107,12 @@ public final class TenantPlanScope {
         UUID uid = cur.map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
+            //ここでテナント情報・テナントID・プランをセットしてる、
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(org, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
                     .call(() -> {
+                        //↓は認証情報をsetしてる。
                         SecurityContextHolder.setContext(prevSecurity);
                         return supplier.get();
                     });
@@ -142,6 +149,7 @@ public final class TenantPlanScope {
         UUID uid = TenantContextHolder.current().map(TenantIdentity::userId).orElse(null);
         SecurityContext prevSecurity = SecurityContextHolder.getContext();
         try {
+            //ここでテナント情報・テナントID・プランをスレッドにセットしてる、
             return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, tenantId, uid))
                     .where(TENANT_ID, tenantId.toString())
                     .where(TENANT_PLAN, plan)
@@ -150,14 +158,18 @@ public final class TenantPlanScope {
                         return supplier.get();
                     });
         } finally {
+            //tryでsetする前の認証情報をここでもってる
             restoreSecurityContext(prevSecurity);
         }
     }
 
     private static void restoreSecurityContext(SecurityContext previous) {
+        //getAuthentication()は今ログインしているユーザーの認証情報（Authentication）を返す
         if (previous == null || previous.getAuthentication() == null) {
+            //元が未ログインなら → 認証情報の箱を空に戻す
             SecurityContextHolder.clearContext();
         } else {
+            // 元がログイン済みなら → その状態に戻す
             SecurityContextHolder.setContext(previous);
         }
     }
