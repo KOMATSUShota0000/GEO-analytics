@@ -21,7 +21,6 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("logo_url") String logoUrl,
     JobProjectResponse project,
     @JsonProperty("job_summary_diagnostic") String jobSummaryDiagnostic,
-    @JsonProperty("job_summary_recommended_actions") List<String> jobSummaryRecommendedActions,
     @JsonProperty("job_median_modified_z") Double jobMedianModifiedZ,
     @JsonProperty("job_median_visibility_stage") Integer jobMedianVisibilityStage,
     List<ResultDetailResponse> results,
@@ -38,8 +37,6 @@ public record JobAnalysisDetailResponse(
     @JsonProperty("competitor_shares") List<CompetitorShareDto> competitorShares
 ) {
     public JobAnalysisDetailResponse {
-        jobSummaryRecommendedActions =
-                jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of();
         contentEvidence = contentEvidence != null ? List.copyOf(contentEvidence) : List.of();
         remediationTasks = remediationTasks != null ? List.copyOf(remediationTasks) : List.of();
         minorityReports = minorityReports != null ? List.copyOf(minorityReports) : List.of();
@@ -51,7 +48,6 @@ public record JobAnalysisDetailResponse(
             ProjectEntity projectEntity,
             List<ResultDetailResponse> resultDetails,
             String jobSummaryDiagnostic,
-            List<String> jobSummaryRecommendedActions,
             Double jobMedianModifiedZ,
             Integer jobMedianVisibilityStage,
             Double factBasedScore,
@@ -78,7 +74,6 @@ public record JobAnalysisDetailResponse(
             logo,
             projectResponse,
             jobSummaryDiagnostic,
-            jobSummaryRecommendedActions != null ? List.copyOf(jobSummaryRecommendedActions) : List.of(),
             jobMedianModifiedZ,
             jobMedianVisibilityStage,
             resultDetails,
@@ -105,7 +100,8 @@ public record JobAnalysisDetailResponse(
                 .filter(i -> i != null && i.phase() != null && i.title() != null && !i.title().isBlank())
                 .sorted(Comparator.comparingInt(i -> i.phase().ordinal()))
                 .map(i -> new RoadmapItemDto(
-                        i.phase().name(), i.phase().label(), i.title(), i.rationale(), i.expectedImpact()))
+                        i.phase().name(), i.phase().label(), i.title(), i.rationale(), i.expectedImpact(),
+                        i.firstTaskNumber(), i.lastTaskNumber()))
                 .toList();
     }
 

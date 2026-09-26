@@ -10,6 +10,7 @@ import com.geo.analytics.domain.entity.AuditRubricResultEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.RubricCriterionId;
 import com.geo.analytics.domain.model.RemediationTask;
+import com.geo.analytics.domain.model.RemediationTaskOrder;
 import com.geo.analytics.domain.service.AiRecognitionClassifier;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import com.geo.analytics.domain.entity.ProjectEntity;
@@ -367,8 +368,10 @@ public class JobPersistenceService {
             return List.of();
         }
         try {
-            List<RemediationTask> parsed = objectMapper.readValue(json, REMEDIATION_LIST_TYPE);
-            if (parsed == null || parsed.isEmpty()) {
+            // Why: #141 より前に保存したタスクは取り組む順になっていないため、返す直前にも順序を確定させる。
+            List<RemediationTask> parsed =
+                    RemediationTaskOrder.sort(objectMapper.readValue(json, REMEDIATION_LIST_TYPE));
+            if (parsed.isEmpty()) {
                 return List.of();
             }
             ArrayList<RemediationTaskResponse> out = new ArrayList<>(parsed.size());

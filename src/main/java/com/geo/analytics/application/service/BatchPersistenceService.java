@@ -13,6 +13,7 @@ import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
 import org.slf4j.Logger;
@@ -42,6 +43,7 @@ public class BatchPersistenceService {
     private static final Logger log = LoggerFactory.getLogger(BatchPersistenceService.class);
 
     private static final TypeReference<List<String>> LIST_STRING_TYPE = new TypeReference<>() {};
+    private static final TypeReference<List<RemediationTask>> REMEDIATION_LIST_TYPE = new TypeReference<>() {};
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -89,6 +91,32 @@ public class BatchPersistenceService {
                         + "recommended_actions, model_insights, audit_date, created_at "
                         + "FROM audit_histories WHERE job_id = ?",
                 (rs, rn) -> mapAuditRow(rs), jobId);
+    }
+
+    /**
+     * 監査履歴に保存された改善タスク。
+     *
+     * <p>Why: 4ペルソナ議論にロードマップの材料として渡す（#141）。読めない行は議論を止めずに空として扱う。
+     * ロードマップが番号なしの従来形に戻るだけで、解析は成立する。
+     */
+    public List<RemediationTask> findRemediationTasks(UUID auditHistoryId) {
+        List<String> rows = jdbc.query(
+                "SELECT job_recommended_actions FROM audit_histories WHERE id = ?",
+                (rs, rn) -> rs.getString(1), auditHistoryId);
+        String json = rows.isEmpty() ? null : rows.getFirst();
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<RemediationTask> parsed = objectMapper.readValue(json, REMEDIATION_LIST_TYPE);
+            return parsed == null ? List.of() : parsed;
+        } catch (JsonProcessingException jsonProcessingException) {
+            log.warn(
+                    "Failed to deserialize remediation tasks; treating as none. auditHistoryId={}",
+                    auditHistoryId,
+                    jsonProcessingException);
+            return List.of();
+        }
     }
 
     public Optional<UUID> findAuditIdByJobIdAndQuery(UUID jobId, String queryText) {

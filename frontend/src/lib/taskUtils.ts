@@ -17,49 +17,11 @@ export const PRIORITY_LABELS: Record<RemediationTaskPriority, string> = {
   B: "効果 小",
 };
 
-const CATEGORY_ORDER: readonly RemediationTaskCategory[] = ["SPIKE", "SLAB"];
-
 const PRIORITY_GROUP_TEXT: Record<RemediationTaskPriority, { heading: string; note: string }> = {
   S: { heading: "効果 大", note: "効果が特に大きい対策です。まずここを終わらせましょう。" },
   A: { heading: "効果 中", note: "効果 大の対策が終わったら取り組みます。" },
   B: { heading: "効果 小", note: "余裕があれば取り組みます。" },
 };
-
-function getPriorityRank(priority: string): number {
-  if (priority === "S") {
-    return 1;
-  }
-  if (priority === "A") {
-    return 2;
-  }
-  if (priority === "B") {
-    return 3;
-  }
-  return 99;
-}
-
-/**
- * Why: 旧実装は効果（S/A/B）だけで並べていたため、同じ効果の中で数時間で終わる作業と数か月かかる作業が
- * 混ざり、何から手をつければよいかが読み取れなかった（#139）。効果の大きい順に並べ、同じ効果の中は
- * すぐ直せるものを先にする。効果 大をすべて終えてから効果 中へ進む順序（オーナー確定 2026-09-22）。
- * Pro未満で本文が伏せられるタスクも同じ位置に置き、プランによって番号が変わらないようにする。
- */
-function compareTasks(a: RemediationTask, b: RemediationTask): number {
-  const ra = getPriorityRank(a.priority);
-  const rb = getPriorityRank(b.priority);
-  if (ra !== rb) {
-    return ra - rb;
-  }
-  const ca = CATEGORY_ORDER.indexOf(a.category);
-  const cb = CATEGORY_ORDER.indexOf(b.category);
-  if (ca !== cb) {
-    return ca - cb;
-  }
-  if (b.impactScore !== a.impactScore) {
-    return b.impactScore - a.impactScore;
-  }
-  return a.id.localeCompare(b.id);
-}
 
 export type NumberedTask = {
   number: number;
@@ -80,15 +42,19 @@ export function hasLockedRemediationTasks(tasks: RemediationTask[]): boolean {
   return tasks.some((t) => t.isMasked === true);
 }
 
-/** 番号はグループをまたいだ通し番号にする。「上から番号順に進める」をそのまま指示として読めるようにするため。 */
+/**
+ * 番号はグループをまたいだ通し番号にする。「上から番号順に進める」をそのまま指示として読めるようにするため。
+ *
+ * Why: 並び順はサーバー（RemediationTaskOrder: 効果の大きい順、同じ効果の中はすぐ直せる順）で確定済み。
+ * 改善ロードマップが同じ番号で「改善タスク1〜2」と範囲を指すため、ここで並べ替えると番号がずれる（#141）。
+ */
 export function groupTasksForDisplay(tasks: RemediationTask[]): TaskEffectGroup[] {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return [];
   }
-  const sorted = [...tasks].sort((a, b) => compareTasks(a, b));
   const out: TaskEffectGroup[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const task = sorted[i];
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
     let group = out.length > 0 ? out[out.length - 1] : undefined;
     if (group === undefined || group.priority !== task.priority) {
       group = { priority: task.priority, ...PRIORITY_GROUP_TEXT[task.priority], tasks: [] };

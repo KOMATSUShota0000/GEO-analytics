@@ -9,6 +9,7 @@ import com.geo.analytics.domain.enums.RubricVerdictStatus;
 import com.geo.analytics.domain.enums.TaskCategory;
 import com.geo.analytics.domain.enums.TaskPriority;
 import com.geo.analytics.domain.model.RemediationTask;
+import com.geo.analytics.domain.model.RemediationTaskOrder;
 import com.geo.analytics.infrastructure.ai.RemediationTaskPrompts;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.repository.AuditHistoryRepository;
@@ -72,7 +73,9 @@ public class AiRemediationService {
         if (contexts.isEmpty()) {
             return List.of();
         }
-        List<RemediationTask> tasks = self.invokeLlmWithCreditReservation(projectId, contexts);
+        // Why: 取り組む順で保存し、ロードマップが指す番号と保存順を一致させる（#141）。
+        List<RemediationTask> tasks =
+                RemediationTaskOrder.sort(self.invokeLlmWithCreditReservation(projectId, contexts));
         try {
             self.persistTasks(auditHistoryId, tasks);
         } catch (RuntimeException runtimeException) {

@@ -181,18 +181,7 @@ export function JobAnalysisPage(): JSX.Element {
         : null;
     return b;
   }, [jobStatus?.diagnosticMessage, data?.jobSummaryDiagnostic]);
-  const displayJobRollupActions = useMemo(() => {
-    if (jobStatus?.recommendedActions != null && jobStatus.recommendedActions.length > 0) {
-      return jobStatus.recommendedActions;
-    }
-    return data?.jobSummaryRecommendedActions ?? [];
-  }, [jobStatus?.recommendedActions, data?.jobSummaryRecommendedActions]);
-  const showJobStrategyBlock = useMemo(() => {
-    return (
-      (displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0) ||
-      displayJobRollupActions.length > 0
-    );
-  }, [displayJobRollupDiagnostic, displayJobRollupActions]);
+  const showJobStrategyBlock = displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0;
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
   const analysisLocked = isProcessingDisplay;
@@ -641,7 +630,7 @@ export function JobAnalysisPage(): JSX.Element {
         {showJobStrategyBlock && (
           <div className="pdf-avoid-break mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
             <div className="flex items-start justify-between gap-2">
-              <h2 className="text-sm font-semibold text-sky-950">ジョブ全体の戦略診断</h2>
+              <h2 className="text-sm font-semibold text-sky-950">総合診断</h2>
               {jobStatus?.adviceSource === "TEMPLATE_FALLBACK" ? (
                 <span
                   className="pdf-no-print shrink-0 cursor-help rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
@@ -651,16 +640,8 @@ export function JobAnalysisPage(): JSX.Element {
                 </span>
               ) : null}
             </div>
-            {displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0 ? (
-              <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
-            ) : null}
-            {displayJobRollupActions.length > 0 ? (
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-sky-950">
-                {displayJobRollupActions.map((action, idx) => (
-                  <li key={`${idx}-${action.slice(0, 40)}`}>{action}</li>
-                ))}
-              </ul>
-            ) : null}
+            <p className="mt-1 text-xs text-sky-800">いまAIの回答で自社がどう扱われているかと、その理由です。</p>
+            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
             {!isProPlanUi ? <DebateAdviceTeaserBanner /> : null}
           </div>
         )}

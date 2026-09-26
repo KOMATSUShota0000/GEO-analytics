@@ -228,10 +228,6 @@ public class JobController {
         if (jobDiag == null || jobDiag.isBlank()) {
             jobDiag = rollup.diagnosticMessage();
         }
-        var storedActs = jobEnt.getJobRecommendedActions();
-        List<String> jobActs = storedActs != null && !storedActs.isEmpty()
-            ? List.copyOf(storedActs)
-            : List.copyOf(rollup.recommendedActions());
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEnt.getAppliedPlan(), SubscriptionPlan.STANDARD);
         List<ResultDetailResponse> resultDetails = ResultDetailRanking.withGbvsCompetitionRanks(
             audits.stream()
@@ -255,7 +251,6 @@ public class JobController {
             aggregate.project(),
             resultDetails,
             jobDiag,
-            jobActs,
             medZ,
             medSt,
             bench.factBasedScore(),

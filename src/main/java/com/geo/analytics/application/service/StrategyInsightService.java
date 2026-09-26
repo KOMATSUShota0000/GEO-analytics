@@ -6,6 +6,7 @@ import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -234,7 +235,7 @@ public final class StrategyInsightService {
 
     /**
      * テンプレート4分類のみで roll up する旧実装。
-     * AI 議論駆動の {@link #rollupJob(List, ProjectEntity, SubscriptionPlan)} が失敗した時の
+     * AI 議論駆動の {@link #rollupJobWithSource(List, ProjectAdviceContext, SubscriptionPlan, List)} が失敗した時の
      * フォールバックとして使用される。
      */
     public StrategyInsight rollupJobFromTemplate(List<AuditHistoryEntity> rows) {
@@ -293,21 +294,18 @@ public final class StrategyInsightService {
     }
 
     /**
-     * AI 議論駆動でジョブ全体アドバイスを生成する。
+     * AI 議論駆動でジョブ全体アドバイスを生成し、生成元（{@link AdviceSource}）も返す。
+     * 生成元はフォールバック時のバッジ表示（F-3.1）に用いる。
      * {@link DebateAdviceGeneratorService} がコンテキスト不足や LLM 障害で失敗した場合は
      * テンプレート版にフォールバックする。
-     */
-    public StrategyInsight rollupJob(
-            List<AuditHistoryEntity> rows, ProjectAdviceContext project, SubscriptionPlan plan) {
-        return rollupJobWithSource(rows, project, plan).insight();
-    }
-
-    /**
-     * {@link #rollupJob(List, ProjectAdviceContext, SubscriptionPlan)} と同じだが、
-     * 生成元（{@link AdviceSource}）も返す。フォールバック時のバッジ表示（F-3.1）に用いる。
+     *
+     * @param tasks 改善タスク（取り組む順）。ロードマップを改善タスクの時間割にするために議論へ渡す（#141）
      */
     public JobAdviceRollup rollupJobWithSource(
-            List<AuditHistoryEntity> rows, ProjectAdviceContext project, SubscriptionPlan plan) {
+            List<AuditHistoryEntity> rows,
+            ProjectAdviceContext project,
+            SubscriptionPlan plan,
+            List<RemediationTask> tasks) {
         if (rows == null || rows.isEmpty() || project == null) {
             return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
         }
@@ -317,7 +315,7 @@ public final class StrategyInsightService {
             return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
         }
         try {
-            var advice = generator.generateForJob(rows, project, plan);
+            var advice = generator.generateForJob(rows, project, plan, tasks);
             return new JobAdviceRollup(
                     advice.insight(), AdviceSource.AI, advice.minorityReports(), advice.roadmapItems());
         } catch (RuntimeException exception) {

@@ -7,6 +7,8 @@ import com.geo.analytics.domain.enums.AdviceSource;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.MinorityReport;
+import com.geo.analytics.domain.model.RemediationTask;
+import com.geo.analytics.domain.model.RemediationTaskOrder;
 import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.domain.service.GeoVisibilityCalculatorService;
 import org.slf4j.Logger;
@@ -47,6 +49,19 @@ public final class GapAnalysisService {
         });
     }
 
+    /**
+     * Why: 改善タスクは議論より先に生成・保存されている（{@code JobQuerySubmissionService} の呼び出し順）。
+     * 議論に渡してロードマップを改善タスクの時間割にする（#141）。タスクを保存した監査履歴と同じ1件を選ぶため、
+     * 選択規則は {@link LatestAuditHistorySelector} に揃える。
+     */
+    private List<RemediationTask> loadTasksForDebate(List<AuditHistoryEntity> rows) {
+        AuditHistoryEntity latest = LatestAuditHistorySelector.pickLatest(rows);
+        if (latest == null || latest.getId() == null) {
+            return List.of();
+        }
+        return RemediationTaskOrder.sort(batchPersistence.findRemediationTasks(latest.getId()));
+    }
+
     public void runForJob(UUID jobId) {
         JobEntity jobEntity = batchPersistence.findJobById(jobId);
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
@@ -75,7 +90,8 @@ public final class GapAnalysisService {
         List<MinorityReport> minorityReports = null;
         List<RoadmapItem> roadmapItems = null;
         if (projectContext != null) {
-            var rollupWithSource = strategyInsightService.rollupJobWithSource(rows, projectContext, plan);
+            var rollupWithSource =
+                    strategyInsightService.rollupJobWithSource(rows, projectContext, plan, loadTasksForDebate(rows));
             rollup = rollupWithSource.insight();
             adviceSource = rollupWithSource.source().name();
             if (rollupWithSource.source() == AdviceSource.AI) {
