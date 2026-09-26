@@ -55,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/code").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/code/verify").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/jobs/*/stream").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/login", "/error").permitAll()
@@ -68,6 +69,7 @@ public class SecurityConfig {
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/login"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/refresh"),
                                 PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/code"),
+                                PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/auth/code/verify"),
                                 PathPatternRequestMatcher.withDefaults().matcher("/api/public/**")))
                 .httpBasic(basic -> basic.authenticationEntryPoint(authenticationEntryPoint))
                 .formLogin(Customizer.withDefaults())

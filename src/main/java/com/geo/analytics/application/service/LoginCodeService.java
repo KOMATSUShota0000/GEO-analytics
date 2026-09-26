@@ -1,6 +1,8 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.service.AuthService.AuthTokenPair;
 import com.geo.analytics.domain.entity.OrganizationUser;
+import com.geo.analytics.domain.exception.LoginCodeRejectedException;
 import com.geo.analytics.infrastructure.config.AppProperties;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.LoginCodeHasher;
@@ -19,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * ログインコードを発行してメールで送る（#146）。照合は AUTH-2b（#151）。
+ * ログインコードを発行してメールで送り（#146）、照合してログインさせる（#151）。
  *
  * <p>登録されているかを外から見分けられないようにする（#144 確定事項3）。応答は常に同じにし、
  * 未登録のアドレスにはメールを送らない。
@@ -38,7 +40,9 @@ public class LoginCodeService {
     private final LoginCodeStore loginCodeStore;
     private final LoginCodeHasher loginCodeHasher;
     private final LoginCodeMailer loginCodeMailer;
+    private final AuthService authService;
     private final Duration ttl;
+    private final int maxFailedAttempts;
     private final Semaphore sendPermits = new Semaphore(MAX_CONCURRENT_SENDS);
 
     public LoginCodeService(
@@ -46,12 +50,15 @@ public class LoginCodeService {
             LoginCodeStore loginCodeStore,
             LoginCodeHasher loginCodeHasher,
             LoginCodeMailer loginCodeMailer,
+            AuthService authService,
             AppProperties appProperties) {
         this.organizationUserRepository = organizationUserRepository;
         this.loginCodeStore = loginCodeStore;
         this.loginCodeHasher = loginCodeHasher;
         this.loginCodeMailer = loginCodeMailer;
+        this.authService = authService;
         this.ttl = appProperties.getAuth().getLoginCode().getTtl();
+        this.maxFailedAttempts = appProperties.getAuth().getLoginCode().getMaxFailedAttempts();
     }
 
     /**
@@ -75,6 +82,31 @@ public class LoginCodeService {
         Thread.ofVirtual()
                 .name("login-code-org-" + organizationId + "-user-" + userId)
                 .start(() -> issueAndSend(userId, organizationId, to));
+    }
+
+    /**
+     * コードを照合し、合っていればログインさせる。入れなかった理由は区別せず {@link LoginCodeRejectedException} にする。
+     *
+     * <p>未登録のアドレスでも、架空のユーザーIDと組織IDで同じ照合（行の検索・更新・ハッシュ計算）を行う。
+     * 未登録のときだけ照合を省くと、応答時間で登録の有無が分かってしまうため。
+     */
+    public AuthTokenPair verify(String email, String code) {
+        String normalized = email == null ? "" : email.strip();
+        Optional<OrganizationUser> found =
+                organizationUserRepository.findFirstByEmailIgnoreCaseAndDeletedAtIsNullOrderByCreatedAtAsc(normalized);
+        UUID userId = found.map(OrganizationUser::getId).orElseGet(UUID::randomUUID);
+        UUID organizationId = found.map(OrganizationUser::getOrganizationId).orElseGet(UUID::randomUUID);
+        String candidateHash = loginCodeHasher.hash(userId, code);
+        Instant now = Instant.now();
+        boolean accepted = ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, null, userId))
+                .call(() -> loginCodeStore.consume(userId, candidateHash, now, maxFailedAttempts));
+        if (!accepted || found.isEmpty()) {
+            throw new LoginCodeRejectedException();
+        }
+        OrganizationUser user = found.get();
+        log.info("ログインコードでログインしました userId={}", userId);
+        return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, null, null))
+                .call(() -> authService.issueTokens(user));
     }
 
     private void issueAndSend(UUID userId, UUID organizationId, String to) {

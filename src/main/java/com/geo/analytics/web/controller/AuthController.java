@@ -12,6 +12,7 @@ import com.geo.analytics.infrastructure.security.TokenService;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.web.dto.LoginCodeRequest;
+import com.geo.analytics.web.dto.LoginCodeVerifyRequest;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -56,6 +57,14 @@ public class AuthController {
     public ResponseEntity<Void> requestLoginCode(@Valid @RequestBody LoginCodeRequest request) {
         loginCodeService.requestCode(request.email());
         return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/auth/code/verify")
+    public ResponseEntity<LoginResponse> verifyLoginCode(@Valid @RequestBody LoginCodeVerifyRequest request) {
+        AuthTokenPair tokens = loginCodeService.verify(request.email(), request.code());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshTokenCookieFactory.build(tokens.refreshToken()).toString())
+                .body(new LoginResponse(tokens.accessToken()));
     }
 
     @PostMapping("/auth/refresh")

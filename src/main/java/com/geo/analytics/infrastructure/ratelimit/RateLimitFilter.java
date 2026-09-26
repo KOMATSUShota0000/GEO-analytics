@@ -29,6 +29,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     // Why: ログイン前はワークスペースIDが無く、ワークスペース単位の上限では常に 429 になる。専用の上限は AUTH-3（#147）
                     PATHS.matcher(HttpMethod.POST, "/api/auth/code"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/code/verify"),
                     PATHS.matcher("/api/public/**"));
 
     private final RateLimiterService rateLimiterService;

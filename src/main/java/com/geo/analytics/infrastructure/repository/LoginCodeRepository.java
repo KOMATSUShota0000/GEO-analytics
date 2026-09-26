@@ -1,9 +1,12 @@
 package com.geo.analytics.infrastructure.repository;
 
 import com.geo.analytics.domain.entity.LoginCode;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -32,4 +35,20 @@ public interface LoginCodeRepository extends JpaRepository<LoginCode, UUID> {
             @Param("codeHash") String codeHash,
             @Param("issuedAt") Instant issuedAt,
             @Param("expiresAt") Instant expiresAt);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM LoginCode c WHERE c.userId = :userId")
+    Optional<LoginCode> findForUpdate(@Param("userId") UUID userId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            value = "UPDATE login_codes SET failed_attempts = failed_attempts + 1 WHERE user_id = :userId AND consumed_at IS NULL",
+            nativeQuery = true)
+    int recordFailure(@Param("userId") UUID userId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            value = "UPDATE login_codes SET consumed_at = :consumedAt WHERE user_id = :userId AND consumed_at IS NULL",
+            nativeQuery = true)
+    int markConsumed(@Param("userId") UUID userId, @Param("consumedAt") Instant consumedAt);
 }

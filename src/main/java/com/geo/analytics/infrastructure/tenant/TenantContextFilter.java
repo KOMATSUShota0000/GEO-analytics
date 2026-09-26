@@ -30,6 +30,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
                     PATHS.matcher(HttpMethod.POST, "/api/login"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/refresh"),
                     PATHS.matcher(HttpMethod.POST, "/api/auth/code"),
+                    PATHS.matcher(HttpMethod.POST, "/api/auth/code/verify"),
                     PATHS.matcher("/api/public/**"));
 
     private final WorkspacePlanResolver workspacePlanResolver;
