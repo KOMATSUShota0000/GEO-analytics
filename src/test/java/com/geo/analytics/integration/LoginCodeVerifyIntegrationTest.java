@@ -38,7 +38,16 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** ログインコードの照合（#151）を、実際の PostgreSQL（RLS 有効）と Mailpit で確かめる。 */
-@SpringBootTest(classes = GeoAnalyticsApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// 同じアドレスへ続けて発行するため、送信回数の上限（#147）は外す。上限は LoginCodeSendLimitIntegrationTest で確かめる
+@SpringBootTest(
+        classes = GeoAnalyticsApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "app.auth.login-code.resend-interval=0s",
+            "app.auth.login-code.max-sends-per-address-per-hour=1000",
+            "app.auth.login-code.max-sends-per-address-per-day=1000",
+            "app.auth.login-code.max-sends-per-client-per-hour=1000"
+        })
 @ActiveProfiles("rls-it")
 class LoginCodeVerifyIntegrationTest extends PostgresTestBase {
 

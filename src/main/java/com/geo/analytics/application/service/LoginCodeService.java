@@ -3,7 +3,9 @@ package com.geo.analytics.application.service;
 import com.geo.analytics.application.service.AuthService.AuthTokenPair;
 import com.geo.analytics.domain.entity.OrganizationUser;
 import com.geo.analytics.domain.exception.LoginCodeRejectedException;
+import com.geo.analytics.domain.exception.LoginCodeSendLimitedException;
 import com.geo.analytics.infrastructure.config.AppProperties;
+import com.geo.analytics.infrastructure.ratelimit.LoginCodeSendLimiter;
 import com.geo.analytics.infrastructure.repository.OrganizationUserRepository;
 import com.geo.analytics.infrastructure.security.LoginCodeHasher;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
@@ -41,6 +43,7 @@ public class LoginCodeService {
     private final LoginCodeHasher loginCodeHasher;
     private final LoginCodeMailer loginCodeMailer;
     private final AuthService authService;
+    private final LoginCodeSendLimiter sendLimiter;
     private final Duration ttl;
     private final int maxFailedAttempts;
     private final Semaphore sendPermits = new Semaphore(MAX_CONCURRENT_SENDS);
@@ -51,12 +54,14 @@ public class LoginCodeService {
             LoginCodeHasher loginCodeHasher,
             LoginCodeMailer loginCodeMailer,
             AuthService authService,
+            LoginCodeSendLimiter sendLimiter,
             AppProperties appProperties) {
         this.organizationUserRepository = organizationUserRepository;
         this.loginCodeStore = loginCodeStore;
         this.loginCodeHasher = loginCodeHasher;
         this.loginCodeMailer = loginCodeMailer;
         this.authService = authService;
+        this.sendLimiter = sendLimiter;
         this.ttl = appProperties.getAuth().getLoginCode().getTtl();
         this.maxFailedAttempts = appProperties.getAuth().getLoginCode().getMaxFailedAttempts();
     }
@@ -67,8 +72,17 @@ public class LoginCodeService {
      * <p>ユーザーの検索は登録の有無にかかわらず同じく行い、保存と送信は別スレッドに回してすぐ戻る。
      * 送信を待ってから戻ると、登録済みのときだけ応答が遅くなり、応答時間で登録の有無が分かってしまうため。
      */
-    public void requestCode(String email) {
+    public void requestCode(String email, String clientAddress) {
         String normalized = email == null ? "" : email.strip();
+        // Why: 上限はユーザーを探す前に確かめる。登録の有無にかかわらず同じように数え、同じように断るため。
+        LoginCodeSendLimiter.Decision decision = sendLimiter.tryAcquire(normalized, clientAddress);
+        if (!decision.allowed()) {
+            throw new LoginCodeSendLimitedException(
+                    decision.rejection() == LoginCodeSendLimiter.Rejection.RESEND_TOO_SOON
+                            ? LoginCodeSendLimitedException.Kind.RESEND_TOO_SOON
+                            : LoginCodeSendLimitedException.Kind.SEND_LIMIT,
+                    decision.retryAfter());
+        }
         Optional<OrganizationUser> found =
                 organizationUserRepository.findFirstByEmailIgnoreCaseAndDeletedAtIsNullOrderByCreatedAtAsc(normalized);
         if (found.isEmpty()) {

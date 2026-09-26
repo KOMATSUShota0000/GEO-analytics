@@ -1,6 +1,7 @@
 package com.geo.analytics.web.exception;
 
 import com.geo.analytics.domain.exception.LoginCodeRejectedException;
+import com.geo.analytics.domain.exception.LoginCodeSendLimitedException;
 import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
 import com.geo.analytics.domain.exception.CredentialsRevokedException;
@@ -75,6 +76,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleLoginCodeRejected(LoginCodeRejectedException exception) {
         logger.info("Login code rejected");
         return json(HttpStatus.UNAUTHORIZED, ApiErrorResponse.of("login_code_rejected", exception.getMessage()));
+    }
+
+    @ExceptionHandler(LoginCodeSendLimitedException.class)
+    public ResponseEntity<ApiErrorResponse> handleLoginCodeSendLimited(LoginCodeSendLimitedException exception) {
+        long retryAfterSeconds = Math.max(1L, (exception.getRetryAfter().toMillis() + 999L) / 1000L);
+        String errorCode = exception.getKind() == LoginCodeSendLimitedException.Kind.RESEND_TOO_SOON
+                ? "login_code_resend_too_soon"
+                : "login_code_send_limit";
+        logger.info("Login code send limited kind={}", exception.getKind());
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds));
+        return json(
+                HttpStatus.TOO_MANY_REQUESTS,
+                headers,
+                ApiErrorResponse.of(errorCode, exception.getMessage(), Map.of("retry_after_seconds", retryAfterSeconds)));
     }
 
     @ExceptionHandler(UnauthenticatedApiException.class)
