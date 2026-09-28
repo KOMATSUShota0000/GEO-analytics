@@ -200,8 +200,9 @@ public class AsyncBatchService {
         if (geminiBatchClient.isSucceededState(state)) {
             String outputFileName = geminiBatchClient.resolveBatchOutputFileName(current);
             String outputContent = geminiBatchClient.downloadOutputFileContent(outputFileName);
+            // Why: 「解析完了」の合図はジョブの完了時に出し済み。ここでもう一度出すと、Pro 以上の解析でお知らせが
+            //      2通届き、スナップショットと最終監査日時も2回動いていた（#176）。ギャップ分析はメールの数値を変えない。
             gapAnalysisBatchProcessor.processOutputJsonl(jobId, outputContent);
-            projectAuditLifecyclePublisher.publishAuditCompleted(batchPersistence.findJobById(jobId));
         } else {
             batchPersistence.markGapAnalysisCompleted(jobId, true);
         }
