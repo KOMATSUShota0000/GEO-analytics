@@ -142,6 +142,8 @@ public class JobPersistenceService {
         this.objectMapper = objectMapper;
     }
     private UUID readWorkspaceIdForJob(UUID jobId) {
+        //jobIdからworkspaceIdをuuid型に変換して取得する。
+        //dbに文字列として保存されているが、java側ではuuid型で扱うため、文字列からuuid型に変換する必要がある。
         List<String> rows = batchJdbcTemplate.query(
             "SELECT tenant_id FROM jobs WHERE id = ?",
             ps -> ps.setObject(1, jobId),
@@ -770,6 +772,7 @@ public class JobPersistenceService {
     public void updateJobStatus(UUID jobId, JobStatus newJobStatus, String errorMessage) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantPlanScope.executeWithTenant(tenantId, () -> {
+            //リポジトリを使ってidでjobを探している。そしてみつかったjobに対してstatusやエラーメッセージをセットしてる
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             jobEntity.setJobStatus(newJobStatus);
