@@ -132,9 +132,7 @@ public class JobQuerySubmissionService {
             //ここまで読んだ。
 
             UUID organizationId = resolveOrganizationId(workspaceId);
-            // Why: 新しいクエリ束の投入はジョブを再オープンする（完了済みジョブにも追加できる）。
-            //      旧実装はこれを EXTRACTING_COMPETITORS への巻き戻しで表現していたが、競合とは
-            //      無関係な仕組みなので CREATED へ戻す形に改める。
+            
             jobPersistenceService.updateJobStatus(jobId, JobStatus.CREATED, null);
             scheduleHybridContinuation(
                     jobId, queryTexts, planEnum, workspaceId, organizationId, true, realtimeDeposit, workspaceId);
