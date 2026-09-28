@@ -88,6 +88,8 @@ class ProjectNotificationIntegrationTest extends PostgresTestBase {
 
         assertThat(settings).isPresent();
         assertThat(settings.get().notificationEmails()).containsExactly("Owner@Example.com", "team@example.com");
+        assertThat(settings.get().projectName()).isEqualTo("通知テスト案件");
+        assertThat(settings.get().targetUrl()).isEqualTo("https://example.com");
     }
 
     @Test

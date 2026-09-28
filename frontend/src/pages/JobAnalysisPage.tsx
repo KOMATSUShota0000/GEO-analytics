@@ -112,7 +112,7 @@ function ProjectInfoBlock({
           to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
           className="pdf-no-print text-xs font-semibold text-indigo-600 hover:text-indigo-800"
         >
-          定期監査・通知設定
+          プロジェクト設定
         </RouterLink>
       </div>
       <p className="mt-2 text-sm text-slate-600">
