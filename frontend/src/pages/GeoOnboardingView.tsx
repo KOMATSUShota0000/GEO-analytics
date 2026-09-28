@@ -430,7 +430,7 @@ export default function GeoOnboardingView(): JSX.Element {
           </Stack>
         )}
         <Button sx={{ mt: 2 }} onClick={() => navigate(`/projects/${projectId}/settings`)}>
-          設定へ
+          プロジェクト設定へ
         </Button>
         <Backdrop open={extracting} sx={{ color: "#fff", zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Stack alignItems="center" gap={1}>

@@ -91,6 +91,8 @@ public class ProjectSettingsService {
     private ProjectSettingsResponse toResponse(ProjectEntity projectEntity) {
         return new ProjectSettingsResponse(
             projectEntity.getId(),
+            projectEntity.getName(),
+            projectEntity.getTargetUrl(),
             projectEntity.isAutoAuditEnabled(),
             projectEntity.getNotificationEmails(),
             projectEntity.getLastAuditAt());

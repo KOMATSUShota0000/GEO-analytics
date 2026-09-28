@@ -10,6 +10,8 @@ import java.util.UUID;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record ProjectSettingsResponse(
     @JsonProperty("project_id") UUID projectId,
+    @JsonProperty("project_name") String projectName,
+    @JsonProperty("target_url") String targetUrl,
     @JsonProperty("auto_audit_enabled") boolean autoAuditEnabled,
     @JsonProperty("notification_emails") List<String> notificationEmails,
     @JsonProperty("last_audit_at") LocalDateTime lastAuditAt) {
