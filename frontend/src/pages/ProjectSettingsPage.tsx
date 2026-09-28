@@ -2,8 +2,10 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Container,
   FormControlLabel,
+  Link,
   Snackbar,
   Stack,
   Switch,
@@ -15,15 +17,17 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "../api/apiFetch";
 
-const SLACK_PREFIX = "https://hooks.slack.com/";
+const MAX_NOTIFICATION_EMAILS = 3;
+const SLACK_CHANNEL_EMAIL_HELP_URL = "https://slack.com/intl/ja-jp/help/articles/206819278";
+const LOAD_FAILED = "設定を読み込めませんでした。時間をおいて再度お試しください。";
+const SAVE_FAILED = "保存できませんでした。時間をおいて再度お試しください。";
 const EMAIL_RE =
   /^[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 
 type ProjectSettings = {
   projectId: string;
   autoAuditEnabled: boolean;
-  slackWebhookUrl: string | null;
-  notificationEmail: string | null;
+  notificationEmails: string[];
   lastAuditAt: string | null;
 };
 
@@ -35,18 +39,9 @@ function parseSettings(raw: unknown): ProjectSettings | null {
   return {
     projectId: r.projectId,
     autoAuditEnabled: r.autoAuditEnabled,
-    slackWebhookUrl:
-      r.slackWebhookUrl === undefined || r.slackWebhookUrl === null
-        ? null
-        : typeof r.slackWebhookUrl === "string"
-          ? r.slackWebhookUrl
-          : null,
-    notificationEmail:
-      r.notificationEmail === undefined || r.notificationEmail === null
-        ? null
-        : typeof r.notificationEmail === "string"
-          ? r.notificationEmail
-          : null,
+    notificationEmails: Array.isArray(r.notificationEmails)
+      ? r.notificationEmails.filter((v): v is string => typeof v === "string")
+      : [],
     lastAuditAt:
       r.lastAuditAt === undefined || r.lastAuditAt === null
         ? null
@@ -75,10 +70,11 @@ export default function ProjectSettingsPage(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [autoAudit, setAutoAudit] = useState(false);
-  const [slackUrl, setSlackUrl] = useState("");
-  const [email, setEmail] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ slack?: string; email?: string }>({});
+  const [emails, setEmails] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [draftError, setDraftError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -87,15 +83,15 @@ export default function ProjectSettingsPage(): JSX.Element {
     try {
       const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/settings`);
       if (!res.ok) {
-        throw new Error(await res.text());
+        throw new Error(res.status === 404 ? "このプロジェクトが見つかりませんでした。" : LOAD_FAILED);
       }
       const parsed = parseSettings(await responseJsonAsCamel(res));
-      if (!parsed) throw new Error("設定の形式が不正です");
+      if (!parsed) throw new Error(LOAD_FAILED);
       setAutoAudit(parsed.autoAuditEnabled);
-      setSlackUrl(parsed.slackWebhookUrl ?? "");
-      setEmail(parsed.notificationEmail ?? "");
+      setEmails(parsed.notificationEmails);
+      setLoaded(true);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : LOAD_FAILED);
     } finally {
       setLoading(false);
     }
@@ -105,22 +101,41 @@ export default function ProjectSettingsPage(): JSX.Element {
     void load();
   }, [load]);
 
-  const validate = useCallback((): boolean => {
-    const next: { slack?: string; email?: string } = {};
-    const s = slackUrl.trim();
-    if (s.length > 0 && !s.startsWith(SLACK_PREFIX)) {
-      next.slack = `Slack Webhookは ${SLACK_PREFIX} で始まる必要があります`;
+  // 入力欄に打ったまま「追加」を押さずに保存しても取りこぼさないよう、保存時にも同じ確認を通す。
+  const withDraft = useCallback((): string[] | null => {
+    const candidate = draft.trim();
+    if (candidate.length === 0) return emails;
+    if (!EMAIL_RE.test(candidate)) {
+      setDraftError("メールアドレスの形式になっていません");
+      return null;
     }
-    const em = email.trim();
-    if (em.length > 0 && !EMAIL_RE.test(em)) {
-      next.email = "メール形式が正しくありません";
+    if (emails.some((e) => e.toLowerCase() === candidate.toLowerCase())) {
+      setDraftError("このアドレスはすでに登録されています");
+      return null;
     }
-    setFieldErrors(next);
-    return Object.keys(next).length === 0;
-  }, [slackUrl, email]);
+    if (emails.length >= MAX_NOTIFICATION_EMAILS) {
+      setDraftError(`登録できるのは${MAX_NOTIFICATION_EMAILS}件までです`);
+      return null;
+    }
+    return [...emails, candidate];
+  }, [draft, emails]);
+
+  const addDraft = useCallback(() => {
+    const next = withDraft();
+    if (next === null) return;
+    setEmails(next);
+    setDraft("");
+    setDraftError(null);
+  }, [withDraft]);
+
+  const removeEmail = useCallback((target: string) => {
+    setEmails((prev) => prev.filter((e) => e !== target));
+  }, []);
 
   const save = async () => {
-    if (!projectId || !validate()) return;
+    if (!projectId) return;
+    const nextEmails = withDraft();
+    if (nextEmails === null) return;
     setSaving(true);
     setError(null);
     try {
@@ -129,23 +144,23 @@ export default function ProjectSettingsPage(): JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           auto_audit_enabled: autoAudit,
-          slack_webhook_url: slackUrl.trim(),
-          notification_email: email.trim(),
+          notification_emails: nextEmails,
         }),
       });
       if (!res.ok) {
-        const t = await res.text();
-        let msg = t || `HTTP ${res.status}`;
+        let msg = SAVE_FAILED;
         try {
-          const o = parseJsonTextAsCamel(t) as { detail?: string };
-          if (typeof o.detail === "string") msg = o.detail;
+          const o = parseJsonTextAsCamel(await res.text()) as { message?: unknown };
+          if (res.status === 400 && typeof o.message === "string" && o.message.length > 0) msg = o.message;
         } catch {}
         throw new Error(msg);
       }
+      setDraft("");
+      setDraftError(null);
       setToast("設定を保存しました");
       void load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : SAVE_FAILED);
     } finally {
       setSaving(false);
     }
@@ -189,7 +204,7 @@ export default function ProjectSettingsPage(): JSX.Element {
         )}
         {loading ? (
           <Typography color="text.secondary">読み込み中…</Typography>
-        ) : (
+        ) : !loaded ? null : (
           <Stack spacing={3}>
             <Box sx={{ borderRadius: 2, border: 1, borderColor: "divider", p: 2 }}>
               <Typography variant="subtitle1" fontWeight={700} gutterBottom>
@@ -199,27 +214,56 @@ export default function ProjectSettingsPage(): JSX.Element {
                 control={<Switch checked={autoAudit} onChange={(_, v) => setAutoAudit(v)} color="primary" />}
                 label="毎月1日2:00（日本時間）に自動監査を実行"
               />
-              <TextField
-                label="Slack Incoming Webhook URL"
-                value={slackUrl}
-                onChange={(e) => setSlackUrl(e.target.value)}
-                fullWidth
-                margin="normal"
-                placeholder="https://hooks.slack.com/services/..."
-                error={Boolean(fieldErrors.slack)}
-                helperText={fieldErrors.slack ?? "空欄でSlack通知を無効化"}
-              />
-              <TextField
-                label="通知メールアドレス"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                fullWidth
-                margin="normal"
-                type="email"
-                autoComplete="email"
-                error={Boolean(fieldErrors.email)}
-                helperText={fieldErrors.email ?? "SMTP設定済みの環境でのみ送信されます"}
-              />
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 2 }}>
+                通知先メールアドレス（{MAX_NOTIFICATION_EMAILS}件まで）
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                解析が終わると、登録したアドレスへお知らせが届きます。
+              </Typography>
+              {emails.length > 0 && (
+                <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1} sx={{ mt: 1.5 }}>
+                  {emails.map((e) => (
+                    <Chip key={e} label={e} onDelete={() => removeEmail(e)} />
+                  ))}
+                </Stack>
+              )}
+              <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: 1.5 }}>
+                <TextField
+                  label="メールアドレスを追加"
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    setDraftError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      addDraft();
+                    }
+                  }}
+                  fullWidth
+                  size="small"
+                  type="email"
+                  autoComplete="email"
+                  disabled={emails.length >= MAX_NOTIFICATION_EMAILS}
+                  error={Boolean(draftError)}
+                  helperText={draftError ?? (emails.length >= MAX_NOTIFICATION_EMAILS ? `${MAX_NOTIFICATION_EMAILS}件まで登録済みです。変えるときは不要なアドレスを消してください。` : " ")}
+                />
+                <Button
+                  variant="outlined"
+                  onClick={addDraft}
+                  disabled={emails.length >= MAX_NOTIFICATION_EMAILS || draft.trim().length === 0}
+                  sx={{ flexShrink: 0, mt: 0.25 }}
+                >
+                  追加
+                </Button>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Slackで受け取りたい場合は、チャンネルのメールアドレスを追加してください（Slackの有料プランで発行できます）。{" "}
+                <Link href={SLACK_CHANNEL_EMAIL_HELP_URL} target="_blank" rel="noreferrer">
+                  発行のしかた
+                </Link>
+              </Typography>
               <Button variant="contained" size="large" onClick={() => void save()} disabled={saving} sx={{ mt: 2 }}>
                 {saving ? "保存中…" : "設定を保存"}
               </Button>
