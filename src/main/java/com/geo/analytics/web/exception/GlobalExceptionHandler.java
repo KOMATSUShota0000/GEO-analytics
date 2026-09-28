@@ -4,6 +4,7 @@ import com.geo.analytics.domain.exception.LoginCodeRejectedException;
 import com.geo.analytics.domain.exception.LoginCodeSendLimitedException;
 import com.geo.analytics.domain.exception.AccountDisabledException;
 import com.geo.analytics.domain.exception.AiAnalysisTimeoutException;
+import com.geo.analytics.domain.exception.CheckoutUnavailableException;
 import com.geo.analytics.domain.exception.ForbiddenApiException;
 import com.geo.analytics.domain.exception.InsufficientQuotaException;
 import com.geo.analytics.domain.exception.RateLimitExceededException;
@@ -84,6 +85,13 @@ public class GlobalExceptionHandler {
                 HttpStatus.TOO_MANY_REQUESTS,
                 headers,
                 ApiErrorResponse.of(errorCode, exception.getMessage(), Map.of("retry_after_seconds", retryAfterSeconds)));
+    }
+
+    @ExceptionHandler(CheckoutUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> handleCheckoutUnavailable(CheckoutUnavailableException exception) {
+        return exception.getKind() == CheckoutUnavailableException.Kind.NOT_CONFIGURED
+                ? json(HttpStatus.SERVICE_UNAVAILABLE, ApiErrorResponse.of("billing_not_configured", exception.getMessage()))
+                : json(HttpStatus.BAD_GATEWAY, ApiErrorResponse.of("billing_temporarily_unavailable", exception.getMessage()));
     }
 
     @ExceptionHandler(UnauthenticatedApiException.class)

@@ -7,13 +7,19 @@ import {
   type WorkspaceSubscriptionPlan,
 } from "../api/workspace-api";
 import { PlanComparison, type PlanSpec } from "../pricing/planCatalog";
-import { createCheckoutSession } from "../api/billing-api";
+import { createCheckoutSession, type CheckoutFailureReason } from "../api/billing-api";
 import { resolvePricingReturnTo } from "../pricing/pricingReturn";
 
 // Stripe 連携までは mailto: で問い合わせを受ける
 const CONTACT_EMAIL = "hariboikatu.2525@gmail.com";
 const DEMO_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("GEO Analytics Proプランのデモ申し込み")}`;
 const INQUIRY_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("GEO Analytics プランについてのお問い合わせ")}`;
+
+const CHECKOUT_FAILURE_MESSAGES: Record<CheckoutFailureReason, string> = {
+  not_configured:
+    "現在、オンラインでのお申し込みを受け付けられません。お手数ですが、画面下の「お問い合わせ」からご連絡ください。",
+  temporarily_unavailable: "決済ページを開けませんでした。少し時間をおいて、もう一度お試しください。",
+};
 
 function PlanSwitcher(): JSX.Element {
   const [currentPlan, setCurrentPlan] = useState<WorkspaceSubscriptionPlan | null>(null);
@@ -91,13 +97,13 @@ export default function PricingPage(): JSX.Element {
   const startCheckout = async (plan: WorkspaceSubscriptionPlan) => {
     setCheckoutError(null);
     setCheckoutPlan(plan);
-    const url = await createCheckoutSession(plan);
-    if (url) {
-      window.location.href = url;
+    const result = await createCheckoutSession(plan);
+    if (result.ok) {
+      window.location.href = result.url;
       return;
     }
     setCheckoutPlan(null);
-    setCheckoutError("決済ページの起動に失敗しました。時間をおいて再度お試しください。");
+    setCheckoutError(CHECKOUT_FAILURE_MESSAGES[result.reason]);
   };
 
   return (
