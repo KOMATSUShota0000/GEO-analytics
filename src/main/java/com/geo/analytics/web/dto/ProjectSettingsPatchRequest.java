@@ -1,9 +1,9 @@
 package com.geo.analytics.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.List;
 
 public record ProjectSettingsPatchRequest(
     @JsonProperty("auto_audit_enabled") Boolean autoAuditEnabled,
-    @JsonProperty("slack_webhook_url") String slackWebhookUrl,
-    @JsonProperty("notification_email") String notificationEmail) {
+    @JsonProperty("notification_emails") List<String> notificationEmails) {
 }

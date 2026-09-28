@@ -15,7 +15,9 @@ import org.hibernate.type.SqlTypes;
 import com.geo.analytics.domain.model.MinorityReport;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 @Entity
 @Table(name = "projects")
@@ -38,10 +40,10 @@ public class ProjectEntity extends BaseTenantEntity {
     private LocalDateTime updatedAt;
     @Column(name = "auto_audit_enabled", nullable = false)
     private boolean autoAuditEnabled = false;
-    @Column(name = "slack_webhook_url", length = 2048)
-    private String slackWebhookUrl;
-    @Column(name = "notification_email", length = 320)
-    private String notificationEmail;
+    // Why: List<String> で持つと Hibernate 6.6 がスキーマ検証で JSON 型を期待して起動できないため、配列で持ち、外へは List で渡す（#174）。
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "notification_emails", nullable = false, columnDefinition = "text[]")
+    private String[] notificationEmails = new String[0];
     @Column(name = "last_audit_at")
     private LocalDateTime lastAuditAt;
     @Enumerated(EnumType.STRING)
@@ -104,17 +106,11 @@ public class ProjectEntity extends BaseTenantEntity {
     public void setAutoAuditEnabled(boolean autoAuditEnabled) {
         this.autoAuditEnabled = autoAuditEnabled;
     }
-    public String getSlackWebhookUrl() {
-        return slackWebhookUrl;
+    public List<String> getNotificationEmails() {
+        return notificationEmails != null ? Arrays.stream(notificationEmails).filter(Objects::nonNull).toList() : List.of();
     }
-    public void setSlackWebhookUrl(String slackWebhookUrl) {
-        this.slackWebhookUrl = slackWebhookUrl;
-    }
-    public String getNotificationEmail() {
-        return notificationEmail;
-    }
-    public void setNotificationEmail(String notificationEmail) {
-        this.notificationEmail = notificationEmail;
+    public void setNotificationEmails(List<String> notificationEmails) {
+        this.notificationEmails = notificationEmails != null ? notificationEmails.toArray(String[]::new) : new String[0];
     }
     public LocalDateTime getLastAuditAt() {
         return lastAuditAt;
@@ -159,6 +155,9 @@ public class ProjectEntity extends BaseTenantEntity {
         }
         if (minorityReports == null) {
             minorityReports = new ArrayList<>();
+        }
+        if (notificationEmails == null) {
+            notificationEmails = new String[0];
         }
     }
     @PreUpdate
