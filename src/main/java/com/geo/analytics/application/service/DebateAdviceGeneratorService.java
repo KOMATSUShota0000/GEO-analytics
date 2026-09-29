@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.application.dto.DebateJobFacts;
 import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.ai.DebatePersona;
@@ -15,6 +16,7 @@ import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
+import com.geo.analytics.infrastructure.ai.DebateMaterialFormatter;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
@@ -124,16 +126,19 @@ public class DebateAdviceGeneratorService {
      *
      * @param tasks 改善タスク（{@link com.geo.analytics.domain.model.RemediationTaskOrder} の順）。
      *              ロードマップはこの番号で範囲を指す。無い解析では空
+     * @param jobFacts 依頼時の事業情報とサイト診断の結果。議論の材料になる（#195）。無ければ {@code null}
      */
     public JobAdvice generateForJob(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
-            List<RemediationTask> tasks) {
+            List<RemediationTask> tasks,
+            DebateJobFacts jobFacts) {
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(project, "project");
         SubscriptionPlan resolvedPlan = plan == null ? SubscriptionPlan.STANDARD : plan;
         List<RemediationTask> orderedTasks = tasks == null ? List.of() : List.copyOf(tasks);
+        DebateJobFacts facts = jobFacts == null ? DebateJobFacts.empty() : jobFacts;
 
         if (rows.isEmpty()) {
             // 行が無い場合はテンプレ実装と同じ空応答（呼び出し元の整合性のため）
@@ -154,7 +159,7 @@ public class DebateAdviceGeneratorService {
         //      核の第一項に挙げる体験であり、プランで有無を分けると「改善提案の質」がプランで別物になる。
         //      課金識別子が揃わない場合だけは、チケットを予約できないため単発生成へ落とす。
         if (project.hasBillingIdentity()) {
-            return generateWithShortDebate(rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks);
+            return generateWithShortDebate(rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks, facts);
         }
         return generateSingleShot(rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks, null);
     }
@@ -170,13 +175,14 @@ public class DebateAdviceGeneratorService {
             Double medZ,
             int medSt,
             StrategyInsight hint,
-            List<RemediationTask> tasks) {
+            List<RemediationTask> tasks,
+            DebateJobFacts facts) {
         // 非同期 gap analysis スレッドは ScopedValue（テナントコンテキスト）が未バインドのため、
         // CreditVaultService が要求する organizationId を project から復元して確立する。
         TenantIdentity identity =
                 new TenantIdentity(project.organizationId(), project.workspaceId(), null);
         return ScopedValue.where(TenantContextHolder.CONTEXT, identity)
-                .call(() -> reserveDebateAndGenerate(rows, project, plan, medZ, medSt, hint, tasks));
+                .call(() -> reserveDebateAndGenerate(rows, project, plan, medZ, medSt, hint, tasks, facts));
     }
 
     private JobAdvice reserveDebateAndGenerate(
@@ -186,10 +192,11 @@ public class DebateAdviceGeneratorService {
             Double medZ,
             int medSt,
             StrategyInsight hint,
-            List<RemediationTask> tasks) {
+            List<RemediationTask> tasks,
+            DebateJobFacts facts) {
         UUID reservationId = creditVaultService.reserve(project.projectId(), DEBATE_CREDIT);
         try {
-            String transcript = runShortDebate(rows, project, medZ, medSt, tasks);
+            String transcript = runShortDebate(rows, project, tasks, facts);
             JobAdvice result = generateSingleShot(rows, project, plan, medZ, medSt, hint, tasks, transcript);
             creditVaultService.settle(reservationId, DEBATE_CREDIT, "debate_advice_pro");
             SECURITY_AUDIT.info(
@@ -396,11 +403,10 @@ public class DebateAdviceGeneratorService {
     private String runShortDebate(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
-            Double medZ,
-            int medSt,
-            List<RemediationTask> tasks) {
+            List<RemediationTask> tasks,
+            DebateJobFacts facts) {
         IndustryType industry = project.industryType();
-        String baseContext = buildDebateContext(rows, project, medZ, medSt, tasks);
+        String baseContext = buildDebateContext(rows, project, tasks, facts);
         StringBuilder accumulator = new StringBuilder();
 
         for (int turn = 0; turn < SHORT_DEBATE_TURNS; turn++) {
@@ -441,14 +447,18 @@ public class DebateAdviceGeneratorService {
         return accumulator.toString();
     }
 
-    private String buildDebateContext(
+    /**
+     * Why: 指標の中央値（改Z'・Visibility Stage）を渡していた頃は、発言がその数値の一般論になっていた（#195）。
+     * 1問ごとの結果と診断の所見を渡し、主張の根拠に具体的な質問・数・他社名を挙げさせる。
+     */
+    static String buildDebateContext(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
-            Double medZ,
-            int medSt,
-            List<RemediationTask> tasks) {
+            List<RemediationTask> tasks,
+            DebateJobFacts facts) {
         StringBuilder sb = new StringBuilder();
-        sb.append("以下の GEO 可視性解析結果について議論せよ。\n\n");
+        sb.append("以下の GEO 可視性解析結果について議論せよ。")
+                .append("主張には、【測定の事実】にある具体的な質問・数・他社名・診断の所見を根拠として挙げること。\n\n");
         sb.append("【企業プロファイル】\n");
         sb.append("業種: ").append(project.industryType()).append("\n");
         if (project.targetAudience() != null && !project.targetAudience().isBlank()) {
@@ -457,12 +467,7 @@ public class DebateAdviceGeneratorService {
         if (project.extractedStrengths() != null && !project.extractedStrengths().isBlank()) {
             sb.append("自社の強み:\n").append(project.extractedStrengths()).append("\n");
         }
-        sb.append("\n【解析統計】\n");
-        sb.append("解析対象クエリ数: ").append(rows.size()).append("\n");
-        if (medZ != null) {
-            sb.append("中央値 改Z': ").append(String.format(Locale.ROOT, "%.2f", medZ)).append("\n");
-        }
-        sb.append("中央値 Visibility Stage: ").append(medSt).append("\n");
+        sb.append('\n').append(DebateMaterialFormatter.format(rows, facts));
         appendTaskList(sb, tasks);
         return sb.toString();
     }

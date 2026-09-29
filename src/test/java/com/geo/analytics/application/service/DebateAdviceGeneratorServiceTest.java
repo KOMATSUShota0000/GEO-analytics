@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.geo.analytics.application.dto.DebateJobFacts;
 import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
@@ -120,7 +121,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(director, persona, credit);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         // 2 ターン × 3 ペルソナ = 6 回の議論 LLM 呼び出し
@@ -145,7 +146,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(director, persona, credit);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of(), null).insight();
 
         // 議論は失敗したが Free パス（単発 director）で結果が返る
         assertThat(result.diagnosticMessage()).contains("B2B");
@@ -165,7 +166,7 @@ class DebateAdviceGeneratorServiceTest {
 
         // 課金識別子を持たない context() を渡すと、PRO でも議論は起動しない
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.PRO, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.PRO, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         verify(persona, never()).chat(any(ChatRequest.class));
@@ -177,7 +178,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = mock(ChatLanguageModel.class);
         DebateAdviceGeneratorService svc = newService(model);
 
-        StrategyInsight result = svc.generateForJob(List.of(), context(), SubscriptionPlan.STANDARD, List.of()).insight();
+        StrategyInsight result = svc.generateForJob(List.of(), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).isNull();
         assertThat(result.recommendedActions()).isEmpty();
@@ -190,7 +191,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
     }
@@ -205,7 +206,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
         assertThat(result.recommendedActions()).isEmpty();
@@ -225,7 +226,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = modelReturning(json);
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of());
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null);
 
         assertThat(advice.minorityReports()).hasSize(2);
         assertThat(advice.minorityReports().getFirst().insight()).isEqualTo("業界統計を自社で作る");
@@ -238,7 +239,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = modelReturning(VALID_JSON);
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of());
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null);
 
         assertThat(advice.minorityReports()).isEmpty();
     }
@@ -260,7 +261,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = modelReturning(json);
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of());
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null);
 
         assertThat(advice.roadmapItems()).hasSize(3);
         assertThat(advice.roadmapItems().stream().map(i -> i.phase().name()).toList())
@@ -273,7 +274,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = modelReturning(VALID_JSON);
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of());
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null);
 
         assertThat(advice.roadmapItems()).isEmpty();
     }
@@ -286,7 +287,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.0, 6)), context(), SubscriptionPlan.STANDARD, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.0, 6)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).isEqualTo("テスト診断");
     }
@@ -301,7 +302,7 @@ class DebateAdviceGeneratorServiceTest {
                                 svc.generateForJob(
                                         List.of(rowWith(-0.5, 8)),
                                         context(),
-                                        SubscriptionPlan.STANDARD, List.of()))
+                                        SubscriptionPlan.STANDARD, List.of(), null))
                 .isInstanceOf(DebateAdviceGeneratorService.DebateAdviceGenerationException.class)
                 .hasMessageContaining("LLM call failed");
     }
@@ -316,7 +317,7 @@ class DebateAdviceGeneratorServiceTest {
                                 svc.generateForJob(
                                         List.of(rowWith(0.0, 5)),
                                         context(),
-                                        SubscriptionPlan.STANDARD, List.of()))
+                                        SubscriptionPlan.STANDARD, List.of(), null))
                 .isInstanceOf(DebateAdviceGeneratorService.DebateAdviceGenerationException.class)
                 .hasMessageContaining("JSON parse failed");
     }
@@ -333,7 +334,7 @@ class DebateAdviceGeneratorServiceTest {
                                 svc.generateForJob(
                                         List.of(rowWith(0.0, 5)),
                                         context(),
-                                        SubscriptionPlan.STANDARD, List.of()))
+                                        SubscriptionPlan.STANDARD, List.of(), null))
                 .isInstanceOf(DebateAdviceGeneratorService.DebateAdviceGenerationException.class)
                 .hasMessageContaining("empty");
     }
@@ -349,7 +350,7 @@ class DebateAdviceGeneratorServiceTest {
         DebateAdviceGeneratorService svc = newService(model);
 
         StrategyInsight result =
-                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of()).insight();
+                svc.generateForJob(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
 
         assertThat(result.diagnosticMessage()).hasSize(300);
     }
@@ -369,7 +370,7 @@ class DebateAdviceGeneratorServiceTest {
                                 svc.generateForJob(
                                         List.of(rowWith(0.0, 5)),
                                         context(),
-                                        SubscriptionPlan.STANDARD, List.of()))
+                                        SubscriptionPlan.STANDARD, List.of(), null))
                 .isInstanceOf(DebateAdviceGeneratorService.DebateAdviceGenerationException.class)
                 .hasMessageContaining("JSON parse failed");
     }
@@ -407,7 +408,7 @@ class DebateAdviceGeneratorServiceTest {
                 modelReturning(roadmapJson(phase("MID_TERM", 5), phase("NOW", 2), phase("SHORT_TERM", 4)));
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(5));
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(5), null);
 
         assertThat(advice.roadmapItems().stream().map(RoadmapItem::phase).toList())
                 .containsExactly(RoadmapPhase.NOW, RoadmapPhase.SHORT_TERM, RoadmapPhase.MID_TERM);
@@ -422,7 +423,7 @@ class DebateAdviceGeneratorServiceTest {
                 modelReturning(roadmapJson(phase("NOW", 3), phase("SHORT_TERM", 2), phase("MID_TERM", 4)));
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(6));
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(6), null);
 
         assertThat(ranges(advice.roadmapItems()))
                 .containsExactly(new int[] {1, 3}, new int[] {4, 4}, new int[] {5, 6});
@@ -435,7 +436,7 @@ class DebateAdviceGeneratorServiceTest {
                 roadmapJson(phase("NOW", 1), phase("NOW", 2), phase("SHORT_TERM", 9), phase("MID_TERM", 9)));
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(3));
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, tasks(3), null);
 
         assertThat(advice.roadmapItems().stream().map(RoadmapItem::phase).toList())
                 .containsExactly(RoadmapPhase.NOW, RoadmapPhase.SHORT_TERM);
@@ -448,7 +449,7 @@ class DebateAdviceGeneratorServiceTest {
         ChatLanguageModel model = modelReturning(roadmapJson(phase("NOW", 0), phase("SHORT_TERM", 0)));
         DebateAdviceGeneratorService svc = newService(model);
 
-        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of());
+        var advice = svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, List.of(), null);
 
         assertThat(advice.roadmapItems()).hasSize(2);
         assertThat(advice.roadmapItems()).allSatisfy(i -> {
@@ -466,7 +467,7 @@ class DebateAdviceGeneratorServiceTest {
                 task(TaskPriority.S, TaskCategory.SPIKE, "料金の目安を書く"),
                 task(TaskPriority.S, TaskCategory.SLAB, "料金ページを作る"));
 
-        svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, ordered);
+        svc.generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.STANDARD, ordered, null);
 
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
         verify(model).chat(captor.capture());
@@ -477,5 +478,43 @@ class DebateAdviceGeneratorServiceTest {
                 .contains("1. [効果 大・すぐ直せる] 料金の目安を書く")
                 .contains("2. [効果 大・時間がかかる] 料金ページを作る");
         assertThat(system).contains("時間割").contains("last_task_number").doesNotContain("recommended_actions");
+    }
+
+    /** #195: 議論の前提には指標名（改Z'・Visibility Stage）ではなく、1問ごとの測定の事実を載せる。 */
+    @Test
+    void debateContextCarriesMeasurementFactsInsteadOfMetricNames() {
+        AuditHistoryEntity row = rowWith(0.5, 4);
+        row.setQuery("地元 工務店");
+        row.setBrandMentioned(true);
+        row.setMentionRank(2);
+
+        String debateContext = DebateAdviceGeneratorService.buildDebateContext(
+                List.of(row), context(), List.of(), new DebateJobFacts("注文住宅", null, null, null));
+
+        assertThat(debateContext)
+                .contains("【測定の事実】")
+                .contains("1. 「地元 工務店」→ 社名が出た（回答の中で2番目）")
+                .contains("事業の概要: 注文住宅")
+                .doesNotContain("改Z'")
+                .doesNotContain("Visibility Stage");
+    }
+
+    /** #195: 短縮版議論のアナリストは、測定の事実を前提に発言する。 */
+    @Test
+    void shortDebatePersonasReceiveMeasurementFacts() {
+        ChatLanguageModel director = modelReturning(VALID_JSON);
+        ChatLanguageModel persona = modelReturning("ペルソナの主張テキスト");
+        CreditVaultService credit = mock(CreditVaultService.class);
+        when(credit.reserve(any(), eq(DebateAdviceGeneratorService.DEBATE_CREDIT))).thenReturn(UUID.randomUUID());
+        DebateAdviceGeneratorService svc = newService(director, persona, credit);
+        AuditHistoryEntity row = rowWith(0.5, 4);
+        row.setQuery("地元 工務店");
+
+        svc.generateForJob(List.of(row), billingContext(), SubscriptionPlan.PRO, List.of(), DebateJobFacts.empty());
+
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(persona, times(DebateAdviceGeneratorService.SHORT_DEBATE_TURNS * 3)).chat(captor.capture());
+        String analystFirstTurn = ((UserMessage) captor.getAllValues().get(0).messages().get(1)).singleText();
+        assertThat(analystFirstTurn).contains("【測定の事実】").contains("1. 「地元 工務店」→ 社名は出なかった");
     }
 }

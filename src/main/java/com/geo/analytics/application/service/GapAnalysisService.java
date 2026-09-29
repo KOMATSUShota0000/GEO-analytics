@@ -1,5 +1,6 @@
 package com.geo.analytics.application.service;
 
+import com.geo.analytics.application.dto.DebateJobFacts;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
@@ -62,6 +63,11 @@ public final class GapAnalysisService {
         return RemediationTaskOrder.sort(batchPersistence.findRemediationTasks(latest.getId()));
     }
 
+    private static DebateJobFacts debateJobFactsOf(JobEntity job) {
+        return new DebateJobFacts(
+                job.getBusinessSummary(), job.getTargetAudience(), job.getFocusPoints(), job.getSelfRubricAuditJson());
+    }
+
     public void runForJob(UUID jobId) {
         JobEntity jobEntity = batchPersistence.findJobById(jobId);
         SubscriptionPlan plan = Objects.requireNonNullElse(jobEntity.getAppliedPlan(), SubscriptionPlan.STANDARD);
@@ -91,7 +97,8 @@ public final class GapAnalysisService {
         List<RoadmapItem> roadmapItems = null;
         if (projectContext != null) {
             var rollupWithSource =
-                    strategyInsightService.rollupJobWithSource(rows, projectContext, plan, loadTasksForDebate(rows));
+                    strategyInsightService.rollupJobWithSource(
+                            rows, projectContext, plan, loadTasksForDebate(rows), debateJobFactsOf(jobEntity));
             rollup = rollupWithSource.insight();
             adviceSource = rollupWithSource.source().name();
             if (rollupWithSource.source() == AdviceSource.AI) {
