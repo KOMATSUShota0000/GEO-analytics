@@ -43,4 +43,4 @@
 - `PlanBasedQuotaManagerRlsIntegrationTest` の3件（PRO の枠の大きさ・EXPERT で1回解析できること・返答のプラン）は、直す前のコードでは3件とも失敗した（100トークン・STANDARD・消費できない）。直した後は通る
 - `WorkspacePlanResolver` も、行が見つからないときは STANDARD を返す。今回は RLS を通らないので見つからないことは起きないが、「見えないのに黙って STANDARD」という形そのものは残っている
 - `configurationForWorkspace` と `resolveWorkspacePlan` の中にあったオーナーの理解メモ2か所は、説明していたコードと一緒に消した（オーナー確認済み）
-- 調べる途中で、同じ形の疑いをもう1か所見つけた。`ScheduledProjectAuditService.executeMonthlyAuditForProject` は `@Transactional` なしで `projectRepository.findById` を呼んでいるため、定期監査はプロジェクトが見えずに黙って終わっている可能性がある。本 ADR の範囲外として別に扱う
+- 調べる途中で、同じ形の疑いをもう1か所見つけた。`ScheduledProjectAuditService.executeMonthlyAuditForProject` は `@Transactional` なしで `projectRepository.findById` を呼んでいるため、定期監査はプロジェクトが見えずに黙って終わっている可能性がある。定期監査の作り直し（#177）で扱う（同 issue にコメントで申し送った）
