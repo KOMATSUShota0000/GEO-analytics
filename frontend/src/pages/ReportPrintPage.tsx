@@ -10,6 +10,9 @@ import { getAccessToken, tryRestoreSession } from "../auth/authSession";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
+import { GrowthTrajectoryChart } from "../components/strategy/GrowthTrajectoryChart";
+import { useGrowthTrend } from "../hooks/useGrowthTrend";
+import { growthTrendRangeForJob } from "../lib/growthTrendRange";
 import {
   formatAuditDate,
   mergeJobAnalysisWithPdfContext,
@@ -86,6 +89,13 @@ export default function ReportPrintPage(): JSX.Element {
     data && isCompletedJobStatus(data.jobStatus) && Array.isArray(data.results) ? data.results : [];
 
   const analysisReady = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
+
+  const growthTrendRange = useMemo(() => growthTrendRangeForJob(resultRows), [resultRows]);
+  const growthTrend = useGrowthTrend(
+    data !== null && isCompletedJobStatus(data.jobStatus) ? (data.project?.projectId?.trim() ?? "") : "",
+    growthTrendRange,
+    false,
+  );
 
 
   // 市場ポジション診断（Tier）はジョブ全体のSoM平均で判定する。画面（JobAnalysisPage）と
@@ -218,9 +228,9 @@ export default function ReportPrintPage(): JSX.Element {
 
   const isErrorState = loadError != null;
   useEffect(() => {
-    const ok = (analysisReady && fontsReady && logoReady) || isErrorState;
+    const ok = (analysisReady && fontsReady && logoReady && growthTrend.settled) || isErrorState;
     setPdfReadyFlag(ok);
-  }, [analysisReady, fontsReady, logoReady, isErrorState]);
+  }, [analysisReady, fontsReady, logoReady, growthTrend.settled, isErrorState]);
 
   const autoPrintRequested = searchParams.get("print") === "1";
   const autoPrintFiredRef = useRef(false);
@@ -386,6 +396,9 @@ export default function ReportPrintPage(): JSX.Element {
             industryMode={data.project?.industryType}
           />
         </section>
+      )}
+      {data && isCompletedJobStatus(data.jobStatus) && (
+        <GrowthTrajectoryChart data={growthTrend.data} isPdfMode />
       )}
       {data && isCompletedJobStatus(data.jobStatus) && data.aiRecognitionSummary != null && (
         <section

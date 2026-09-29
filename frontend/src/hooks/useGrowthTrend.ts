@@ -1,14 +1,28 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GrowthTrendRange } from "../lib/growthTrendRange";
 import { useProjectAssetSnapshots, type AssetSnapshotChartPoint } from "./useProjectAssetSnapshots";
 
 const RETRY_INTERVAL_MS = 3000;
 const MAX_RETRIES = 4;
 
-export function useGrowthTrend(projectId: string, range: GrowthTrendRange): AssetSnapshotChartPoint[] {
+export type GrowthTrend = {
+  data: AssetSnapshotChartPoint[];
+  /** 1回目の取得が終わった（失敗も含む）。取り直しの完了は待たない。 */
+  settled: boolean;
+};
+
+// Why: 印刷用の画面（#225）では取り直しを止める。古い解析で期間の終わりの日の点がもともと無いと、
+//      取り直しを待つあいだ印刷が十数秒遅れるため。完了直後に印刷すると最新の点が載らないことはあるが、受け入れる。
+export function useGrowthTrend(
+  projectId: string,
+  range: GrowthTrendRange,
+  retryUntilLatest = true,
+): GrowthTrend {
   const { data, loading, error, reload } = useProjectAssetSnapshots(projectId, range.from, range.to);
   const fetchedRef = useRef(false);
   const retriesRef = useRef(0);
+  const key = `${projectId}|${range.from}|${range.to}`;
+  const [settledKey, setSettledKey] = useState<string | null>(null);
 
   useEffect(() => {
     fetchedRef.current = false;
@@ -22,7 +36,11 @@ export function useGrowthTrend(projectId: string, range: GrowthTrendRange): Asse
       fetchedRef.current = true;
       return;
     }
-    if (!fetchedRef.current || error !== null || retriesRef.current >= MAX_RETRIES) {
+    if (!fetchedRef.current) {
+      return;
+    }
+    setSettledKey(key);
+    if (!retryUntilLatest || error !== null || retriesRef.current >= MAX_RETRIES) {
       return;
     }
     if (data.some((p) => p.snapshotDate === range.to)) {
@@ -33,7 +51,7 @@ export function useGrowthTrend(projectId: string, range: GrowthTrendRange): Asse
       void reload();
     }, RETRY_INTERVAL_MS);
     return () => window.clearTimeout(timer);
-  }, [loading, error, data, range.to, reload]);
+  }, [loading, error, data, range.to, reload, key, retryUntilLatest]);
 
-  return data;
+  return { data, settled: projectId.trim().length === 0 || settledKey === key };
 }

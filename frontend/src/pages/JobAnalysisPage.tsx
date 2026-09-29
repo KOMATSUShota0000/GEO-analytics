@@ -640,7 +640,7 @@ export function JobAnalysisPage(): JSX.Element {
         </div>
       ) : null}
       {geoScoreSection}
-      <GrowthTrajectoryChart data={growthTrend} isPdfMode={isPdfMode} />
+      <GrowthTrajectoryChart data={growthTrend.data} isPdfMode={isPdfMode} />
       {aiRecognitionSection}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
