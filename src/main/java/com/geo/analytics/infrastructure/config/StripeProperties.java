@@ -10,10 +10,14 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "stripe")
 public class StripeProperties {
+    public static final String DEFAULT_SUCCESS_URL = "http://localhost:5173/?billing=success";
+    // Why: 申し込みはログイン後の料金画面からしか始まらないため、やめたら元の画面へ戻す（#167）。
+    public static final String DEFAULT_CANCEL_URL = "http://localhost:5173/pricing?billing=cancel";
+
     private String secretKey = "";
     private String webhookSecret = "";
-    private String successUrl = "";
-    private String cancelUrl = "";
+    private String successUrl = DEFAULT_SUCCESS_URL;
+    private String cancelUrl = DEFAULT_CANCEL_URL;
     private final Prices prices = new Prices();
 
     public String getSecretKey() {
@@ -36,8 +40,9 @@ public class StripeProperties {
         return successUrl;
     }
 
+    // Why: .env に「STRIPE_SUCCESS_URL=」と空で書かれると空文字が入り、Stripe が決済ページの作成を断るため既定へ戻す（#167）。
     public void setSuccessUrl(String successUrl) {
-        this.successUrl = successUrl != null ? successUrl : "";
+        this.successUrl = successUrl == null || successUrl.isBlank() ? DEFAULT_SUCCESS_URL : successUrl.trim();
     }
 
     public String getCancelUrl() {
@@ -45,7 +50,7 @@ public class StripeProperties {
     }
 
     public void setCancelUrl(String cancelUrl) {
-        this.cancelUrl = cancelUrl != null ? cancelUrl : "";
+        this.cancelUrl = cancelUrl == null || cancelUrl.isBlank() ? DEFAULT_CANCEL_URL : cancelUrl.trim();
     }
 
     public Prices getPrices() {

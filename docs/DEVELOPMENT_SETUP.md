@@ -100,7 +100,7 @@ openssl rand -hex 64   # JWT_SECRET
 | `GEMINI_API_KEY` | **必須** | **起動不可**。`geminiPromptInjectionGuardModel` の Bean 生成で `apiKey cannot be null or blank` |
 | `SERPAPI_API_KEY` | 不要 | 競合エビデンスが空リストに縮退。4ペルソナ議論の質が下がる（起動時 WARN） |
 | `GOOGLE_PLACES_API_KEY` | 不要 | Places 検索を呼んだときだけ `IllegalStateException` |
-| `STRIPE_*` | 不要 | 決済フローが使えない |
+| `STRIPE_*` | 不要 | 決済フローが使えない（試すときは手順6） |
 | `MAIL_*` | 不要 | 開発用の受信箱 Mailpit へ送る（手順5）。**空で書くと起動不可**（下記） |
 
 > Gemini だけ起動を止めるのは、ビルダー内で即検証しているため。
@@ -174,6 +174,67 @@ Mailpit に戻すときは `MAIL_*` の4行をコメントアウトする。
   元の `bootstrap@example.com` はそのまま残る
 - Gmail に切り替えると、プロジェクト設定の「通知先メール」宛ての監査完了通知も実際に送られる
 - Gmail は1日に送れる数に上限がある。**本番の送信には使わない**（[`DEPLOYMENT_ENV.md`](./DEPLOYMENT_ENV.md)）
+
+### 6. Stripe の決済を試す（任意）
+
+料金画面（`/pricing`）の「このプランで申し込む」から Stripe の決済ページへ進み、支払い後にプランが切り替わるところまでを
+手元で試すための設定。**使わないなら `STRIPE_*` は空のままでよい**（押すと「オンラインでのお申し込みを受け付けられません」と
+出るだけで、起動には影響しない）。
+
+> **鍵・料金・Stripe CLI は同じ環境でそろえる。** Stripe には練習用の「テスト環境」と「サンドボックス」があり、
+> どちらの鍵も `sk_test_` で始まるので見た目では区別できない。混ざると、料金が見つからない（`No such price`）、
+> 支払ってもプランが切り替わらない、といった失敗になる。
+
+1. Stripe にログインし、画面上部で「テスト環境」か「サンドボックス」に切り替える。どちらを使ってもよいが、
+   以降の手順（鍵・料金・`stripe login`）はすべて同じものを使う。本番環境は使わない（本物のお金が動く）
+2. 「開発者」→「APIキー」の**シークレットキー**（`sk_test_…`）を `STRIPE_SECRET_KEY` に入れる。
+   すぐ上の公開可能キー（`pk_test_…`）ではない
+3. 「商品カタログ」で商品を3つ作る（手順1の環境にすでにあれば、それを使う）。料金は「継続」、請求期間は「月次」、通貨は円
+
+   | 商品 | 金額 | 入れる行 |
+   |---|---|---|
+   | Standard | 9,800 | `STRIPE_PRICE_STANDARD` |
+   | Pro | 29,800 | `STRIPE_PRICE_PRO` |
+   | Expert | 59,800 | `STRIPE_PRICE_EXPERT` |
+
+   入れるのは各商品の「料金」欄にある料金ID（`price_…`）。商品ID（`prod_…`）ではない。
+   **料金IDに既定値は無い**（アカウントごとに違うため。ADR-078）
+4. Stripe CLI を入れる。支払いの完了通知（Webhook）を Stripe から手元のアプリへ中継する道具。`sudo` を使わない入れ方:
+
+   ```bash
+   V=$(curl -s https://api.github.com/repos/stripe/stripe-cli/releases/latest | sed -n 's/.*"tag_name": "v\([^"]*\)".*/\1/p')
+   cd /tmp
+   curl -sLO "https://github.com/stripe/stripe-cli/releases/download/v${V}/stripe_${V}_linux_x86_64.tar.gz"
+   curl -sLO "https://github.com/stripe/stripe-cli/releases/download/v${V}/stripe-linux-checksums.txt"
+   grep "stripe_${V}_linux_x86_64.tar.gz" stripe-linux-checksums.txt | sha256sum -c -   # 「OK」と出ること
+   mkdir -p ~/.local/bin && tar -xzf "stripe_${V}_linux_x86_64.tar.gz" -C ~/.local/bin stripe
+   cd - && stripe version
+   ```
+
+   `sudo` が使えるなら apt でも入る（https://docs.stripe.com/stripe-cli ）。apt なら更新も `apt upgrade` で済む
+5. `stripe login` を実行する。WSL ではブラウザが自動で開かないことが多いので、表示された
+   `https://dashboard.stripe.com/stripecli/confirm_auth?t=…` を Windows のブラウザで開き、
+   ペアリングコードが一致するのを確かめて許可する。環境は手順1と同じものを選ぶ。
+   `stripe prices list` を実行すると、1行目に CLI がつながっている環境の名前が、続けてその環境の料金IDが出る。
+   手順3の料金IDと同じものが出れば、CLI と料金はそろっている
+6. 別のターミナルで中継を始め、表示される `whsec_…` を `STRIPE_WEBHOOK_SECRET` に入れる
+   （`stripe login` をやり直さない限り毎回同じ値）
+
+   ```bash
+   stripe listen --events checkout.session.completed,customer.subscription.updated,customer.subscription.deleted \
+     --forward-to localhost:8080/api/public/billing/webhook
+   ```
+
+   `--events` を付けないと、今の Stripe CLI は `must specify events to forward` と出て始まらない。
+   並べているのは `StripeWebhookService` が受け取る3種類
+
+7. `npm run dev` を起動し直す（`.env` は起動時にしか読まれない）。起動ログに `Stripe の設定が足りません` が出ていなければそろっている
+8. 料金画面で「このプランで申し込む」を押し、テスト用カード `4242 4242 4242 4242`（有効期限は未来の任意の日付、
+   セキュリティコードは任意の3桁）で支払う。`stripe listen` のターミナルに `checkout.session.completed` が流れ、プランが切り替わる
+
+- 支払いを試すあいだは `stripe listen` を動かしたままにする。止めていると通知が届かず、プランは切り替わらない
+- 決済ページで「← 戻る」を押すと料金画面（`/pricing`）に戻る
+- 戻り先URL（`STRIPE_SUCCESS_URL` / `STRIPE_CANCEL_URL`）は、書かなくても空で書いても既定値（`localhost:5173`）になる
 
 ---
 
@@ -253,5 +314,8 @@ Envers 由来の死んだ監査テーブル14本と `flyway_schema_history` は 
 | 起動時に「メール送信の設定がありません」 | `.env` に空の `MAIL_HOST=` がある。行を消すかコメントアウトすると Mailpit へ送る |
 | メールが Mailpit に届かない | コンテナが停止している。`bash scripts/mail.sh up` |
 | Gmail で `535` 認証エラー | 通常のパスワードを入れている。アプリパスワードを発行して `MAIL_PASSWORD` に入れる |
+| 料金画面で「オンラインでのお申し込みを受け付けられません」 | Stripe の設定が足りないか、鍵・料金IDが Stripe に断られている。起動ログの `Stripe の設定が足りません（…）` に足りない設定の名前が出る。断られた場合は、押した直後の `Stripe checkout session creation failed` の行に理由が出る（手順6）。`No such price: 'prod_…'` なら、料金IDの欄に商品IDを入れている |
+| 支払ったのにプランが切り替わらない | `stripe listen` が止まっている、`STRIPE_WEBHOOK_SECRET` が空、または鍵と Stripe CLI の環境（テスト環境／サンドボックス）が違う。`stripe listen` が `[200]` なのにログに `without deserializable` が出るなら、Stripe の API の版とライブラリの版の系統が違う（ADR-082） |
+| `stripe: command not found` | Stripe CLI が入っていない（手順6の4） |
 | テーブルはあるのに行が無い | Flyway はスキーマだけを作る。データは `DataSeeder`（アプリ起動時）と実際の操作で入る |
 | `./mvnw` が動かない | Maven Wrapper は only-script 型。`unzip` が無い環境では `.tar.gz` に自動フォールバックするので追加導入は不要 |
