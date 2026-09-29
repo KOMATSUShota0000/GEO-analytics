@@ -200,7 +200,7 @@ npm run dev
 │   └── db/migration/                  # Flyway マイグレーション
 ├── frontend/                          # React + TypeScript（Vite）
 │   └── src/
-│       ├── pages/                     # JobAnalysisPage / StrategyDashboardPage / PricingPage 等
+│       ├── pages/                     # JobAnalysisPage / ReportPrintPage / PricingPage 等
 │       └── components/                # チャート・テーマ・Teaser UI
 └── docs/
     ├── adr/                           # 技術決定記録（ADR）90本

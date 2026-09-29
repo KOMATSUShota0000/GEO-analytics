@@ -3,7 +3,7 @@ import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { fetchWorkspacePlan, type WorkspaceSubscriptionPlan } from "../api/workspace-api";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { mergeBannerJobHint } from "../lib/bannerJobHint";
+import { growthTrendRangeForJob } from "../lib/growthTrendRange";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { ReputationBadge } from "../components/ReputationBadge";
@@ -17,6 +17,7 @@ import { JobDiagnosisPanel } from "../components/analysis/JobDiagnosisPanel";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
 import { CompetitorShareChart } from "../components/CompetitorShareChart";
+import { GrowthTrajectoryChart } from "../components/strategy/GrowthTrajectoryChart";
 import CircularProgress from "@mui/material/CircularProgress";
 
 const AI_ADVICE_LOADING_MESSAGES = [
@@ -27,6 +28,7 @@ const AI_ADVICE_LOADING_MESSAGES = [
   "DIRECTORが最終提言をまとめています...",
 ] as const;
 import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
+import { useGrowthTrend } from "../hooks/useGrowthTrend";
 import {
   formatAuditDate,
   parseJobAnalysisDetail,
@@ -107,12 +109,6 @@ function ProjectInfoBlock({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-800">プロジェクト</h3>
         <div className="pdf-no-print flex flex-wrap items-center gap-x-4 gap-y-1">
-          <RouterLink
-            to={`/projects/${project.projectId}/strategy?returnJob=${encodeURIComponent(jobIdForReturn)}`}
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-          >
-            成長の推移
-          </RouterLink>
           <RouterLink
             to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
             className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
@@ -404,20 +400,11 @@ export function JobAnalysisPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [isReadyForPdf, isPdfMode]);
 
-  useEffect(() => {
-    if (data === null) {
-      return;
-    }
-    if (!isCompletedJobStatus(data.jobStatus)) {
-      return;
-    }
-    const pid = data.project?.projectId?.trim() ?? "";
-    if (pid.length === 0) {
-      return;
-    }
-    const ms = jobStatus !== null ? Date.parse(jobStatus.updatedAt) : Number.NaN;
-    mergeBannerJobHint(pid, data.jobId, Number.isNaN(ms) ? Date.now() : ms);
-  }, [data, jobStatus]);
+  const growthTrendRange = useMemo(() => growthTrendRangeForJob(resultRows), [resultRows]);
+  const growthTrend = useGrowthTrend(
+    data !== null && isCompletedJobStatus(data.jobStatus) ? (data.project?.projectId?.trim() ?? "") : "",
+    growthTrendRange,
+  );
 
   const maintenancePhase =
     data !== null &&
@@ -653,6 +640,7 @@ export function JobAnalysisPage(): JSX.Element {
         </div>
       ) : null}
       {geoScoreSection}
+      <GrowthTrajectoryChart data={growthTrend} isPdfMode={isPdfMode} />
       {aiRecognitionSection}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
