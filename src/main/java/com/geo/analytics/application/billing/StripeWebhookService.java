@@ -87,7 +87,9 @@ public class StripeWebhookService {
             LOG.warn("customer.subscription.updated price not mapped to a plan ({})", event.getId());
             return;
         }
-        apply(workspaceId.get(), plan.get(), event, subscription.getCustomer(), subscription.getId());
+        UUID tenant = workspaceId.get();
+        TenantPlanScope.executeWithTenant(tenant, () -> syncService.applySubscriptionUpdate(
+                tenant, plan.get(), event.getId(), event.getType(), subscription.getCustomer(), subscription.getId()));
     }
 
     private void handleSubscriptionDeleted(Event event) {
@@ -101,7 +103,9 @@ public class StripeWebhookService {
             return;
         }
         // 解約 → STANDARD へダウングレード。
-        apply(workspaceId.get(), SubscriptionPlan.STANDARD, event, subscription.getCustomer(), subscription.getId());
+        UUID tenant = workspaceId.get();
+        TenantPlanScope.executeWithTenant(tenant, () -> syncService.applySubscriptionDeleted(
+                tenant, event.getId(), event.getType(), subscription.getCustomer(), subscription.getId()));
     }
 
     private void apply(

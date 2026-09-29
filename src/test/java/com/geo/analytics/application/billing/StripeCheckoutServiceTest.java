@@ -2,7 +2,10 @@ package com.geo.analytics.application.billing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.geo.analytics.application.service.WorkspacePlanResolver;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.CheckoutUnavailableException;
 import com.geo.analytics.domain.exception.CheckoutUnavailableException.Kind;
@@ -22,10 +25,23 @@ class StripeCheckoutServiceTest {
     private static final UUID WORKSPACE_ID = UUID.fromString("00000000-0000-0000-0000-000000000167");
 
     private static StripeCheckoutService serviceWith(String secretKey, String proPrice) {
+        return serviceWith(secretKey, proPrice, false);
+    }
+
+    private static StripeCheckoutService serviceWith(String secretKey, String proPrice, boolean subscribed) {
         StripeProperties properties = new StripeProperties();
         properties.setSecretKey(secretKey);
         properties.getPrices().setPro(proPrice);
-        return new StripeCheckoutService(properties, new StripePlanCatalog(properties));
+        WorkspacePlanResolver resolver = mock(WorkspacePlanResolver.class);
+        when(resolver.hasStripeSubscription(WORKSPACE_ID)).thenReturn(subscribed);
+        return new StripeCheckoutService(properties, new StripePlanCatalog(properties), resolver);
+    }
+
+    @Test
+    void createCheckoutUrl_whilePayingViaStripe_isRefused_beforeCheckingSettingsOrCallingStripe() {
+        assertThatThrownBy(() -> serviceWith("", "", true).createCheckoutUrl(WORKSPACE_ID, SubscriptionPlan.PRO))
+                .isInstanceOfSatisfying(CheckoutUnavailableException.class,
+                        e -> assertThat(e.getKind()).isEqualTo(Kind.ALREADY_SUBSCRIBED));
     }
 
     @Test

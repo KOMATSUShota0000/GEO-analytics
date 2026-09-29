@@ -3,7 +3,9 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useBranding } from "../branding/useBranding";
 import {
   changeWorkspacePlan,
+  fetchWorkspaceBillingStatus,
   fetchWorkspacePlan,
+  type WorkspaceBillingStatus,
   type WorkspaceSubscriptionPlan,
 } from "../api/workspace-api";
 import { PlanComparison, type PlanSpec } from "../pricing/planCatalog";
@@ -19,9 +21,12 @@ const CHECKOUT_FAILURE_MESSAGES: Record<CheckoutFailureReason, string> = {
   not_configured:
     "現在、オンラインでのお申し込みを受け付けられません。お手数ですが、画面下の「お問い合わせ」からご連絡ください。",
   temporarily_unavailable: "決済ページを開けませんでした。少し時間をおいて、もう一度お試しください。",
+  already_subscribed: "すでにご契約中です。プランの変更は、画面下の「お問い合わせ」からご連絡ください。",
 };
 
-function PlanSwitcher(): JSX.Element {
+const INQUIRY_SECTION_ID = "pricing-inquiry";
+
+function PlanSwitcher({ onChanged }: { onChanged: () => void }): JSX.Element {
   const [currentPlan, setCurrentPlan] = useState<WorkspaceSubscriptionPlan | null>(null);
   const [selected, setSelected] = useState<WorkspaceSubscriptionPlan>("STANDARD");
   const [submitting, setSubmitting] = useState(false);
@@ -47,6 +52,7 @@ function PlanSwitcher(): JSX.Element {
     setSubmitting(false);
     if (ok) {
       await reload();
+      onChanged();
     } else {
       setError("プラン切替に失敗しました。再度お試しください。");
     }
@@ -93,6 +99,21 @@ export default function PricingPage(): JSX.Element {
   const returnTo = resolvePricingReturnTo(useLocation().state);
   const [checkoutPlan, setCheckoutPlan] = useState<WorkspaceSubscriptionPlan | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [billing, setBilling] = useState<WorkspaceBillingStatus | null>(null);
+  const [billingLoaded, setBillingLoaded] = useState(false);
+
+  const reloadBilling = useCallback(async () => {
+    setBilling(await fetchWorkspaceBillingStatus());
+    setBillingLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    void reloadBilling();
+  }, [reloadBilling]);
+
+  const scrollToInquiry = () => {
+    document.getElementById(INQUIRY_SECTION_ID)?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const startCheckout = async (plan: WorkspaceSubscriptionPlan) => {
     setCheckoutError(null);
@@ -115,7 +136,7 @@ export default function PricingPage(): JSX.Element {
       </div>
 
       {/* プラン切替は開発・検証用。本番ビルドでは実ユーザーに見せない（import.meta.env.DEV ガード）。 */}
-      {import.meta.env.DEV ? <PlanSwitcher /> : null}
+      {import.meta.env.DEV ? <PlanSwitcher onChanged={() => void reloadBilling()} /> : null}
 
       {/* コンテキストバナー */}
       <div className="mx-auto mt-6 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
@@ -132,21 +153,49 @@ export default function PricingPage(): JSX.Element {
 
       {/* プラン比較カード＋機能比較テーブル（共有モジュール）。CTA は Stripe Checkout を起動 */}
       <PlanComparison
-        renderCardCta={(plan: PlanSpec) => (
-          <button
-            type="button"
-            onClick={() => void startCheckout(plan.key)}
-            disabled={checkoutPlan !== null}
-            className="block w-full rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: brandColor }}
-          >
-            {checkoutPlan === plan.key ? "決済ページへ移動中…" : "このプランで申し込む"}
-          </button>
-        )}
+        currentPlan={billing?.plan ?? null}
+        renderCardCta={(plan: PlanSpec) => {
+          if (billing?.plan === plan.key) {
+            return (
+              <button
+                type="button"
+                disabled
+                className="block w-full rounded-lg border border-slate-200 bg-slate-100 px-4 py-2.5 text-center text-sm font-semibold text-slate-500"
+              >
+                現在のプラン
+              </button>
+            );
+          }
+          if (billing?.hasStripeSubscription) {
+            return (
+              <button
+                type="button"
+                onClick={scrollToInquiry}
+                className="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              >
+                プラン変更はお問い合わせ
+              </button>
+            );
+          }
+          return (
+            <button
+              type="button"
+              onClick={() => void startCheckout(plan.key)}
+              disabled={checkoutPlan !== null || !billingLoaded}
+              className="block w-full rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: brandColor }}
+            >
+              {checkoutPlan === plan.key ? "決済ページへ移動中…" : "このプランで申し込む"}
+            </button>
+          );
+        }}
       />
 
       {/* CTAセクション */}
-      <div className="mx-auto mt-10 max-w-5xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm text-center">
+      <div
+        id={INQUIRY_SECTION_ID}
+        className="mx-auto mt-10 max-w-5xl scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm text-center"
+      >
         <h2 className="text-xl font-bold text-slate-900">
           プランのアップグレードについてお問い合わせください
         </h2>

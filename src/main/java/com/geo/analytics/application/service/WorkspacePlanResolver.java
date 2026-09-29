@@ -2,6 +2,7 @@ package com.geo.analytics.application.service;
 
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.infrastructure.persistence.GlobalAccess;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17,6 +18,12 @@ public class WorkspacePlanResolver {
     //ここでDBからプランと組織IDをとってきてる。
     private static final String SQL = """
             SELECT organization_id, subscription_plan
+            FROM workspaces
+            WHERE id = ? AND deleted_at IS NULL
+            """;
+
+    private static final String STRIPE_SUBSCRIPTION_SQL = """
+            SELECT stripe_subscription_id IS NOT NULL
             FROM workspaces
             WHERE id = ? AND deleted_at IS NULL
             """;
@@ -53,5 +60,13 @@ public class WorkspacePlanResolver {
         } catch (EmptyResultDataAccessException e) {
             return new WorkspaceInfo(null, SubscriptionPlan.STANDARD);
         }
+    }
+
+    // Why: 今の契約が解約されたら契約IDを消すので、「Stripe で支払い中か」は契約IDの有無だけで決まる（#168）。
+    @Transactional(readOnly = true)
+    @GlobalAccess
+    public boolean hasStripeSubscription(UUID workspaceId) {
+        List<Boolean> rows = batchJdbcTemplate.queryForList(STRIPE_SUBSCRIPTION_SQL, Boolean.class, workspaceId);
+        return !rows.isEmpty() && Boolean.TRUE.equals(rows.get(0));
     }
 }

@@ -25,6 +25,6 @@ public class WorkspaceController {
     @PreAuthorize("@tenantAccessEvaluator.canAccessTenant(authentication, #workspaceId)")
     public ResponseEntity<WorkspaceResponse> getWorkspace(@PathVariable UUID workspaceId) {
         SubscriptionPlan plan = workspacePlanResolver.resolvePlan(workspaceId);
-        return ResponseEntity.ok(new WorkspaceResponse(plan.name()));
+        return ResponseEntity.ok(new WorkspaceResponse(plan.name(), workspacePlanResolver.hasStripeSubscription(workspaceId)));
     }
 }

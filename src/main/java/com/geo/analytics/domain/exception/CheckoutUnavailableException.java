@@ -10,7 +10,9 @@ public class CheckoutUnavailableException extends RuntimeException {
 
     public enum Kind {
         NOT_CONFIGURED,
-        TEMPORARY
+        TEMPORARY,
+        // Why: 決済ページは新しい契約を作るので、支払い中の人が申し込むと二重に請求される（#168）。
+        ALREADY_SUBSCRIBED
     }
 
     private final Kind kind;
@@ -20,9 +22,11 @@ public class CheckoutUnavailableException extends RuntimeException {
     }
 
     public CheckoutUnavailableException(Kind kind, Throwable cause) {
-        super(kind == Kind.NOT_CONFIGURED
-                ? "オンラインでのお申し込みを受け付けられません。"
-                : "決済ページを開けませんでした。少し時間をおいて、もう一度お試しください。", cause);
+        super(switch (kind) {
+            case NOT_CONFIGURED -> "オンラインでのお申し込みを受け付けられません。";
+            case TEMPORARY -> "決済ページを開けませんでした。少し時間をおいて、もう一度お試しください。";
+            case ALREADY_SUBSCRIBED -> "すでにご契約中です。プランの変更は、画面下の「お問い合わせ」からご連絡ください。";
+        }, cause);
         this.kind = kind;
     }
 
