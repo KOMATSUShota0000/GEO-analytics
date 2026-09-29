@@ -80,15 +80,6 @@ function SettingsCard({
   );
 }
 
-function SampleFigure({ label, value }: { label: string; value: string }): JSX.Element {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-lg bg-slate-50 p-2.5">
-      <span className="text-xs text-slate-500">{label}</span>
-      <span className="text-lg font-bold text-slate-900">{value}</span>
-    </div>
-  );
-}
-
 export default function ProjectSettingsPage(): JSX.Element {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -418,27 +409,31 @@ export default function ProjectSettingsPage(): JSX.Element {
                 title="届くメールの見本"
                 description="数値と質問文は見本です"
               >
-                <div className="flex flex-col gap-3.5">
-                  <div className="flex flex-col gap-1 border-b border-dashed border-slate-200 pb-3 text-[13px]">
+                <div className="flex flex-col gap-3.5 text-[13px] leading-relaxed text-slate-700">
+                  <div className="flex flex-col gap-1 border-b border-dashed border-slate-200 pb-3">
                     <span className="text-slate-500">件名</span>
                     <span className="break-all font-semibold text-slate-900">
-                      [GEOアナリティクス] 監査完了 {projectName || "[プロジェクト名]"}
+                      [GEOアナリティクス] {projectName || "[プロジェクト名]"} の解析が完了しました
                     </span>
                   </div>
-                  <p className="text-base font-bold text-slate-900">GEO監査が完了しました</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <SampleFigure label="今回のSoM平均" value="42.3" />
-                    <SampleFigure label="前回監査のSoM平均" value="38.1" />
-                    <SampleFigure label="平均の増減" value="4.2" />
+                  <p className="break-all text-slate-900">{projectName || "[プロジェクト名]"} の解析が完了しました。</p>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-semibold text-slate-900">■ AIの回答に取り上げられた割合（SoMスコア）の平均</span>
+                    <span>今回 42.3（前回 38.1 から +4.2）</span>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[13px] font-semibold text-slate-700">変動TOP3</span>
-                    <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] leading-relaxed text-slate-700">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="font-semibold text-slate-900">■ 前回から大きく動いた質問</span>
+                    <ol className="flex list-decimal flex-col gap-1 pl-5">
                       {SAMPLE_TOP_CHANGES.map((line) => (
                         <li key={line}>{line}</li>
                       ))}
                     </ol>
+                    <span className="text-slate-500">※ 前回と同じ質問は3件でした。今回はじめて測った質問が2件あります。</span>
                   </div>
+                  <span className="font-semibold text-indigo-700">▶ 解析結果を見る</span>
+                  <span className="text-xs text-slate-500">
+                    このメールは、プロジェクト設定で登録された宛先にお送りしています。
+                  </span>
                 </div>
               </SettingsCard>
             </aside>

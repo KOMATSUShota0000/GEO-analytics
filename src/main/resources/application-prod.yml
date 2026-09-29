@@ -30,6 +30,8 @@ spring:
       "[mail.smtp.writetimeout]": 10000
 
 app:
+  # Why: 解析完了メールの「解析結果を見る」リンクに使う。未設定ならリンクを出さない（docs/DEPLOYMENT_ENV.md、#183）。
+  public-base-url: "${APP_PUBLIC_BASE_URL:}"
   security:
     max-sessions-per-user: 1
     jwt:

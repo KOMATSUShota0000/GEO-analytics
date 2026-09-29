@@ -79,6 +79,6 @@ class NotificationServiceTest {
 
     private static ProjectAuditNoticeReader.AuditNotice notice(List<String> recipients) {
         return new ProjectAuditNoticeReader.AuditNotice(
-                "テスト案件", recipients, new ProjectAuditNoticeReader.AuditDigest(42.0, null, null, List.of()));
+                "テスト案件", recipients, new ProjectAuditNoticeReader.AuditDigest(42.0, null, null, List.of(), 0, 0));
     }
 }

@@ -13,6 +13,7 @@ geo-analytics を本番運用する際に設定すべき環境変数の一覧と
 | `app.security.jwt.cookie-secure=true` | リフレッシュ Cookie の Secure 属性 | HTTPS 本番では true 必須 | 必須 |
 | `MAIL_HOST` / `MAIL_PORT`（既定 587） / `MAIL_USERNAME` / `MAIL_PASSWORD` | メール送信（ログインコード・監査完了通知） | **起動不可**（`MailSettingsStartupCheck`）。ログインコードを送れず誰もログインできなくなるため | 必須 |
 | `APP_NOTIFICATIONS_MAIL_FROM` | 送信元アドレス | `noreply@example.com` から送られ、届かないか迷惑メール扱いになる | 必須 |
+| `APP_PUBLIC_BASE_URL` | 利用者が開くアプリの URL（例: `https://app.example.com`、末尾の `/` は不要）。解析完了メールの「解析結果を見る」リンクに使う（`app.public-base-url`） | リンクが入らない（メールそのものは届く） | 推奨 |
 
 ## 起動時の可視化
 
