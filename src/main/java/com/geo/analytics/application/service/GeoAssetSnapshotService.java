@@ -14,6 +14,7 @@ import com.geo.analytics.web.dto.ScoreBreakdown;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,13 @@ public class GeoAssetSnapshotService {
         this.geoAssetSnapshotRepository = geoAssetSnapshotRepository;
         this.jobPersistenceService = jobPersistenceService;
         this.jobAuditMetricsExtractor = jobAuditMetricsExtractor;
+    }
+
+    // Why: RLS の組織IDは @Transactional の呼び出しでしか接続へ渡らない（RlsConnectionInterceptor）。スナップショットを撮る
+    //      仮想スレッドにはテナント文脈がなく、リポジトリを直接呼ぶとワークスペースが見えなかった（#180）。
+    @Transactional(readOnly = true)
+    public Optional<WorkspaceEntity> findWorkspace(UUID workspaceId) {
+        return workspaceRepository.findById(workspaceId);
     }
 
     public GeoAssetSnapshotEntity createSnapshot(UUID jobId, UUID projectId, UUID workspaceId) {

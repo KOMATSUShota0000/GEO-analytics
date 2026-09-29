@@ -237,34 +237,6 @@ export function liveMetricsFromParsed(parsed: unknown): LiveResultMetrics {
   }
   return { somScore, overallScore, brandMentioned, mentionRank };
 }
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
-}
-function isoDateFromLocal(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-export function aggregateTrendFromResultDetails(rows: ResultDetail[]): TrendData[] {
-  if (rows.length === 0) {
-    return [];
-  }
-  const byDate = new Map<string, { som: number; overall: number; n: number }>();
-  for (const r of rows) {
-    const key = r.auditDate;
-    const ov = r.overallScore ?? r.somScore;
-    const cur = byDate.get(key) ?? { som: 0, overall: 0, n: 0 };
-    cur.som += r.somScore;
-    cur.overall += ov;
-    cur.n += 1;
-    byDate.set(key, cur);
-  }
-  return [...byDate.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, v]) => ({
-      date,
-      somScore: Math.round((v.som / v.n) * 10) / 10,
-      overallScore: Math.round((v.overall / v.n) * 10) / 10,
-    }));
-}
 export function averageLiveScoresFromParsed(
   parsedByQueryId: Record<string, unknown>,
 ): { somScore: number; overallScore: number } | null {
@@ -296,30 +268,6 @@ export function averageLiveScoresFromParsed(
     somScore: Math.round(som * 10) / 10,
     overallScore: Math.round(overall * 10) / 10,
   };
-}
-export function resolveChartTrendData(
-  resultRows: ResultDetail[],
-  parsedByQueryId: Record<string, unknown>,
-  isStreaming: boolean,
-): TrendData[] {
-  const agg = aggregateTrendFromResultDetails(resultRows);
-  if (agg.length > 0) {
-    return agg;
-  }
-  if (isStreaming) {
-    const live = averageLiveScoresFromParsed(parsedByQueryId);
-    if (live !== null) {
-      const lastDate = isoDateFromLocal(new Date());
-      return [
-        {
-          date: lastDate,
-          somScore: live.somScore,
-          overallScore: live.overallScore,
-        },
-      ];
-    }
-  }
-  return [];
 }
 export function resolveAverageSomScore(
   resultRows: ResultDetail[],

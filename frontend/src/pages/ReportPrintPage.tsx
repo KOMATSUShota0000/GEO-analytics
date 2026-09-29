@@ -7,7 +7,6 @@ import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import { useParams, useSearchParams } from "react-router-dom";
 import { apiFetch, resetCsrfPrime, responseJsonAsCamel } from "../api/apiFetch";
 import { getAccessToken, tryRestoreSession } from "../auth/authSession";
-import { AnalysisCharts } from "../components/AnalysisCharts";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { AiRecognitionSection } from "../components/analysis/AiRecognitionSection";
@@ -16,7 +15,6 @@ import {
   mergeJobAnalysisWithPdfContext,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
-  resolveChartTrendData,
   type JobAnalysisDetail,
   type ResultDetail,
 } from "../types/analysis";
@@ -89,11 +87,6 @@ export default function ReportPrintPage(): JSX.Element {
 
   const analysisReady = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
 
-  const brandLabel = data?.brandName ?? "自社";
-  const chartTrendData = useMemo(
-    () => resolveChartTrendData(resultRows, {}, false),
-    [resultRows],
-  );
 
   // 市場ポジション診断（Tier）はジョブ全体のSoM平均で判定する。画面（JobAnalysisPage）と
   // 同じ算出ロジックを用い、完了済みで結果が空のときだけ 0 にフォールバックする。
@@ -428,16 +421,6 @@ export default function ReportPrintPage(): JSX.Element {
       )}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <>
-          <section
-            className="pdf-inside-avoid mb-6"
-            style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
-          >
-            <AnalysisCharts
-              isPdfMode={true}
-              trendData={chartTrendData}
-              brandLabel={brandLabel}
-            />
-          </section>
           <section
             className="pdf-inside-avoid mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
             style={{ breakInside: "avoid", pageBreakInside: "avoid" }}
