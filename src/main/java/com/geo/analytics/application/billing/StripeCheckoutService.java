@@ -101,7 +101,6 @@ public class StripeCheckoutService {
     }
 
     // Why: 鍵や料金IDの誤りで Stripe に断られた失敗は、時間をおいても通らないので「設定の問題」に寄せる。
-    //      RateLimitException は InvalidRequestException の子クラスなので、先に「一時的」と判定しておく。
     static CheckoutUnavailableException.Kind classify(StripeException e) {
         if (e instanceof RateLimitException) {
             return CheckoutUnavailableException.Kind.TEMPORARY;

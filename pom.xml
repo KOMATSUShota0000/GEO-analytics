@@ -24,7 +24,7 @@
         <sudachi.dict.zip>sudachi-dictionary-20260116-core.zip</sudachi.dict.zip>
         <jjwt.version>0.12.6</jjwt.version>
         <apache-tika.version>2.9.2</apache-tika.version>
-        <stripe.version>28.4.0</stripe.version>
+        <stripe.version>33.4.2</stripe.version>
     </properties>
     <dependencyManagement>
         <dependencies>
