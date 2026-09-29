@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.geo.analytics.application.dto.DebateJobFacts;
 import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
@@ -74,16 +75,49 @@ class GapAnalysisServiceTest {
         when(insight.medianVisibilityStage(rows)).thenReturn(5);
         when(insight.keywordInsightRelative(anyDouble(), anyDouble(), anyInt(), anyInt()))
                 .thenReturn(new StrategyInsight("q", List.of(), 0.1));
-        when(insight.rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), any()))
+        when(insight.rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), any(), any()))
                 .thenReturn(new StrategyInsightService.JobAdviceRollup(
                         new StrategyInsight("診断", List.of(), 0.1), AdviceSource.AI));
 
         service.runForJob(jobId);
 
         ArgumentCaptor<List<RemediationTask>> captor = ArgumentCaptor.forClass(List.class);
-        verify(insight).rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), captor.capture());
+        verify(insight).rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), captor.capture(), any());
         assertThat(captor.getValue().stream().map(RemediationTask::title).toList())
                 .containsExactly("大・すぐ", "大・時間", "中・すぐ");
         verify(batch, never()).findRemediationTasks(older.getId());
+    }
+
+    /** #195: プロジェクト側の前提は実際には空のため、依頼時の入力とサイト診断の結果をジョブから読んで議論に渡す。 */
+    @Test
+    void 依頼時の事業情報と診断結果を議論の材料として渡す() {
+        UUID jobId = UUID.randomUUID();
+        JobEntity job = new JobEntity();
+        job.setId(jobId);
+        job.setProjectId(UUID.randomUUID());
+        job.setAppliedPlan(SubscriptionPlan.STANDARD);
+        job.setBusinessSummary("自然素材の注文住宅");
+        job.setTargetAudience("子育て世帯");
+        job.setFocusPoints("施工事例");
+        job.setSelfRubricAuditJson("{\"items\":[]}");
+        List<AuditHistoryEntity> rows = List.of(row(LocalDate.of(2026, 9, 22)), row(LocalDate.of(2026, 9, 1)));
+        when(batch.findJobById(jobId)).thenReturn(job);
+        when(batch.findResultsByJobId(jobId)).thenReturn(rows);
+        when(batch.findProjectAdviceContext(any()))
+                .thenReturn(Optional.of(new ProjectAdviceContext(IndustryType.B2B, "t", "s")));
+        when(insight.medianModifiedZ(rows)).thenReturn(0.1);
+        when(insight.medianVisibilityStage(rows)).thenReturn(5);
+        when(insight.keywordInsightRelative(anyDouble(), anyDouble(), anyInt(), anyInt()))
+                .thenReturn(new StrategyInsight("q", List.of(), 0.1));
+        when(insight.rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), any(), any()))
+                .thenReturn(new StrategyInsightService.JobAdviceRollup(
+                        new StrategyInsight("診断", List.of(), 0.1), AdviceSource.AI));
+
+        service.runForJob(jobId);
+
+        ArgumentCaptor<DebateJobFacts> captor = ArgumentCaptor.forClass(DebateJobFacts.class);
+        verify(insight).rollupJobWithSource(eq(rows), any(), eq(SubscriptionPlan.STANDARD), any(), captor.capture());
+        assertThat(captor.getValue())
+                .isEqualTo(new DebateJobFacts("自然素材の注文住宅", "子育て世帯", "施工事例", "{\"items\":[]}"));
     }
 }

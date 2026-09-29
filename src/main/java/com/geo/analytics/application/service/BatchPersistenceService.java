@@ -7,6 +7,7 @@ import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
+import com.geo.analytics.domain.enums.AiRecognitionState;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
@@ -44,6 +45,7 @@ public class BatchPersistenceService {
 
     private static final TypeReference<List<String>> LIST_STRING_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<RemediationTask>> REMEDIATION_LIST_TYPE = new TypeReference<>() {};
+    private static final TypeReference<List<CompetitorResult>> COMPETITOR_LIST_TYPE = new TypeReference<>() {};
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -88,7 +90,8 @@ public class BatchPersistenceService {
                         + "som_score, gbvs_normalized_score, brand_mentioned, mention_rank, overall_score, resolved_entity_label, "
                         + "token_count, ai_citation_position, sentiment_intensity, visibility_stage, "
                         + "calculation_version, negative_alert, modified_z_score, diagnostic_message, "
-                        + "recommended_actions, model_insights, audit_date, created_at "
+                        + "recommended_actions, model_insights, audit_date, created_at, "
+                        + "competitor_results, ai_recognition_state, material_source "
                         + "FROM audit_histories WHERE job_id = ?",
                 (rs, rn) -> mapAuditRow(rs), jobId);
     }
@@ -581,7 +584,33 @@ public class BatchPersistenceService {
         e.setAuditDate(rs.getObject("audit_date", LocalDate.class));
         Timestamp ts = rs.getTimestamp("created_at");
         if (ts != null) e.setCreatedAt(ts.toInstant());
+        // Why: 4ペルソナ議論の材料（回答に出た他社・AIの認識・材料の出どころ）に使う（#195）。
+        //      読めない値は議論を止めずに、その項目が無いものとして扱う。
+        String competitorJson = rs.getString("competitor_results");
+        if (competitorJson != null) {
+            try {
+                e.setCompetitorResults(objectMapper.readValue(competitorJson, COMPETITOR_LIST_TYPE));
+            } catch (JsonProcessingException jsonProcessingException) {
+                log.warn(
+                        "Failed to deserialize competitor_results; treating as none. auditHistoryId={}",
+                        e.getId(),
+                        jsonProcessingException);
+            }
+        }
+        e.setAiRecognitionState(enumOrNull(AiRecognitionState.class, rs.getString("ai_recognition_state")));
+        e.setMaterialSource(enumOrNull(MaterialSource.class, rs.getString("material_source")));
         return e;
+    }
+
+    private static <E extends Enum<E>> E enumOrNull(Class<E> type, String raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, raw);
+        } catch (IllegalArgumentException illegalArgumentException) {
+            return null;
+        }
     }
 
     private static QueryEntity mapQueryRow(ResultSet rs, int rowNum) throws SQLException {

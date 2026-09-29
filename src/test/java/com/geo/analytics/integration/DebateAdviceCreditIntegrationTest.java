@@ -10,7 +10,10 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.application.service.BatchPersistenceService;
 import com.geo.analytics.application.service.DebateAdviceGeneratorService;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.AiRecognitionState;
+import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.CompetitorResult;
 import com.geo.analytics.infrastructure.tenant.DefaultTenantIds;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -110,7 +113,7 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
         // 2) Pro プランで議論駆動アドバイス生成 → 0.2 チケット消費
         StrategyInsight result =
                 debateAdviceGeneratorService
-                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of())
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of(), null)
                         .insight();
 
         assertThat(result.diagnosticMessage()).contains("B2B");
@@ -152,7 +155,7 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
 
         StrategyInsight result =
                 debateAdviceGeneratorService
-                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of())
+                        .generateForJob(List.of(row(0.5, 4), row(-0.3, 7)), context, SubscriptionPlan.PRO, List.of(), null)
                         .insight();
 
         // Free パス（単発 DIRECTOR）で結果は返る
@@ -168,6 +171,33 @@ class DebateAdviceCreditIntegrationTest extends PostgresSuperuserTestBase {
                         Long.class,
                         projectId);
         assertThat(refundCount).isEqualTo(1L);
+    }
+
+    /** #195: 議論の材料（回答に出た他社・AIの認識・材料の出どころ）を、書き込んだときと同じ形で読み戻せること。 */
+    @Test
+    void findResultsByJobIdReadsDebateMaterialsWrittenByUpsert() {
+        UUID jobId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO jobs (id, tenant_id, project_id, job_status, brand_name, brand_color, target_url,"
+                        + " industry_type, created_at, updated_at, gap_analysis_completed)"
+                        + " VALUES (?, ?, ?, 'CREATED', 'IT Brand', '#000000', 'https://example.test', 'LOCAL_STORE',"
+                        + " now(), now(), false)",
+                jobId,
+                workspaceId.toString(),
+                projectId);
+        CompetitorResult competitor = new CompetitorResult("A社", 0.2, 1, 3);
+        UUID auditId = batchPersistenceService.upsertAuditHistory(
+                jobId, workspaceId, projectId, UUID.randomUUID(), "地元 工務店", "{}",
+                0.4, null, true, 2, 60, null, 100, 2, 0.0, 5, "V13", 0.3, false, null, List.of(), null,
+                MaterialSource.MEASURED, List.of(competitor));
+        jdbcTemplate.update(
+                "UPDATE audit_histories SET ai_recognition_state = 'RECOGNIZED_CORRECTLY' WHERE id = ?", auditId);
+
+        AuditHistoryEntity row = batchPersistenceService.findResultsByJobId(jobId).getFirst();
+
+        assertThat(row.getCompetitorResults()).containsExactly(competitor);
+        assertThat(row.getAiRecognitionState()).isEqualTo(AiRecognitionState.RECOGNIZED_CORRECTLY);
+        assertThat(row.getMaterialSource()).isEqualTo(MaterialSource.MEASURED);
     }
 
     private long creditBalance() {
