@@ -45,7 +45,7 @@ export default function LoginBrandPanel() {
           選ばれるサイトへ。
         </h2>
         <p className="mt-5 text-base leading-relaxed text-white/85">
-          ChatGPT や Google の AI が答えるとき、お客さまのサイトが紹介されているか。
+          AI が答えるとき、お客さまのサイトが紹介されているか。
           診断から改善の順番まで、提案に使える形でまとめます。
         </p>
         <ul className="mt-10 space-y-4">
