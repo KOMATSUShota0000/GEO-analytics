@@ -8,7 +8,12 @@ import { pricingReturnState } from "../pricing/pricingReturn";
  * <p>Pro/Expert では解析ごとに新規 4 ペルソナ議論を起動して固有性の高いアドバイスを生成する、
  * という価値をぼかし＋南京錠で提示し、`/pricing` へ誘導する（核③ SaaS グロース）。
  */
-export function DebateAdviceTeaserBanner(): JSX.Element {
+export function DebateAdviceTeaserBanner({
+  upgradeTo,
+}: {
+  /** Why: ログイン不要の公開デモからはログイン後の料金画面へ進めないため、飛び先を公開のプラン比較に替えられるようにする（#188）。 */
+  upgradeTo?: string;
+}): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
   return (
@@ -35,7 +40,11 @@ export function DebateAdviceTeaserBanner(): JSX.Element {
       {/* 南京錠オーバーレイ + CTA */}
       <button
         type="button"
-        onClick={() => navigate("/pricing", { state: pricingReturnState(location) })}
+        onClick={() =>
+          upgradeTo !== undefined
+            ? navigate(upgradeTo)
+            : navigate("/pricing", { state: pricingReturnState(location) })
+        }
         className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white/55 px-4 text-center backdrop-blur-[1px] transition hover:bg-white/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500"
         aria-label="Proプランの議論駆動アドバイスを確認する"
       >

@@ -10,6 +10,8 @@ export type TierDiagnosisCardProps = {
   somScore: number | null;
   isProPlan: boolean;
   skeleton?: boolean;
+  /** Why: ログイン不要の公開デモからはログイン後の料金画面へ進めないため、飛び先を公開のプラン比較に替えられるようにする（#188）。 */
+  upgradeTo?: string;
 };
 
 function TierSkeleton(): JSX.Element {
@@ -65,7 +67,7 @@ function ProgressRing({ score, tier }: { score: number; tier: SomTierInfo }): JS
   );
 }
 
-export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnosisCardProps): JSX.Element {
+export function TierDiagnosisCard({ somScore, isProPlan, skeleton, upgradeTo }: TierDiagnosisCardProps): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
   if (skeleton) {
@@ -105,7 +107,11 @@ export function TierDiagnosisCard({ somScore, isProPlan, skeleton }: TierDiagnos
           </p>
           <button
             type="button"
-            onClick={() => navigate("/pricing", { state: pricingReturnState(location) })}
+            onClick={() =>
+              upgradeTo !== undefined
+                ? navigate(upgradeTo)
+                : navigate("/pricing", { state: pricingReturnState(location) })
+            }
             className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:w-auto"
           >
             プランを確認する
