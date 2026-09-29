@@ -2,7 +2,7 @@ import { apiFetch, parseJsonTextAsCamel, responseJsonAsCamel } from "./apiFetch"
 import { extractApiErrorCode } from "../types/analysis";
 import type { WorkspaceSubscriptionPlan } from "./workspace-api";
 
-export type CheckoutFailureReason = "not_configured" | "temporarily_unavailable";
+export type CheckoutFailureReason = "not_configured" | "temporarily_unavailable" | "already_subscribed";
 
 export type CheckoutSessionResult =
   | { ok: true; url: string }
@@ -13,7 +13,13 @@ export type CheckoutSessionResult =
 async function failureReasonOf(res: Response): Promise<CheckoutFailureReason> {
   try {
     const code = extractApiErrorCode(parseJsonTextAsCamel(await res.text()));
-    return code === "billing_not_configured" ? "not_configured" : "temporarily_unavailable";
+    if (code === "billing_not_configured") {
+      return "not_configured";
+    }
+    if (code === "billing_already_subscribed") {
+      return "already_subscribed";
+    }
+    return "temporarily_unavailable";
   } catch {
     return "temporarily_unavailable";
   }
@@ -22,7 +28,7 @@ async function failureReasonOf(res: Response): Promise<CheckoutFailureReason> {
 /**
  * Stripe Checkout（サブスク購入）セッションを作成し、リダイレクト先URLを返す。
  * バックエンド: POST /api/v1/billing/checkout  body: {"plan": "PRO"} → {"url": "https://checkout.stripe.com/..."}
- * 失敗時は失敗の種類（設定の問題／一時的な問題）を返し、呼び出し側で種類ごとの文言を出す。
+ * 失敗時は失敗の種類（設定の問題／一時的な問題／すでに契約中）を返し、呼び出し側で種類ごとの文言を出す。
  */
 export async function createCheckoutSession(
   plan: WorkspaceSubscriptionPlan,

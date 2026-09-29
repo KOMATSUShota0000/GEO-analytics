@@ -1,5 +1,6 @@
 package com.geo.analytics.application.billing;
 
+import com.geo.analytics.application.service.WorkspacePlanResolver;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.exception.CheckoutUnavailableException;
 import com.geo.analytics.infrastructure.config.StripeProperties;
@@ -31,10 +32,13 @@ public class StripeCheckoutService {
 
     private final StripeProperties properties;
     private final StripePlanCatalog planCatalog;
+    private final WorkspacePlanResolver workspacePlanResolver;
 
-    public StripeCheckoutService(StripeProperties properties, StripePlanCatalog planCatalog) {
+    public StripeCheckoutService(
+            StripeProperties properties, StripePlanCatalog planCatalog, WorkspacePlanResolver workspacePlanResolver) {
         this.properties = Objects.requireNonNull(properties);
         this.planCatalog = Objects.requireNonNull(planCatalog);
+        this.workspacePlanResolver = Objects.requireNonNull(workspacePlanResolver);
     }
 
     @PostConstruct
@@ -57,6 +61,11 @@ public class StripeCheckoutService {
     public String createCheckoutUrl(UUID workspaceId, SubscriptionPlan plan) {
         Objects.requireNonNull(workspaceId);
         Objects.requireNonNull(plan);
+        // Why: 画面は支払い中の人に申し込みボタンを出さないが、読み込みに失敗したときや別のタブからでも二重に契約させない（#168）。
+        if (workspacePlanResolver.hasStripeSubscription(workspaceId)) {
+            LOG.info("Stripe で支払い中のため申し込みを断りました workspace={} plan={}", workspaceId, plan);
+            throw new CheckoutUnavailableException(CheckoutUnavailableException.Kind.ALREADY_SUBSCRIBED);
+        }
         List<String> missing = missingSettingsFor(plan);
         if (!missing.isEmpty()) {
             LOG.warn("Stripe の設定が足りないため決済ページを作れません（{}） workspace={}", String.join(", ", missing), workspaceId);

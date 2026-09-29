@@ -5,6 +5,7 @@ export type WorkspaceSubscriptionPlan = "STANDARD" | "PRO" | "EXPERT";
 
 export type WorkspacePayload = {
   subscription_plan: WorkspaceSubscriptionPlan;
+  has_stripe_subscription: boolean;
 };
 
 /**
@@ -24,6 +25,30 @@ export async function fetchWorkspacePlan(): Promise<WorkspaceSubscriptionPlan | 
       return plan;
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+export type WorkspaceBillingStatus = {
+  plan: WorkspaceSubscriptionPlan;
+  hasStripeSubscription: boolean;
+};
+
+// Why: 料金画面のボタンの出し分けに使う。取得できなければ null を返し、画面は全カードを「申し込む」にする。
+//      支払い中の人が申し込んでもサーバーが断るので、二重に契約されることはない（#168）。
+export async function fetchWorkspaceBillingStatus(): Promise<WorkspaceBillingStatus | null> {
+  try {
+    const res = await apiFetch(`/api/v1/workspaces/${DEFAULT_WORKSPACE_TENANT_ID}`);
+    if (!res.ok) {
+      return null;
+    }
+    const raw = (await responseJsonAsCamel(res)) as Record<string, unknown>;
+    const plan = raw.subscriptionPlan;
+    if (plan !== "STANDARD" && plan !== "PRO" && plan !== "EXPERT") {
+      return null;
+    }
+    return { plan, hasStripeSubscription: raw.hasStripeSubscription === true };
   } catch {
     return null;
   }

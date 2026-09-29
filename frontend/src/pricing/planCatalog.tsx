@@ -110,24 +110,35 @@ export const FEATURE_ROWS: FeatureRow[] = [
 export interface PlanComparisonProps {
   /** 各プランカードの CTA。プラン購入導線をページごとに差し替える（mailto / Stripe Checkout 等）。 */
   renderCardCta?: (plan: PlanSpec) => ReactNode;
+  currentPlan?: PlanKey | null;
 }
 
 function PlanCard({
   plan,
   renderCardCta,
+  isCurrent,
 }: {
   plan: PlanSpec;
   renderCardCta?: (plan: PlanSpec) => ReactNode;
+  isCurrent: boolean;
 }): JSX.Element {
   const isPro = plan.key === "PRO";
   return (
     <div
       className={[
         "relative flex flex-col rounded-2xl bg-white p-6 shadow-sm",
-        isPro ? "border-2 border-amber-400" : "border border-slate-200",
+        isCurrent ? "border-2 border-slate-900" : isPro ? "border-2 border-amber-400" : "border border-slate-200",
       ].join(" ")}
     >
-      {isPro && (
+      {isCurrent && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-slate-900 px-3 py-0.5 text-xs font-bold text-white shadow">
+            <Check className="h-3 w-3" aria-hidden />
+            現在のプラン
+          </span>
+        </div>
+      )}
+      {isPro && !isCurrent && (
         <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-400 px-3 py-0.5 text-xs font-bold text-white shadow">
             <Sparkles className="h-3 w-3" aria-hidden />
@@ -154,13 +165,13 @@ function PlanCard({
 }
 
 /** プラン比較カード＋機能比較テーブル。公開 /plans とログイン内 PricingPage で共有する。 */
-export function PlanComparison({ renderCardCta }: PlanComparisonProps): JSX.Element {
+export function PlanComparison({ renderCardCta, currentPlan = null }: PlanComparisonProps): JSX.Element {
   return (
     <>
       {/* プラン比較カード */}
       <div className="mx-auto mt-8 max-w-5xl grid gap-6 sm:grid-cols-3">
         {PLANS.map((plan) => (
-          <PlanCard key={plan.key} plan={plan} renderCardCta={renderCardCta} />
+          <PlanCard key={plan.key} plan={plan} renderCardCta={renderCardCta} isCurrent={plan.key === currentPlan} />
         ))}
       </div>
 

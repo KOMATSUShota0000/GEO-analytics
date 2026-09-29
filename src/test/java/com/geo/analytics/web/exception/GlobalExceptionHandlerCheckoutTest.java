@@ -31,4 +31,14 @@ class GlobalExceptionHandlerCheckoutTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().errorCode()).isEqualTo("billing_temporarily_unavailable");
     }
+
+    @Test
+    void alreadySubscribed_returns409_withCodeTheScreenUsesToPointToInquiry() {
+        ResponseEntity<ApiErrorResponse> response = handler.handleCheckoutUnavailable(
+                new CheckoutUnavailableException(CheckoutUnavailableException.Kind.ALREADY_SUBSCRIBED));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().errorCode()).isEqualTo("billing_already_subscribed");
+    }
 }

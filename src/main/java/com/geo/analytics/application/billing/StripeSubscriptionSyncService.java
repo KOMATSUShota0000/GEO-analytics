@@ -81,4 +81,66 @@ public class StripeSubscriptionSyncService {
         });
         LOG.info("Applied Stripe event {} ({}) -> workspace {} plan {}", eventId, eventType, workspaceId, newPlan);
     }
+
+    // Why: 契約が2つあるとき、古いほうの更新のお知らせで「今の契約」が書き換わると、その後の解約の判定が逆になる（#168）。
+    //      申し込み直後で契約IDをまだ記録していないときは、どの契約のお知らせでも反映する。
+    @Transactional
+    public void applySubscriptionUpdate(
+            UUID workspaceId,
+            SubscriptionPlan newPlan,
+            String eventId,
+            String eventType,
+            String stripeCustomerId,
+            String stripeSubscriptionId) {
+        Objects.requireNonNull(eventId);
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            LOG.info("Stripe event {} already processed; skipping (idempotent)", eventId);
+            return;
+        }
+        WorkspaceEntity workspace = findWorkspace(workspaceId);
+        String current = workspace.getStripeSubscriptionId();
+        if (current != null && !current.equals(stripeSubscriptionId)) {
+            recordWithoutChange(workspace, eventId, eventType, stripeSubscriptionId);
+            return;
+        }
+        applyPlanChange(workspaceId, newPlan, eventId, eventType, stripeCustomerId, stripeSubscriptionId);
+    }
+
+    // Why: 契約IDを残すと「支払い中」のままになり、解約した人がもう一度申し込めない。
+    //      古い契約の解約で Standard に戻すと、今の契約を払っているのに Standard に落ちる（#168）。
+    @Transactional
+    public void applySubscriptionDeleted(
+            UUID workspaceId,
+            String eventId,
+            String eventType,
+            String stripeCustomerId,
+            String stripeSubscriptionId) {
+        Objects.requireNonNull(eventId);
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            LOG.info("Stripe event {} already processed; skipping (idempotent)", eventId);
+            return;
+        }
+        WorkspaceEntity workspace = findWorkspace(workspaceId);
+        if (stripeSubscriptionId == null || !stripeSubscriptionId.equals(workspace.getStripeSubscriptionId())) {
+            recordWithoutChange(workspace, eventId, eventType, stripeSubscriptionId);
+            return;
+        }
+        workspace.setStripeSubscriptionId(null);
+        applyPlanChange(workspaceId, SubscriptionPlan.STANDARD, eventId, eventType, stripeCustomerId, null);
+    }
+
+    private WorkspaceEntity findWorkspace(UUID workspaceId) {
+        Objects.requireNonNull(workspaceId);
+        return workspaceRepository
+                .findById(workspaceId)
+                .orElseThrow(() -> new EntityNotFoundException("workspace not found: " + workspaceId));
+    }
+
+    private void recordWithoutChange(
+            WorkspaceEntity workspace, String eventId, String eventType, String stripeSubscriptionId) {
+        processedStripeEventRepository.save(new ProcessedStripeEventEntity(
+                UUID.randomUUID(), workspace.getOrganizationId(), eventId, eventType));
+        LOG.info("Stripe event {} ({}) is for subscription {}, not the current one {} of workspace {}; recorded without changing the plan",
+                eventId, eventType, stripeSubscriptionId, workspace.getStripeSubscriptionId(), workspace.getId());
+    }
 }

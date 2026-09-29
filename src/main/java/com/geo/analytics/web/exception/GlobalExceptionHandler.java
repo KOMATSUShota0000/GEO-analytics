@@ -89,9 +89,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CheckoutUnavailableException.class)
     public ResponseEntity<ApiErrorResponse> handleCheckoutUnavailable(CheckoutUnavailableException exception) {
-        return exception.getKind() == CheckoutUnavailableException.Kind.NOT_CONFIGURED
-                ? json(HttpStatus.SERVICE_UNAVAILABLE, ApiErrorResponse.of("billing_not_configured", exception.getMessage()))
-                : json(HttpStatus.BAD_GATEWAY, ApiErrorResponse.of("billing_temporarily_unavailable", exception.getMessage()));
+        return switch (exception.getKind()) {
+            case NOT_CONFIGURED -> json(HttpStatus.SERVICE_UNAVAILABLE, ApiErrorResponse.of("billing_not_configured", exception.getMessage()));
+            case TEMPORARY -> json(HttpStatus.BAD_GATEWAY, ApiErrorResponse.of("billing_temporarily_unavailable", exception.getMessage()));
+            case ALREADY_SUBSCRIBED -> json(HttpStatus.CONFLICT, ApiErrorResponse.of("billing_already_subscribed", exception.getMessage()));
+        };
     }
 
     @ExceptionHandler(UnauthenticatedApiException.class)

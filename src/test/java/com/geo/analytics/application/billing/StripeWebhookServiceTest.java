@@ -53,18 +53,18 @@ class StripeWebhookServiceTest {
 
         service.handle(payload, sign(payload, SECRET));
 
-        verify(syncService).applyPlanChange(
+        verify(syncService).applySubscriptionUpdate(
                 WORKSPACE_ID, SubscriptionPlan.PRO, "evt_updated", "customer.subscription.updated", "cus_1", "sub_1");
     }
 
     @Test
-    void subscriptionDeleted_returnsToStandard() throws Exception {
+    void subscriptionDeleted_isPassedOnWithTheEndedSubscription() throws Exception {
         String payload = event("evt_deleted", "customer.subscription.deleted", subscription("price_expert_dummy"));
 
         service.handle(payload, sign(payload, SECRET));
 
-        verify(syncService).applyPlanChange(
-                WORKSPACE_ID, SubscriptionPlan.STANDARD, "evt_deleted", "customer.subscription.deleted", "cus_1", "sub_1");
+        verify(syncService).applySubscriptionDeleted(
+                WORKSPACE_ID, "evt_deleted", "customer.subscription.deleted", "cus_1", "sub_1");
     }
 
     @Test
