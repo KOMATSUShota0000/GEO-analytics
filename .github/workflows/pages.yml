@@ -1,0 +1,69 @@
+name: 公開デモ（GitHub Pages）
+
+# main に画面の変更が入るたびに、公開ページ（/demo・/plans）を作り直して置く（#189）。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# Why: GitHub Pages への配置に必要な最小の権限だけを持たせる。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Why: 置き換えの途中で次の配置が始まると、古い版が後から上書きしうる。順番に1つずつ進める。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 公開ページをビルド
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 22 をセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 公開先の置き場所（例: /GEO-analytics）を受け取る。Pages が有効になっていないとここで止まる。
+      - name: GitHub Pages の設定を読む
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: 依存をインストール
+        working-directory: frontend
+        run: npm ci
+
+      - name: 公開版をビルド
+        working-directory: frontend
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: npm run build:pages
+
+      - name: 成果物を渡す
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    name: 公開
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pages に置く
+        id: deployment
+        uses: actions/deploy-pages@v4

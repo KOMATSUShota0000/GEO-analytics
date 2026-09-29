@@ -10,8 +10,18 @@ import GeoOnboardingView from "./pages/GeoOnboardingView";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import ReportPrintPage from "./pages/ReportPrintPage";
 import StrategyDashboardPage from "./pages/StrategyDashboardPage";
+import { IS_PUBLIC_SITE } from "./publicSite";
 
 export default function App(): JSX.Element {
+  if (IS_PUBLIC_SITE) {
+    return (
+      <Routes>
+        <Route path="/demo" element={<PublicDemoPage />} />
+        <Route path="/plans" element={<PublicPlansPage />} />
+        <Route path="*" element={<Navigate to="/demo" replace />} />
+      </Routes>
+    );
+  }
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
