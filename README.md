@@ -31,7 +31,7 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 
 事業性については、既存のSEOツールに内製アドオンとして組み込んだ方が現実的、といった制約も承知しています。このプロジェクトはあくまで技術検証とポートフォリオが目的です。
 
-設計判断の背景は `docs/adr/` に43本のADRとして残してあります。
+設計判断の背景は `docs/adr/` に90本のADRとして残してあります。
 
 ---
 
@@ -49,18 +49,22 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 ## 実装状況
 
 ### 動作する機能
-- 認証とセッション管理。JWT と HttpOnly リフレッシュクッキー方式
+- 認証とセッション管理。メールで届くコードでログインし、セッションは JWT と HttpOnly リフレッシュクッキー方式
 - マルチテナント隔離を PostgreSQL の Row Level Security で実装
-- 4ペルソナのAI議論オーケストレーター
+- 4ペルソナのAI議論オーケストレーター。合意できた改善案と、合意できなかった少数意見（マイノリティ・レポート）を分けて出す
+- 改善タスクの自動生成。番号順に進めたときの時間割を改善ロードマップとして表示
 - スコア算出。AI回答内の言及度を表す SoM と、コンテンツ・技術・権威の3軸からなる GEO Readiness スコア
 - 競合スニペットをRAGの根拠として取得。SerpAPI に本接続
 - 二相課金。reserve → settle / refund を AOP で透過適用
 - ホワイトラベル。ロゴとブランドカラーが MUI テーマと Recharts まで連動
+- 競合とのシェア比較の円グラフ。自社をブランドカラーで塗り、提案書に貼れる1枚にまとめる
 - Teaser UI による Pro プラン誘導
+- ログイン不要の公開デモページ。本番と同じ画面部品にサンプルデータを流して見せる
 - 価格プラン画面。STANDARD / PRO / EXPERT の3プランを比較
 - Stripe のセルフサーブ決済。Checkout セッションの発行と Webhook 受信でプランを同期
 - レポートのPDF出力。ブラウザの印刷機能を使う方式
 - ジョブ完了を起点に走る `GeoAssetSnapshotPipeline`。90日分のトレンドを蓄積
+- 解析完了のお知らせメール。SoM の平均と前回との差を、プロジェクトごとに3件までの宛先へ送る
 
 ### 部分実装
 - マルチAIモデル対応。今は Gemini 単独で、ChatGPT と Claude はプランの枠だけ用意してある
@@ -86,8 +90,9 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 - 4ペルソナのAIが多角的に議論し、改善案を提示
 - JWT と HttpOnly リフレッシュクッキー方式の認証（jjwt）
 - ホワイトラベルのロゴとブランドカラーが MUI テーマと Recharts まで連動
-- Flyway によるDBスキーマ管理。37マイグレーション、最新は V133
-- 約220件のテスト。unit と integration があり、PostgreSQL は Testcontainers を使用
+- Flyway によるDBスキーマ管理。49マイグレーション、最新は V145
+- 約400件のテスト。unit と integration があり、PostgreSQL は Testcontainers を使用
+- GitHub Actions による CI。PR と main への push のたびに、テストとフロントエンドのビルドを実行
 
 ---
 
@@ -119,15 +124,16 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 
 | 区分 | 採用 |
 |---|---|
-| 言語・ランタイム | Java 25。preview機能の `ScopedValue` を使用。フロントは Node 22 |
-| バックエンド | Spring Boot 3.5.13、Spring Security、Spring Data JPA、AOP、WebFlux |
-| AI基盤 | LangChain4j 0.36.2、Google Gemini の `gemini-2.5-flash`、Apache Tika |
+| 言語・ランタイム | Java 25。preview機能の `StructuredTaskScope` を使用。フロントは Node 22 |
+| バックエンド | Spring Boot 3.5.13、Spring Security、Spring Data JPA、AOP、WebFlux、Spring Mail |
+| AI基盤 | LangChain4j 0.36.2、Google Gemini の `gemini-2.5-flash` と `gemini-2.5-pro`、Apache Tika |
 | 形態素解析 | Sudachi。日本語の N-gram とエンティティ正規化に使用 |
 | DB | PostgreSQL 17 の Row Level Security、Flyway、HikariCP。プールは api と batch の2系統 |
 | キャッシュ・レート制御 | Caffeine、Bucket4j |
+| 決済 | Stripe。Checkout と Webhook を stripe-java で連携 |
 | フロントエンド | React 18、TypeScript 5.3、Vite 5、Tailwind CSS、MUI 5、Recharts |
 | テスト | JUnit 5、Testcontainers、Awaitility、H2 |
-| その他 | CycloneDX による SBOM 生成、spring-dotenv によるローカルの `.env` 読み込み |
+| その他 | GitHub Actions による CI、CycloneDX による SBOM 生成、spring-dotenv によるローカルの `.env` 読み込み |
 
 ---
 
@@ -137,23 +143,28 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 > 個人プロジェクトでの利用や派生作品の作成は、ライセンス上できません。詳細は [`LICENSE`](./LICENSE) を参照してください。
 
 ### 前提
+- WSL2 の Ubuntu。ツールの導入まで含めた全手順は [`docs/DEVELOPMENT_SETUP.md`](./docs/DEVELOPMENT_SETUP.md) にあります
 - JDK 25。preview 有効
 - Node.js 22 以上
-- Docker。PostgreSQL を Testcontainers やローカルDB用に起動します
+- Docker。PostgreSQL と開発用のメール受信箱 Mailpit、テスト時の Testcontainers で使います
 
 ### セットアップ
 
-```powershell
+```bash
 # 1. .env を作成（実値は各自で用意）
-Copy-Item .env.example .env
+cp .env.example .env
 # .env を開いて GEMINI_API_KEY 等の実値を埋める。
-# 必須: GEMINI_API_KEY / JWT_SECRET / FLYWAY_PASSWORD
-# 任意: SERPAPI_API_KEY / GOOGLE_PLACES_API_KEY / REDIS_HOST
+# 必須: GEMINI_API_KEY / JWT_SECRET / FLYWAY_PASSWORD / API_WORKER_PASSWORD / BATCH_WORKER_PASSWORD
+# 任意: SERPAPI_API_KEY / GOOGLE_PLACES_API_KEY / REDIS_HOST / STRIPE_*
 
-# 2. バックエンド
-.\mvnw.cmd spring-boot:run
+# 2. DB とメール受信箱を起動
+bash scripts/db.sh up
+bash scripts/mail.sh up
 
-# 3. フロントエンド
+# 3. バックエンド
+./mvnw spring-boot:run
+
+# 4. フロントエンド
 cd frontend
 npm install
 npm run dev
@@ -161,10 +172,12 @@ npm run dev
 
 必要な環境変数は [`.env.example`](./.env.example) にまとめてあります。実値は絶対にコミットしないでください。`.env` は `.gitignore` に登録済みです。
 
+ログインにパスワードは使いません。http://localhost:5173/login で初期ユーザー `bootstrap@example.com` を入れると、ログインコードが Mailpit（http://localhost:8025）に届きます。
+
 ### テスト
 
-```powershell
-.\mvnw.cmd clean test
+```bash
+./mvnw clean test
 ```
 
 ---
@@ -183,10 +196,10 @@ npm run dev
 │   └── db/migration/                  # Flyway マイグレーション
 ├── frontend/                          # React + TypeScript（Vite）
 │   └── src/
-│       ├── pages/                     # JobAnalysisPage / StrategyDashboard / PricingPage 等
+│       ├── pages/                     # JobAnalysisPage / StrategyDashboardPage / PricingPage 等
 │       └── components/                # チャート・テーマ・Teaser UI
 └── docs/
-    ├── adr/                           # 技術決定記録（ADR）43本
+    ├── adr/                           # 技術決定記録（ADR）90本
     └── screenshots/                   # スクリーンショット
 ```
 
