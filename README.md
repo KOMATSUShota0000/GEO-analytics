@@ -10,6 +10,10 @@ GEOは Generative Engine Optimization の略で、検索順位ではなく「AI�
 
 ## デモ
 
+**公開デモ（ログイン不要）: https://komatsushota0000.github.io/GEO-analytics/demo**
+
+URL とブランド名を入れると、解析結果の画面を本番と同じ部品・同じ順番で見られます。中身は事前に用意したサンプルで、実際の解析は行いません。料金プランの比較は [/plans](https://komatsushota0000.github.io/GEO-analytics/plans) で見られます。
+
 <!-- TODO: スクリーンショット / デモ動画を後で差し込む -->
 
 | シーン | キャプチャ |
