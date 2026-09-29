@@ -11,19 +11,13 @@
   color-adjust: exact;
   print-color-adjust: exact;
 }
-.strategy-dashboard-print-root,
-.strategy-dashboard-print-root * {
-  -webkit-print-color-adjust: exact;
-  color-adjust: exact;
-  print-color-adjust: exact;
-}
 @page {
   size: A4 portrait;
   margin: 0;
 }
 
 @media print {
-  html, body, .report-print-root, .strategy-dashboard-print-root {
+  html, body, .report-print-root {
     -webkit-print-color-adjust: exact !important;
     color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -46,12 +40,6 @@
   .recharts-surface {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
-  }
-  .strategy-dashboard-print-root {
-    width: 794px !important;
-    max-width: 100% !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
   }
   body {
     background: white !important;

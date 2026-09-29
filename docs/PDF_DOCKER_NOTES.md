@@ -10,9 +10,12 @@
   `JobPersistenceService.tryMarkPdfGeneratingAndPublish` は
   「サーバー側のPDF自動生成は廃止されました。ブラウザの印刷機能などをご利用ください。」を返す。
 - PDF 出力は**フロントエンドのブラウザ印刷**で行う。
-  `StrategyDashboardPage`（戦略ダッシュボード）が印刷用 CSS（`pdf-avoid-break` /
-  `pdf-no-print` 等）と描画完了マーカー `#pdf-ready-flag` を備えており、
-  ブラウザの「印刷 → PDF として保存」でホワイトラベル提案書を出力できる。
+  解析結果の画面の「PDFとして保存」が印刷用の画面 `ReportPrintPage`（`/reports/print/:jobId`）を
+  新しいタブで開き、印刷用 CSS（`pdf-avoid-break` / `pdf-no-print` 等）と描画完了マーカー
+  `#pdf-ready-flag` を備えたその画面を、ブラウザの「印刷 → PDF として保存」でホワイトラベルの
+  レポートとして出力する。
+  （2026-09-30 追記: 以前はここに戦略ダッシュボード `StrategyDashboardPage` を挙げていたが、
+  #224 で画面ごと削除し、成長の推移は解析結果の画面に移した。ADR-2026-06-10「PDF保存をブラウザ印刷方式に確定」も参照）
 
 ## 依存・インフラ要件
 
