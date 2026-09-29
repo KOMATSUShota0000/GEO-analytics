@@ -13,7 +13,7 @@ import { AiRecognitionSection } from "../components/analysis/AiRecognitionSectio
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
 import { TierDiagnosisCard } from "../components/TierDiagnosisCard";
 import { LoadingCharacter } from "../components/LoadingCharacter";
-import { DebateAdviceTeaserBanner } from "../components/DebateAdviceTeaserBanner";
+import { JobDiagnosisPanel } from "../components/analysis/JobDiagnosisPanel";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
 import { CompetitorShareChart } from "../components/CompetitorShareChart";
@@ -627,22 +627,11 @@ export function JobAnalysisPage(): JSX.Element {
           </div>
         )}
         {showJobStrategyBlock && (
-          <div className="pdf-avoid-break mb-6 rounded-xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-2">
-              <h2 className="text-sm font-semibold text-sky-950">総合診断</h2>
-              {jobStatus?.adviceSource === "TEMPLATE_FALLBACK" ? (
-                <span
-                  className="pdf-no-print shrink-0 cursor-help rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
-                  title="AI議論の生成に失敗したため、基本テンプレートで表示しています"
-                >
-                  簡易分析モード
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-xs text-sky-800">いまAIの回答で自社がどう扱われているかと、その理由です。</p>
-            <p className="mt-2 text-sm leading-relaxed text-sky-950">{displayJobRollupDiagnostic}</p>
-            {!isProPlanUi ? <DebateAdviceTeaserBanner /> : null}
-          </div>
+          <JobDiagnosisPanel
+            diagnostic={displayJobRollupDiagnostic ?? ""}
+            templateFallback={jobStatus?.adviceSource === "TEMPLATE_FALLBACK"}
+            showTeaser={!isProPlanUi}
+          />
         )}
         <CompetitorShareChart shares={data?.competitorShares ?? []} />
         <RoadmapTimeline items={data?.roadmapItems ?? []} />
