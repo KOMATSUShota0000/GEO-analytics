@@ -1,5 +1,6 @@
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import { PlanComparison, type PlanSpec } from "../pricing/planCatalog";
+import { IS_PUBLIC_SITE } from "../publicSite";
 
 // 公開（未ログイン）ページは WorkspaceBrandingProvider の外にあるため、
 // テナント別ブランディングに依存せず既定ブランドカラーで成立させる（CSS フォールバックと一致）。
@@ -25,24 +26,36 @@ export default function PublicPlansPage(): JSX.Element {
 
       {/* プラン比較カード＋機能比較テーブル（共有モジュール） */}
       <PlanComparison
-        renderCardCta={(plan: PlanSpec) => (
-          <button
-            type="button"
-            onClick={() => navigate("/login")}
-            className="block w-full rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: plan.key === "STANDARD" ? "#475569" : DEFAULT_BRAND_COLOR,
-            }}
-          >
-            このプランで始める
-          </button>
-        )}
+        renderCardCta={(plan: PlanSpec) =>
+          IS_PUBLIC_SITE ? (
+            <button
+              type="button"
+              disabled
+              className="block w-full cursor-not-allowed rounded-lg bg-slate-200 px-4 py-2.5 text-center text-sm font-semibold text-slate-600"
+            >
+              デモ版では申し込めません
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate("/login")}
+              className="block w-full rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              style={{
+                backgroundColor: plan.key === "STANDARD" ? "#475569" : DEFAULT_BRAND_COLOR,
+              }}
+            >
+              このプランで始める
+            </button>
+          )
+        }
       />
 
       {/* 補足 */}
       <div className="mx-auto mt-8 max-w-5xl text-center">
         <p className="text-xs text-slate-400">
-          「このプランで始める」からアカウント登録に進みます。お支払いはご登録後に安全な決済ページでお手続きいただけます。
+          {IS_PUBLIC_SITE
+            ? "このページは紹介用のデモ版です。実際のお申し込みはできません。"
+            : "「このプランで始める」からアカウント登録に進みます。お支払いはご登録後に安全な決済ページでお手続きいただけます。"}
         </p>
       </div>
 
