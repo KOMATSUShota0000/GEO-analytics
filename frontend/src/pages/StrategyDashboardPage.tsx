@@ -1,11 +1,12 @@
+import { ArrowLeft } from "lucide-react";
+import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { useBranding } from "../branding/useBranding";
 import { AbsoluteEvaluationSection } from "../components/strategy/AbsoluteEvaluationSection";
-import { LockedInsightCallout } from "../components/policy/LockedInsightCallout";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { useProjectAssetSnapshots } from "../hooks/useProjectAssetSnapshots";
 import { useLatestEmotionalAlert } from "../hooks/useLatestEmotionalAlert";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 function localIsoDate(d: Date): string {
   const y = d.getFullYear();
@@ -40,8 +41,39 @@ function usePrintSnapshot(): boolean {
   return printing;
 }
 
+// Why: 提案書として印刷したときに、どの案件の推移かが分かるよう、内部のプロジェクトIDではなく名前と対象URLを出す（#180）。
+function useProjectLabel(projectId: string): { name: string; targetUrl: string } | null {
+  const [label, setLabel] = useState<{ name: string; targetUrl: string } | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/settings`);
+        if (!res.ok) return;
+        const raw = (await responseJsonAsCamel(res)) as Record<string, unknown> | null;
+        if (cancelled || raw === null || typeof raw !== "object") return;
+        setLabel({
+          name: typeof raw.projectName === "string" ? raw.projectName : "",
+          targetUrl: typeof raw.targetUrl === "string" ? raw.targetUrl : "",
+        });
+      } catch {
+        // 名前が取れなくても推移のグラフは見られるので、見出しの下を空けたままにする
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+  return label;
+}
+
 export default function StrategyDashboardPage(): JSX.Element {
   const {projectId = ""} = useParams<{projectId: string}>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnJobId = searchParams.get("returnJob")?.trim() ?? "";
+  const projectLabel = useProjectLabel(projectId);
   const {toolName, logoBlobUrl, brandColor} = useBranding();
   const { emotionalAlert } = useLatestEmotionalAlert(projectId);
   const range = useMemo(() => defaultRange(), []);
@@ -83,7 +115,7 @@ export default function StrategyDashboardPage(): JSX.Element {
   }, [pdfReadyFlag]);
 
   return (
-    <div className="min-h-screen bg-slate-50/80 pb-16 pt-8">
+    <div className="min-h-screen bg-gradient-to-b from-[#f5f2fb] via-[#eae3f4] to-[#f2eef9] pb-16 pt-8 print:bg-none print:bg-white">
       <div
         className="strategy-dashboard-print-root mx-auto px-4 text-slate-900"
         style={{
@@ -93,12 +125,18 @@ export default function StrategyDashboardPage(): JSX.Element {
           WebkitPrintColorAdjust:"exact",
         }}
       >
-        <nav className="pdf-no-print mb-6 text-sm text-slate-600">
-          <Link to="/" className="text-sky-700 underline-offset-2 hover:underline">
-            ホーム
-          </Link>
-          <span className="mx-2">/</span>
-          <span className="text-slate-800">戦略ダッシュボード</span>
+        <nav
+          className="pdf-no-print mb-6 flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-slate-200/90 pb-4"
+          aria-label="ページ導線"
+        >
+          <button
+            type="button"
+            onClick={() => navigate(returnJobId.length > 0 ? `/job/${returnJobId}` : "/")}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 hover:text-indigo-800"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
+            {returnJobId.length > 0 ? "解析結果に戻る" : "ホームに戻る"}
+          </button>
         </nav>
 
         <header className="pdf-avoid-break mb-10 rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm">
@@ -112,6 +150,12 @@ export default function StrategyDashboardPage(): JSX.Element {
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{toolName}</p>
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">戦略ダッシュボード</h1>
+                {projectLabel !== null && projectLabel.name.length > 0 ? (
+                  <p className="mt-1 text-sm font-semibold text-slate-700">{projectLabel.name}</p>
+                ) : null}
+                {projectLabel !== null && projectLabel.targetUrl.length > 0 ? (
+                  <p className="mt-0.5 break-all text-xs text-slate-500">{projectLabel.targetUrl}</p>
+                ) : null}
                 <p className="mt-2 text-sm font-semibold text-slate-800">公式提案書</p>
                 <p className="mt-1 text-xs text-slate-600">印刷日時 {printedAt}</p>
               </div>
@@ -120,7 +164,6 @@ export default function StrategyDashboardPage(): JSX.Element {
               <p>
                 対象期間 {range.from} 〜 {range.to}
               </p>
-              <p className="mt-1 break-all">プロジェクト ID {projectId}</p>
             </div>
           </div>
         </header>
@@ -130,10 +173,6 @@ export default function StrategyDashboardPage(): JSX.Element {
             <EmotionalAlertBanner payload={emotionalAlert} />
           </div>
         ) : null}
-
-        <div className="pdf-no-print mb-6 rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
-          <LockedInsightCallout message="🔒 基礎スコアが上位プランで開示されます（プレースホルダ）。" />
-        </div>
 
         {loading && <p className="pdf-no-print mb-6 text-sm text-slate-600">読み込み中…</p>}
         {error != null && (

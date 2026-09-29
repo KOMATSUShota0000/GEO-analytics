@@ -4,7 +4,6 @@ import { fetchWorkspacePlan, type WorkspaceSubscriptionPlan } from "../api/works
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { mergeBannerJobHint } from "../lib/bannerJobHint";
-import { AnalysisCharts } from "../components/AnalysisCharts";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
 import { MaterialSourceBadge } from "../components/MaterialSourceBadge";
 import { ReputationBadge } from "../components/ReputationBadge";
@@ -32,7 +31,6 @@ import {
   formatAuditDate,
   parseJobAnalysisDetail,
   resolveAverageSomScore,
-  resolveChartTrendData,
   type JobAnalysisDetail,
   type JobProjectInfo,
   type ResultDetail,
@@ -108,12 +106,20 @@ function ProjectInfoBlock({
     <div className="pdf-avoid-break mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-800">プロジェクト</h3>
-        <RouterLink
-          to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
-          className="pdf-no-print text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-        >
-          プロジェクト設定
-        </RouterLink>
+        <div className="pdf-no-print flex flex-wrap items-center gap-x-4 gap-y-1">
+          <RouterLink
+            to={`/projects/${project.projectId}/strategy?returnJob=${encodeURIComponent(jobIdForReturn)}`}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+          >
+            成長の推移
+          </RouterLink>
+          <RouterLink
+            to={`/projects/${project.projectId}/settings?returnJob=${encodeURIComponent(jobIdForReturn)}`}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+          >
+            プロジェクト設定
+          </RouterLink>
+        </div>
       </div>
       <p className="mt-2 text-sm text-slate-600">
         <span className="font-medium text-slate-800">名称</span> {project.projectName}
@@ -190,13 +196,6 @@ export function JobAnalysisPage(): JSX.Element {
   const isPdfGeneratingUi =
     pdfRequestInFlight || (jobStatus?.pdfStatus != null && jobStatus.pdfStatus === PDF_GENERATING);
   const isPdfMode = searchParams.get("pdf") === "1";
-  const brandForCharts = displayBrand ?? "自社";
-  const chartTrendData = useMemo(
-    () => resolveChartTrendData(resultRows, {}, false),
-    [resultRows],
-  );
-  const showCharts =
-    effectiveJobId.length > 0 && (data !== null || isProcessingDisplay);
   const displaySomForTier = useMemo(() => {
     const avg = resolveAverageSomScore(resultRows, {}, false);
     if (avg !== null) {
@@ -666,15 +665,6 @@ export function JobAnalysisPage(): JSX.Element {
       ) : null}
       {geoScoreSection}
       {aiRecognitionSection}
-      {showCharts &&
-        (isProcessingDisplay ||
-          (data !== null && isCompletedJobStatus(data.jobStatus))) && (
-          <AnalysisCharts
-            isPdfMode={isPdfMode}
-            trendData={chartTrendData}
-            brandLabel={brandForCharts}
-          />
-        )}
       {data && isCompletedJobStatus(data.jobStatus) && (
         <div className="pdf-avoid-break overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="pdf-avoid-break flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
