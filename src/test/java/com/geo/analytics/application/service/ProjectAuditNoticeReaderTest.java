@@ -58,18 +58,41 @@ class ProjectAuditNoticeReaderTest {
         assertThat(digest.currentAvg()).isEqualTo(31.2);
         assertThat(digest.previousAvg()).isEqualTo(30.0);
         assertThat(digest.deltaAvg()).isEqualTo(1.2);
+        assertThat(digest.comparedCount()).isEqualTo(2);
+        assertThat(digest.newQuestionCount()).isZero();
     }
 
     @Test
-    void queryWithoutPreviousValueKeepsNull() {
+    void questionsMissingFromThePreviousAnalysisAreCountedButNotListed() {
+        givenProject(List.of("a@example.com"));
+        when(auditHistoryRepository.findByJobId(JOB_ID)).thenReturn(List.of(
+                row("質問A", 12.0),
+                row("今回はじめての質問1", 90.0),
+                row("今回はじめての質問2", 5.0)));
+        when(jobRepository.findByProjectIdOrderByCreatedAtDesc(PROJECT_ID)).thenReturn(List.of(job(JOB_ID), job(PREVIOUS_JOB_ID)));
+        when(auditHistoryRepository.findByJobId(PREVIOUS_JOB_ID)).thenReturn(List.of(
+                row("質問A", 10.0),
+                row("前回だけの質問", 40.0)));
+
+        ProjectAuditNoticeReader.AuditDigest digest = reader.read(PROJECT_ID, JOB_ID).orElseThrow().digest();
+
+        assertThat(digest.top3()).extracting(ProjectAuditNoticeReader.VarianceLine::keyword).containsExactly("質問A");
+        assertThat(digest.comparedCount()).isEqualTo(1);
+        assertThat(digest.newQuestionCount()).isEqualTo(2);
+    }
+
+    @Test
+    void firstAnalysisHasNothingToCompare() {
         givenProject(List.of("a@example.com"));
         when(auditHistoryRepository.findByJobId(JOB_ID)).thenReturn(List.of(row("新しい質問", 7.77)));
         when(jobRepository.findByProjectIdOrderByCreatedAtDesc(PROJECT_ID)).thenReturn(List.of(job(JOB_ID)));
 
-        ProjectAuditNoticeReader.VarianceLine line = reader.read(PROJECT_ID, JOB_ID).orElseThrow().digest().top3().get(0);
+        ProjectAuditNoticeReader.AuditDigest digest = reader.read(PROJECT_ID, JOB_ID).orElseThrow().digest();
 
-        assertThat(line.currentSom()).isEqualTo(7.8);
-        assertThat(line.previousSom()).isNull();
+        assertThat(digest.currentAvg()).isEqualTo(7.8);
+        assertThat(digest.previousAvg()).isNull();
+        assertThat(digest.top3()).isEmpty();
+        assertThat(digest.comparedCount()).isZero();
     }
 
     @Test

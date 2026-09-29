@@ -49,6 +49,8 @@ logging:
     org.springframework.security: DEBUG
 
 app:
+  # Why: 開発では画面（Vite）がこの URL で動くので、メールの「解析結果を見る」リンクが何も設定しなくても開けるようにする（#183）。
+  public-base-url: "${APP_PUBLIC_BASE_URL:http://localhost:5173}"
   bootstrap:
     # Why: 開発で自分の Gmail にログインコードを届けるため、初期ユーザーのアドレスを .env で差し替えられるようにする。
     #      .env は自動テストにも読み込まれるため、テストが拾わないようここ（開発）でだけ環境変数を読む。

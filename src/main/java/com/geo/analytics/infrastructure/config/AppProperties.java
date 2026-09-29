@@ -18,6 +18,17 @@ public class AppProperties {
     private Auth auth = new Auth();
     private Security security;
     private Branding branding = new Branding();
+    // Why: メールから画面へのリンクを作るための、利用者が開くアプリの URL。本番で未設定のときは
+    //      localhost へのリンクを送らないよう既定を空にし、空ならリンクを出さない（#183）。
+    private String publicBaseUrl = "";
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl != null ? publicBaseUrl : "";
+    }
 
     public Crawler getCrawler() {
         return crawler;

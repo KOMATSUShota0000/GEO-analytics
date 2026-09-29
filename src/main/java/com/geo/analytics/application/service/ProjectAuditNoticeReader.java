@@ -80,19 +80,35 @@ public class ProjectAuditNoticeReader {
         }
         Double deltaAvg = previousAvg == null ? null : round1(currentAvg - previousAvg);
         List<VarianceLine> variances = new ArrayList<>();
+        int newQuestionCount = 0;
         for (AuditHistoryEntity row : current) {
+            // Why: 解析ごとに質問を作り直すため、前回になかった質問が混ざる。前回の値がないと動いたかどうかが
+            //      言えないので並べず、数だけ伝える（#183 オーナー確定）。
+            if (!prevByQuery.containsKey(row.getQuery())) {
+                newQuestionCount++;
+                continue;
+            }
             Double p = prevByQuery.get(row.getQuery());
             Double curSom = row.getSomScore();
-            double d = (p == null || curSom == null) ? 0d : curSom - p;
-            variances.add(new VarianceLine(row.getQuery(), curSom, p, d));
+            if (p == null || curSom == null) {
+                continue;
+            }
+            variances.add(new VarianceLine(row.getQuery(), curSom, p, curSom - p));
         }
+        int comparedCount = variances.size();
         variances.sort(Comparator.comparing((VarianceLine v) -> Math.abs(v.delta())).reversed());
         // Why: 並べ替えは丸める前の差で行い、メールに載せる値だけを小数1桁にそろえる（#174）。
         List<VarianceLine> top3 = variances.stream()
             .limit(3)
             .map(v -> new VarianceLine(v.keyword(), round1OrNull(v.currentSom()), round1OrNull(v.previousSom()), round1(v.delta())))
             .toList();
-        return new AuditDigest(round1(currentAvg), previousAvg == null ? null : round1(previousAvg), deltaAvg, top3);
+        return new AuditDigest(
+            round1(currentAvg),
+            previousAvg == null ? null : round1(previousAvg),
+            deltaAvg,
+            top3,
+            comparedCount,
+            newQuestionCount);
     }
 
     private static Double round1(double v) {
@@ -106,7 +122,13 @@ public class ProjectAuditNoticeReader {
     public record AuditNotice(String projectName, List<String> recipients, AuditDigest digest) {
     }
 
-    public record AuditDigest(double currentAvg, Double previousAvg, Double deltaAvg, List<VarianceLine> top3) {
+    public record AuditDigest(
+            double currentAvg,
+            Double previousAvg,
+            Double deltaAvg,
+            List<VarianceLine> top3,
+            int comparedCount,
+            int newQuestionCount) {
     }
 
     public record VarianceLine(String keyword, Double currentSom, Double previousSom, double delta) {
