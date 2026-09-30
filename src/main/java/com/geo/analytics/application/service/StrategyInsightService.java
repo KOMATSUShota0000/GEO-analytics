@@ -302,13 +302,15 @@ public final class StrategyInsightService {
      *
      * @param tasks 改善タスク（取り組む順）。ロードマップを改善タスクの時間割にするために議論へ渡す（#141）
      * @param jobFacts 依頼時の事業情報とサイト診断の結果。議論の材料として渡す（#195）
+     * @param recorder 議論の発言を、できた順に受け取る（#197）
      */
     public JobAdviceRollup rollupJobWithSource(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
             List<RemediationTask> tasks,
-            DebateJobFacts jobFacts) {
+            DebateJobFacts jobFacts,
+            DebateRecorder recorder) {
         if (rows == null || rows.isEmpty() || project == null) {
             return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
         }
@@ -318,7 +320,7 @@ public final class StrategyInsightService {
             return new JobAdviceRollup(rollupJobFromTemplate(rows), AdviceSource.TEMPLATE_FALLBACK);
         }
         try {
-            var advice = generator.generateForJob(rows, project, plan, tasks, jobFacts);
+            var advice = generator.generateForJob(rows, project, plan, tasks, jobFacts, recorder);
             return new JobAdviceRollup(
                     advice.insight(), AdviceSource.AI, advice.minorityReports(), advice.roadmapItems());
         } catch (RuntimeException exception) {

@@ -47,7 +47,7 @@ class StrategyInsightServiceTest {
     void rollupJobWithProjectDelegatesToAiGenerator() {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
         StrategyInsight aiResult = new StrategyInsight("AI生成診断", List.of("a", "b", "c"), 0.3);
-        when(generator.generateForJob(any(), any(), any(), any(), any()))
+        when(generator.generateForJob(any(), any(), any(), any(), any(), any()))
                 .thenReturn(
                         new DebateAdviceGeneratorService.JobAdvice(
                                 aiResult,
@@ -57,17 +57,17 @@ class StrategyInsightServiceTest {
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
         StrategyInsight result =
-                svc.rollupJobWithSource(List.of(rowWith(0.3, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
+                svc.rollupJobWithSource(List.of(rowWith(0.3, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE).insight();
 
         assertThat(result.diagnosticMessage()).isEqualTo("AI生成診断");
-        verify(generator, times(1)).generateForJob(any(), any(), any(), any(), any());
+        verify(generator, times(1)).generateForJob(any(), any(), any(), any(), any(), any());
     }
 
     @Test
     void rollupJobWithSourceCarriesMinorityReportsFromDebate() {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
         StrategyInsight aiResult = new StrategyInsight("AI生成診断", List.of("a", "b", "c"), 0.3);
-        when(generator.generateForJob(any(), any(), any(), any(), any()))
+        when(generator.generateForJob(any(), any(), any(), any(), any(), any()))
                 .thenReturn(
                         new DebateAdviceGeneratorService.JobAdvice(
                                 aiResult,
@@ -76,7 +76,7 @@ class StrategyInsightServiceTest {
 
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
-        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.3, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null);
+        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.3, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE);
 
         assertThat(rollup.minorityReports()).hasSize(1);
         assertThat(rollup.minorityReports().getFirst().insight()).isEqualTo("尖った案");
@@ -87,12 +87,12 @@ class StrategyInsightServiceTest {
     @Test
     void templateFallbackCarriesNoMinorityReports() {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
-        when(generator.generateForJob(any(), any(), any(), any(), any()))
+        when(generator.generateForJob(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new DebateAdviceGeneratorService.DebateAdviceGenerationException("boom"));
 
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
-        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null);
+        var rollup = svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE);
 
         assertThat(rollup.minorityReports()).isEmpty();
         assertThat(rollup.roadmapItems()).isEmpty();
@@ -101,7 +101,7 @@ class StrategyInsightServiceTest {
     @Test
     void rollupJobFallsBackToTemplateWhenGeneratorThrows() {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
-        when(generator.generateForJob(any(), any(), any(), any(), any()))
+        when(generator.generateForJob(any(), any(), any(), any(), any(), any()))
                 .thenThrow(
                         new DebateAdviceGeneratorService.DebateAdviceGenerationException(
                                 "boom"));
@@ -109,7 +109,7 @@ class StrategyInsightServiceTest {
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
         StrategyInsight result =
-                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
+                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE).insight();
 
         // テンプレフォールバック発動 → 改Z' 0.0 は MSG_REDOCEAN テンプレに該当
         assertThat(result.diagnosticMessage()).contains("レッドオーシャン");
@@ -121,7 +121,7 @@ class StrategyInsightServiceTest {
         StrategyInsightService svc = new StrategyInsightService(providerOf(null));
 
         StrategyInsight result =
-                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
+                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE).insight();
 
         assertThat(result.diagnosticMessage()).isNotNull();
         assertThat(result.recommendedActions()).isNotEmpty();
@@ -132,10 +132,10 @@ class StrategyInsightServiceTest {
         DebateAdviceGeneratorService generator = mock(DebateAdviceGeneratorService.class);
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
-        StrategyInsight result = svc.rollupJobWithSource(List.of(), context(), SubscriptionPlan.STANDARD, List.of(), null).insight();
+        StrategyInsight result = svc.rollupJobWithSource(List.of(), context(), SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE).insight();
 
         assertThat(result.diagnosticMessage()).isNull();
-        verify(generator, never()).generateForJob(any(), any(), any(), any(), any());
+        verify(generator, never()).generateForJob(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -144,10 +144,10 @@ class StrategyInsightServiceTest {
         StrategyInsightService svc = new StrategyInsightService(providerOf(generator));
 
         StrategyInsight result =
-                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), null, SubscriptionPlan.STANDARD, List.of(), null).insight();
+                svc.rollupJobWithSource(List.of(rowWith(0.0, 5)), null, SubscriptionPlan.STANDARD, List.of(), null, DebateRecorder.NONE).insight();
 
         assertThat(result.diagnosticMessage()).isNotNull();
-        verify(generator, never()).generateForJob(any(), any(), any(), any(), any());
+        verify(generator, never()).generateForJob(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -159,7 +159,7 @@ class StrategyInsightServiceTest {
 
         // 後方互換 API は AI 駆動には行かない
         assertThat(result.diagnosticMessage()).contains("市場の支配者");
-        verify(generator, never()).generateForJob(any(), any(), any(), any(), any());
+        verify(generator, never()).generateForJob(any(), any(), any(), any(), any(), any());
     }
 
     @Test

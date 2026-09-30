@@ -5,8 +5,10 @@ import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.enums.AdviceSource;
+import com.geo.analytics.domain.enums.DebateStatus;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.DebateUtterance;
 import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RemediationTaskOrder;
@@ -40,14 +42,75 @@ public final class GapAnalysisService {
         this.gapBatchSubmissionService = gapBatchSubmissionService;
     }
 
+    /**
+     * Why: 議論中の印は、裏の処理を起こす前にここで付ける。呼び出し元は直後に解析を完了にするため、
+     * 画面が「完了」を受け取った時点で、議論がまだ終わっていないことを読めるようにする（#197）。
+     */
     public void scheduleForJob(UUID jobId) {
+        try {
+            batchPersistence.beginDebate(jobId);
+        } catch (RuntimeException exception) {
+            log.warn("debate_begin_failed jobId={}", jobId, exception);
+        }
         SCHEDULER.execute(() -> {
             try {
                 runForJob(jobId);
             } catch (Exception exception) {
                 log.warn("gap_analysis_failed jobId={}", jobId, exception);
+                try {
+                    batchPersistence.abandonDebate(jobId);
+                } catch (RuntimeException abandonFailure) {
+                    log.warn("debate_abandon_failed jobId={}", jobId, abandonFailure);
+                }
             }
         });
+    }
+
+    private void finishDebateQuietly(UUID jobId, DebateStatus status) {
+        try {
+            batchPersistence.finishDebate(jobId, status);
+        } catch (RuntimeException exception) {
+            log.warn("debate_finish_failed jobId={} status={}", jobId, status, exception);
+        }
+    }
+
+    /**
+     * 議論の発言を、できた順に保存する（#197）。発言者の呼び出しはひとつのスレッドで順に行われる。
+     *
+     * <p>Why: 保存に失敗しても議論と総合診断は止めない。画面に出る発言が欠けるだけで、解析は成立する。
+     */
+    private final class JobDebateRecorder implements DebateRecorder {
+        private final UUID jobId;
+        private final UUID organizationId;
+        private int seq;
+        private boolean failed;
+
+        JobDebateRecorder(UUID jobId, UUID organizationId) {
+            this.jobId = jobId;
+            this.organizationId = organizationId;
+        }
+
+        @Override
+        public void spoke(DebateUtterance utterance) {
+            seq++;
+            try {
+                batchPersistence.insertDebateUtterance(jobId, organizationId, seq, utterance);
+            } catch (RuntimeException exception) {
+                log.warn("debate_utterance_save_failed jobId={} seq={}", jobId, seq, exception);
+            }
+        }
+
+        @Override
+        public void failed() {
+            failed = true;
+        }
+
+        DebateStatus outcome() {
+            if (failed) {
+                return DebateStatus.FAILED;
+            }
+            return seq > 0 ? DebateStatus.COMPLETED : DebateStatus.SKIPPED;
+        }
     }
 
     /**
@@ -95,10 +158,14 @@ public final class GapAnalysisService {
         //      議論が成立して0件だった場合は空配列で上書きする。
         List<MinorityReport> minorityReports = null;
         List<RoadmapItem> roadmapItems = null;
+        DebateStatus debateStatus = DebateStatus.SKIPPED;
         if (projectContext != null) {
+            var recorder = new JobDebateRecorder(jobId, projectContext.organizationId());
             var rollupWithSource =
                     strategyInsightService.rollupJobWithSource(
-                            rows, projectContext, plan, loadTasksForDebate(rows), debateJobFactsOf(jobEntity));
+                            rows, projectContext, plan, loadTasksForDebate(rows), debateJobFactsOf(jobEntity),
+                            recorder);
+            debateStatus = recorder.outcome();
             rollup = rollupWithSource.insight();
             adviceSource = rollupWithSource.source().name();
             if (rollupWithSource.source() == AdviceSource.AI) {
@@ -116,6 +183,9 @@ public final class GapAnalysisService {
             adviceSource,
             minorityReports,
             roadmapItems);
+        // Why: 終わりの印は総合診断を書いたあとに付ける。画面は印を見て問い合わせをやめるため、逆にすると
+        //      総合診断の無いまま問い合わせが止まる（#197 / #198）。
+        finishDebateQuietly(jobId, debateStatus);
         String trendFull = rollup.diagnosticMessage() != null ? rollup.diagnosticMessage() : "";
         String trendClip = trendFull.length() > 420 ? trendFull.substring(0, 420) : trendFull;
         var outlierRows = new ArrayList<AuditHistoryEntity>();
@@ -231,6 +301,7 @@ public final class GapAnalysisService {
             rollup.diagnosticMessage(),
             List.copyOf(rollup.recommendedActions()),
             AdviceSource.TEMPLATE_FALLBACK.name());
+        finishDebateQuietly(jobId, DebateStatus.SKIPPED);
         batchPersistence.markGapAnalysisCompleted(jobId, true);
     }
 }

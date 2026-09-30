@@ -8,11 +8,13 @@ import com.geo.analytics.domain.entity.AuditHistoryEntity;
 import com.geo.analytics.domain.entity.JobEntity;
 import com.geo.analytics.domain.entity.QueryEntity;
 import com.geo.analytics.domain.enums.AiRecognitionState;
+import com.geo.analytics.domain.enums.DebateStatus;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.JobStatus;
 import com.geo.analytics.domain.enums.MaterialSource;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.model.CompetitorResult;
+import com.geo.analytics.domain.model.DebateUtterance;
 import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
@@ -205,6 +207,54 @@ public class BatchPersistenceService {
             ps.setObject(6, jobId);
             return ps;
         });
+    }
+
+    /**
+     * Why: 同じジョブで議論をやり直したときは、前の発言を消して置き換える（#197、2026-09-30 オーナー確定）。
+     * 総合診断とロードマップも最後の議論で上書きされるため、古い発言を残すと画面の結論と食い違う。
+     */
+    public void beginDebate(UUID jobId) {
+        jdbc.update("DELETE FROM job_debate_utterances WHERE job_id = ?", jobId);
+        jdbc.update("UPDATE jobs SET debate_status = ?, updated_at = now() WHERE id = ?",
+                DebateStatus.RUNNING.name(), jobId);
+    }
+
+    public void insertDebateUtterance(UUID jobId, UUID organizationId, int seq, DebateUtterance u) {
+        jdbc.update(
+                "INSERT INTO job_debate_utterances (id, job_id, organization_id, seq, round, speaker, summary,"
+                        + " reply_to, stance, evidence_kind, evidence_task_number, evidence_detail)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                UUID.randomUUID(), jobId, organizationId, seq, u.round(), u.speaker().name(), u.summary(),
+                nameOrNull(u.replyTo()), nameOrNull(u.stance()), nameOrNull(u.evidenceKind()),
+                u.evidenceTaskNumber(), u.evidenceDetail());
+    }
+
+    /**
+     * Why: 議論が失敗したときは、途中までの発言を消す。総合診断は途中の議論を読まずに作り直されるため、
+     * 残すと画面の発言と結論が食い違う（#197、2026-09-30 オーナー確定）。
+     */
+    public void finishDebate(UUID jobId, DebateStatus status) {
+        if (status == DebateStatus.FAILED) {
+            jdbc.update("DELETE FROM job_debate_utterances WHERE job_id = ?", jobId);
+        }
+        jdbc.update("UPDATE jobs SET debate_status = ?, updated_at = now() WHERE id = ?", status.name(), jobId);
+    }
+
+    /**
+     * Why: 裏の処理が途中で落ちたとき、議論中のまま残すと画面が問い合わせを続けてしまう。
+     * すでに終わりの印が付いていれば（議論のあとで落ちたとき）、議論の結果は正しいので触らない。
+     */
+    public void abandonDebate(UUID jobId) {
+        int updated = jdbc.update(
+                "UPDATE jobs SET debate_status = ?, updated_at = now() WHERE id = ? AND debate_status = ?",
+                DebateStatus.FAILED.name(), jobId, DebateStatus.RUNNING.name());
+        if (updated > 0) {
+            jdbc.update("DELETE FROM job_debate_utterances WHERE job_id = ?", jobId);
+        }
+    }
+
+    private static String nameOrNull(Enum<?> value) {
+        return value == null ? null : value.name();
     }
 
     public void updateAuditStrategyInsights(UUID auditHistoryId, String diagnosticMessage,
