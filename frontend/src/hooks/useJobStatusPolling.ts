@@ -72,7 +72,9 @@ function shouldContinuePolling(status: JobStatusResponse | null): boolean {
     return false;
   }
   if (js === "COMPLETED" || js === "SUCCEEDED") {
-    return status.pdfStatus === "GENERATING";
+    // Why: 4人のAIの議論は、解析の完了のあと裏で走る。総合診断とロードマップは議論が終わってから保存されるので、
+    //      議論中は問い合わせを続ける。議論中のまま長く残ったものは、サーバーが失敗として返す（#198）。
+    return status.pdfStatus === "GENERATING" || status.debateStatus === "RUNNING";
   }
   return true;
 }

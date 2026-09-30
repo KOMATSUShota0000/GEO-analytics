@@ -1,7 +1,7 @@
 import { apiFetch, responseJsonAsCamel } from "../api/apiFetch";
 import { downloadJobPdfWithAuth } from "../api/downloadJobPdf";
 import { fetchWorkspacePlan, type WorkspaceSubscriptionPlan } from "../api/workspace-api";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { growthTrendRangeForJob } from "../lib/growthTrendRange";
 import { EmotionalAlertBanner } from "../components/EmotionalAlertBanner";
@@ -183,7 +183,11 @@ export function JobAnalysisPage(): JSX.Element {
         : null;
     return b;
   }, [jobStatus?.diagnosticMessage, data?.jobSummaryDiagnostic]);
-  const showJobStrategyBlock = displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0;
+  // Why: 議論が終わる前は、サーバーがテンプレートの診断文で埋めて返す。それを総合診断として出すと、議論の結論に
+  //      あとで差し替わって見える。議論中は待ち表示にして、議論の結論だけを総合診断として出す（#198）。
+  const isDebateRunning = jobStatus?.debateStatus === "RUNNING";
+  const showJobStrategyBlock =
+    !isDebateRunning && displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0;
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
   const analysisLocked = isProcessingDisplay;
@@ -369,6 +373,16 @@ export function JobAnalysisPage(): JSX.Element {
       setAnalysisReloadNonce((n) => n + 1);
     }
   }, [jobReportedCompleted]);
+
+  // Why: ロードマップと少数意見は解析データの側にあり、議論が終わってから保存される。
+  //      議論の終わりを問い合わせで検知したら、解析データを取り直す（#198）。
+  const wasDebateRunningRef = useRef(false);
+  useEffect(() => {
+    if (wasDebateRunningRef.current && !isDebateRunning) {
+      setAnalysisReloadNonce((n) => n + 1);
+    }
+    wasDebateRunningRef.current = isDebateRunning;
+  }, [isDebateRunning]);
 
   useEffect(() => {
     const ready = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
