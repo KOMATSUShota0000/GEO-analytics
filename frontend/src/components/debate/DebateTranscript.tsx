@@ -11,6 +11,7 @@ export type DebateTranscriptProps = {
  * 議論の発言の並び（#199）。議論中の表示と、終わったあとの「議論の流れを見る」で使う。
  *
  * <p>Why: 読み上げソフトには、流している途中の文ではなく発言の全文を渡す。根拠の枠は、その発言を流し終えてから出す。
+ * 見えない全文を持たせるのは流している最中だけにする。常に持たせると、発言をコピーしたとき同じ文が2回入る（#236）。
  */
 export function DebateTranscript({ items, typing = null }: DebateTranscriptProps): JSX.Element {
   return (
@@ -46,13 +47,17 @@ export function DebateTranscript({ items, typing = null }: DebateTranscriptProps
                   )}
                 </div>
                 <p className="text-[15px] leading-[1.8] text-slate-900">
-                  <span className="sr-only">{item.text}</span>
-                  <span aria-hidden>
-                    {isTyping ? item.text.slice(0, typing.chars) : item.text}
-                    {isTyping && (
-                      <span className="ml-0.5 inline-block h-[1em] w-[0.4em] animate-pulse bg-indigo-600 align-text-bottom" />
-                    )}
-                  </span>
+                  {isTyping ? (
+                    <>
+                      <span className="sr-only">{item.text}</span>
+                      <span aria-hidden>
+                        {item.text.slice(0, typing.chars)}
+                        <span className="ml-0.5 inline-block h-[1em] w-[0.4em] animate-pulse bg-indigo-600 align-text-bottom" />
+                      </span>
+                    </>
+                  ) : (
+                    item.text
+                  )}
                 </p>
                 {item.evidence !== null && !isTyping && (
                   <div className="flex gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">

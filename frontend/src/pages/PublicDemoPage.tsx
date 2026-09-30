@@ -18,6 +18,7 @@ import {
   DEMO_DEBATE_UTTERANCES,
   DEMO_DEFAULT_BRAND,
   DEMO_DIAGNOSTIC,
+  DEMO_INDUSTRY_MODE,
   DEMO_MINORITY_REPORTS,
   DEMO_QUERIES,
   DEMO_REMEDIATION_TASKS,
@@ -203,6 +204,7 @@ export default function PublicDemoPage(): JSX.Element {
             <div className="mb-6">
               <GeoScoreBreakdown
                 breakdown={DEMO_SCORE_BREAKDOWN}
+                industryMode={DEMO_INDUSTRY_MODE}
                 brandName={brandName}
                 contentEvidence={DEMO_CONTENT_EVIDENCE}
                 technicalEvidence={DEMO_TECHNICAL_EVIDENCE}
