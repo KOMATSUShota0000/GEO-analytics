@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import { LoadingCharacter } from "../components/LoadingCharacter";
@@ -10,9 +10,12 @@ import { AiRecognitionSection } from "../components/analysis/AiRecognitionSectio
 import { GeoScoreBreakdown } from "../components/analysis/GeoScoreBreakdown";
 import { JobDiagnosisPanel } from "../components/analysis/JobDiagnosisPanel";
 import { RemediationTaskBoard } from "../components/analysis/RemediationTaskBoard";
+import { DebateLivePanel } from "../components/debate/DebateLivePanel";
+import { DebateSummaryRow } from "../components/debate/DebateSummaryRow";
 import {
   DEMO_AI_RECOGNITION,
   DEMO_CONTENT_EVIDENCE,
+  DEMO_DEBATE_UTTERANCES,
   DEMO_DEFAULT_BRAND,
   DEMO_DIAGNOSTIC,
   DEMO_MINORITY_REPORTS,
@@ -34,13 +37,32 @@ const LOADING_MS = 3200;
 /** Why: 公開デモからはログイン後の料金画面へ進めないため、上位プランへの誘導は公開のプラン比較へ飛ばす（#188）。 */
 const UPGRADE_TO = "/plans";
 
-type Phase = "input" | "loading" | "result";
+/**
+ * Why: 本番の議論は1発言に十数秒かかる。デモでは、1発言を流し終える長さ（3秒）ごとに次の発言を届け、
+ * 7件を20秒ほどで見せる。急ぐ人は飛ばせるようにする（#234）。
+ */
+const DEBATE_UTTERANCE_INTERVAL_MS = 3000;
+
+type Phase = "input" | "loading" | "debate" | "result";
 
 export default function PublicDemoPage(): JSX.Element {
   const [phase, setPhase] = useState<Phase>("input");
   const [url, setUrl] = useState("");
   const [brand, setBrand] = useState("");
   const timer = useRef<number | null>(null);
+  const [debateCount, setDebateCount] = useState(0);
+  const debateUtterances = useMemo(() => DEMO_DEBATE_UTTERANCES.slice(0, debateCount), [debateCount]);
+
+  useEffect(() => {
+    if (phase !== "debate") {
+      return undefined;
+    }
+    const id = window.setInterval(
+      () => setDebateCount((count) => Math.min(DEMO_DEBATE_UTTERANCES.length, count + 1)),
+      DEBATE_UTTERANCE_INTERVAL_MS,
+    );
+    return () => window.clearInterval(id);
+  }, [phase]);
 
   useEffect(() => {
     return () => {
@@ -55,7 +77,10 @@ export default function PublicDemoPage(): JSX.Element {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
     }
-    timer.current = window.setTimeout(() => setPhase("result"), LOADING_MS);
+    timer.current = window.setTimeout(() => {
+      setDebateCount(0);
+      setPhase("debate");
+    }, LOADING_MS);
   };
 
   const brandName = brand.trim() || DEMO_DEFAULT_BRAND;
@@ -123,6 +148,32 @@ export default function PublicDemoPage(): JSX.Element {
           </section>
         )}
 
+        {phase === "debate" && (
+          <section className="mx-auto max-w-5xl">
+            <div className="mb-6 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden />
+                サンプルの議論（デモ用に用意した例です）
+              </span>
+            </div>
+            <DebateLivePanel
+              utterances={debateUtterances}
+              finished={debateCount >= DEMO_DEBATE_UTTERANCES.length}
+              tasks={DEMO_REMEDIATION_TASKS}
+              onShowResults={() => setPhase("result")}
+            />
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => setPhase("result")}
+                className="text-sm font-medium text-slate-500 hover:text-slate-700"
+              >
+                議論を飛ばして、結果を見る →
+              </button>
+            </div>
+          </section>
+        )}
+
         {phase === "result" && (
           <section className="mx-auto max-w-5xl">
             {/* サンプル明示（誤認防止）。警告調ではなく上品なバッジで正直さと WOW を両立 */}
@@ -133,6 +184,7 @@ export default function PublicDemoPage(): JSX.Element {
               </span>
             </div>
 
+            <DebateSummaryRow utterances={DEMO_DEBATE_UTTERANCES} tasks={DEMO_REMEDIATION_TASKS} />
             <JobDiagnosisPanel
               diagnostic={DEMO_DIAGNOSTIC}
               templateFallback={false}
