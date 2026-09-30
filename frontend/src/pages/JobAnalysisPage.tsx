@@ -16,17 +16,13 @@ import { LoadingCharacter } from "../components/LoadingCharacter";
 import { JobDiagnosisPanel } from "../components/analysis/JobDiagnosisPanel";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
+import { DebateLivePanel } from "../components/debate/DebateLivePanel";
 import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import { GrowthTrajectoryChart } from "../components/strategy/GrowthTrajectoryChart";
 import CircularProgress from "@mui/material/CircularProgress";
 
-const AI_ADVICE_LOADING_MESSAGES = [
-  "4人のAIアナリストが議論を始めています...",
-  "ANALYSTが市場データを精査中...",
-  "SKEPTICが反論ポイントを検討中...",
-  "INNOVATORが新しい切り口を提案中...",
-  "DIRECTORが最終提言をまとめています...",
-] as const;
+// Why: 改善タスクが無いあいだも同じ配列を渡し、議論の表示が毎回作り直されないようにする。
+const NO_REMEDIATION_TASKS: RemediationTask[] = [];
 import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import { useGrowthTrend } from "../hooks/useGrowthTrend";
 import {
@@ -35,6 +31,7 @@ import {
   resolveAverageSomScore,
   type JobAnalysisDetail,
   type JobProjectInfo,
+  type RemediationTask,
   type ResultDetail,
 } from "../types/analysis";
 import { isMaintenancePhase } from "../lib/phaseUtils";
@@ -186,8 +183,12 @@ export function JobAnalysisPage(): JSX.Element {
   // Why: 議論が終わる前は、サーバーがテンプレートの診断文で埋めて返す。それを総合診断として出すと、議論の結論に
   //      あとで差し替わって見える。議論中は待ち表示にして、議論の結論だけを総合診断として出す（#198）。
   const isDebateRunning = jobStatus?.debateStatus === "RUNNING";
+  // Why: 議論を見ていた人には、議論が終わっても最後の発言と「議論がまとまりました」を見せてから結果に切り替える。
+  //      議論が終わったあとに開いた人には、最初から結果を出す（#199）。
+  const [watchingDebate, setWatchingDebate] = useState(false);
+  const showDebatePanel = isCompletedDisplay && (isDebateRunning || watchingDebate);
   const showJobStrategyBlock =
-    !isDebateRunning && displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0;
+    !showDebatePanel && displayJobRollupDiagnostic != null && displayJobRollupDiagnostic.length > 0;
   const isProcessingDisplay =
     resolvedStatus.length > 0 && PROCESSING_STATUSES.has(resolvedStatus);
   const analysisLocked = isProcessingDisplay;
@@ -383,6 +384,16 @@ export function JobAnalysisPage(): JSX.Element {
     }
     wasDebateRunningRef.current = isDebateRunning;
   }, [isDebateRunning]);
+
+  // Why: 完了以外で終わった議論（議論なし・失敗）には見せる発言が無いので、議論の表示を閉じて結果を出す。
+  const debateStatus = jobStatus?.debateStatus ?? null;
+  useEffect(() => {
+    if (debateStatus === "RUNNING") {
+      setWatchingDebate(true);
+    } else if (debateStatus !== "COMPLETED") {
+      setWatchingDebate(false);
+    }
+  }, [debateStatus]);
 
   useEffect(() => {
     const ready = shouldDataBeReadyForPdf(effectiveJobId, loading, loadError, data);
@@ -622,10 +633,13 @@ export function JobAnalysisPage(): JSX.Element {
         </div>
       )}
       <div id="next-action-section" className="scroll-mt-28 pdf-no-print">
-        {!showJobStrategyBlock && isCompletedDisplay && (
-          <div className="pdf-avoid-break mb-6 pdf-no-print">
-            <LoadingCharacter messages={AI_ADVICE_LOADING_MESSAGES} />
-          </div>
+        {showDebatePanel && (
+          <DebateLivePanel
+            utterances={jobStatus?.debateUtterances ?? []}
+            finished={!isDebateRunning}
+            tasks={data?.remediationTasks ?? NO_REMEDIATION_TASKS}
+            onShowResults={() => setWatchingDebate(false)}
+          />
         )}
         {showJobStrategyBlock && (
           <JobDiagnosisPanel
@@ -635,8 +649,12 @@ export function JobAnalysisPage(): JSX.Element {
           />
         )}
         <CompetitorShareChart shares={data?.competitorShares ?? []} />
-        <RoadmapTimeline items={data?.roadmapItems ?? []} />
-        <MinorityReportPanel reports={data?.minorityReports ?? []} />
+        {!showDebatePanel && (
+          <>
+            <RoadmapTimeline items={data?.roadmapItems ?? []} />
+            <MinorityReportPanel reports={data?.minorityReports ?? []} />
+          </>
+        )}
       </div>
       {showTierBlock && (
         <div className="pdf-avoid-break mb-6">
