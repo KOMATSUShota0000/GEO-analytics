@@ -15,14 +15,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.dto.DebateJobFacts;
 import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
+import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.DebateEvidenceKind;
+import com.geo.analytics.domain.enums.DebateStance;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.RoadmapPhase;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
 import com.geo.analytics.domain.enums.TaskCategory;
 import com.geo.analytics.domain.enums.TaskPriority;
+import com.geo.analytics.domain.model.DebateUtterance;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
+import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -516,5 +521,179 @@ class DebateAdviceGeneratorServiceTest {
         verify(persona, times(DebateAdviceGeneratorService.SHORT_DEBATE_TURNS * 3)).chat(captor.capture());
         String analystFirstTurn = ((UserMessage) captor.getAllValues().get(0).messages().get(1)).singleText();
         assertThat(analystFirstTurn).contains("【測定の事実】").contains("1. 「地元 工務店」→ 社名は出なかった");
+    }
+
+    private static String turn(
+            String discussion, String summary, String replyTo, String stance, String kind, int taskNumber,
+            String detail) {
+        return "{\"discussion\":\"" + discussion + "\",\"screen_summary\":\"" + summary
+                + "\",\"reply_to\":\"" + replyTo + "\",\"stance\":\"" + stance
+                + "\",\"evidence_kind\":\"" + kind + "\",\"evidence_task_number\":" + taskNumber
+                + ",\"evidence_detail\":\"" + detail + "\"}";
+    }
+
+    private static ChatLanguageModel modelReturningInOrder(String first, String... rest) {
+        ChatLanguageModel m = mock(ChatLanguageModel.class);
+        ChatResponse[] others = new ChatResponse[rest.length];
+        for (int i = 0; i < rest.length; i++) {
+            others[i] = ChatResponse.builder().aiMessage(AiMessage.from(rest[i])).build();
+        }
+        when(m.chat(any(ChatRequest.class)))
+                .thenReturn(ChatResponse.builder().aiMessage(AiMessage.from(first)).build(), others);
+        return m;
+    }
+
+    private static final String DIRECTOR_WITH_SUMMARY_JSON =
+            "{\"diagnostic_message\":\"B2B向けに独自データセットを活かすべき。\","
+                    + "\"debate_summary\":\"まとめます。今すぐ改善タスク1から進めます。\"}";
+
+    /** 見本の画面（#199）に近い2ラウンド。返事の相手と根拠には、捨てるべき項目も混ぜてある。 */
+    private static ChatLanguageModel scenarioPersonas() {
+        return modelReturningInOrder(
+                turn("分析本文1", "社名が出たのは2問だけでした。", "SKEPTIC", "REBUT", "QUERY_MENTIONS", 0,
+                        "社名が出た質問 2問 / 10問"),
+                turn("提案本文1", "本命は改善タスク2です。", "NONE", "NONE", "REMEDIATION_TASK", 2, ""),
+                turn("批判本文1", "3か月は長すぎます。", "INNOVATOR", "REBUT", "REMEDIATION_TASK", 9, ""),
+                turn("分析本文2", "確認しました。", "ANALYST", "CONFIRM", "SITE_DIAGNOSIS", 0, ""),
+                turn("提案本文2", "案を直します。", "SKEPTIC", "RESPOND", "NONE", 0, ""),
+                turn("批判本文2", "その割り振りなら賛成です。", "INNOVATOR", "CONDITIONAL_AGREE", "COMPETITORS", 0,
+                        "競合A 5問"));
+    }
+
+    private DebateAdviceGeneratorService.JobAdvice runScenario(ChatLanguageModel director, ChatLanguageModel persona) {
+        CreditVaultService credit = mock(CreditVaultService.class);
+        when(credit.reserve(any(), eq(DebateAdviceGeneratorService.DEBATE_CREDIT))).thenReturn(UUID.randomUUID());
+        return newService(director, persona, credit)
+                .generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, tasks(3), null);
+    }
+
+    /** #196: 画面に出す発言は、話した順の6件と、まとめ役の一言。 */
+    @Test
+    void shortDebateReturnsScreenUtterancesInOrderEndingWithDirectorSummary() {
+        var advice = runScenario(modelReturning(DIRECTOR_WITH_SUMMARY_JSON), scenarioPersonas());
+
+        assertThat(advice.utterances()).extracting(DebateUtterance::speaker).containsExactly(
+                DebatePersona.ANALYST, DebatePersona.INNOVATOR, DebatePersona.SKEPTIC,
+                DebatePersona.ANALYST, DebatePersona.INNOVATOR, DebatePersona.SKEPTIC,
+                DebatePersona.DIRECTOR);
+        assertThat(advice.utterances()).extracting(DebateUtterance::round)
+                .containsExactly(1, 1, 1, 2, 2, 2, null);
+        assertThat(advice.utterances().get(1).summary()).isEqualTo("本命は改善タスク2です。");
+        assertThat(advice.utterances().getLast().summary()).isEqualTo("まとめます。今すぐ改善タスク1から進めます。");
+    }
+
+    /** #196: 返事の相手は、その発言者が読んだ人だけ。1ラウンド目のアナリストと、自分自身への返事は捨てる。 */
+    @Test
+    void replyTargetsTheSpeakerHasNotReadAreDropped() {
+        List<DebateUtterance> u = runScenario(modelReturning(DIRECTOR_WITH_SUMMARY_JSON), scenarioPersonas())
+                .utterances();
+
+        assertThat(u.get(0).replyTo()).isNull();
+        assertThat(u.get(0).stance()).isNull();
+        assertThat(u.get(2).replyTo()).isEqualTo(DebatePersona.INNOVATOR);
+        assertThat(u.get(2).stance()).isEqualTo(DebateStance.REBUT);
+        assertThat(u.get(3).replyTo()).isNull();
+        assertThat(u.get(4).replyTo()).isEqualTo(DebatePersona.SKEPTIC);
+        assertThat(u.get(4).stance()).isEqualTo(DebateStance.RESPOND);
+        assertThat(u.get(5).stance()).isEqualTo(DebateStance.CONDITIONAL_AGREE);
+    }
+
+    /** #196: 根拠は、存在しない改善タスクの番号と、中身の無い測定結果を捨てる。 */
+    @Test
+    void evidenceWithUnknownTaskNumberOrEmptyDetailIsDropped() {
+        List<DebateUtterance> u = runScenario(modelReturning(DIRECTOR_WITH_SUMMARY_JSON), scenarioPersonas())
+                .utterances();
+
+        assertThat(u.get(0).evidenceKind()).isEqualTo(DebateEvidenceKind.QUERY_MENTIONS);
+        assertThat(u.get(0).evidenceDetail()).isEqualTo("社名が出た質問 2問 / 10問");
+        assertThat(u.get(0).evidenceTaskNumber()).isNull();
+        assertThat(u.get(1).evidenceKind()).isEqualTo(DebateEvidenceKind.REMEDIATION_TASK);
+        assertThat(u.get(1).evidenceTaskNumber()).isEqualTo(2);
+        assertThat(u.get(2).evidenceKind()).isNull();
+        assertThat(u.get(2).evidenceTaskNumber()).isNull();
+        assertThat(u.get(3).evidenceKind()).isNull();
+        assertThat(u.get(5).evidenceKind()).isEqualTo(DebateEvidenceKind.COMPETITORS);
+    }
+
+    /**
+     * #196: 書式は呼び出しごとに渡し、共用のシステムプロンプトの後ろに画面用の書き方を足す。
+     * 次の発言者とまとめ役には、画面用の要約ではなく議論用の本文を渡す。
+     */
+    @Test
+    void personaCallsCarryTurnFormatAndPassOnlyDiscussionOn() {
+        ChatLanguageModel director = modelReturning(DIRECTOR_WITH_SUMMARY_JSON);
+        ChatLanguageModel persona = scenarioPersonas();
+
+        runScenario(director, persona);
+
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(persona, times(DebateAdviceGeneratorService.SHORT_DEBATE_TURNS * 3)).chat(captor.capture());
+        ChatRequest analystFirst = captor.getAllValues().get(0);
+        assertThat(analystFirst.responseFormat().jsonSchema().name()).isEqualTo("debate_job_turn");
+        assertThat(((SystemMessage) analystFirst.messages().get(0)).text())
+                .startsWith(DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, IndustryType.B2B))
+                .contains("screen_summary");
+        String skepticFirstInput = ((UserMessage) captor.getAllValues().get(2).messages().get(1)).singleText();
+        assertThat(skepticFirstInput).contains("分析本文1").contains("提案本文1").doesNotContain("本命は改善タスク2です。");
+
+        ArgumentCaptor<ChatRequest> directorCaptor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(director).chat(directorCaptor.capture());
+        String directorInput = ((UserMessage) directorCaptor.getValue().messages().get(1)).singleText();
+        assertThat(directorInput).contains("批判本文2").doesNotContain("その割り振りなら賛成です。");
+        assertThat(((SystemMessage) directorCaptor.getValue().messages().get(0)).text())
+                .contains("debate_summary は、議論の最後に画面へ出す");
+    }
+
+    /** #196: 形の崩れた応答でも議論は止めない。全文を本文として次へ渡し、画面用の要約は空にする。 */
+    @Test
+    void brokenTurnOutputKeepsDebateGoingWithRawTextAndEmptySummary() {
+        ChatLanguageModel director = modelReturning(DIRECTOR_WITH_SUMMARY_JSON);
+        CreditVaultService credit = mock(CreditVaultService.class);
+        UUID reservationId = UUID.randomUUID();
+        when(credit.reserve(any(), eq(DebateAdviceGeneratorService.DEBATE_CREDIT))).thenReturn(reservationId);
+
+        var advice = newService(director, modelReturning("ペルソナの主張テキスト"), credit)
+                .generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of(), null);
+
+        assertThat(advice.utterances()).hasSize(DebateAdviceGeneratorService.SHORT_DEBATE_TURNS * 3 + 1);
+        assertThat(advice.utterances().subList(0, 6)).allSatisfy(u -> {
+            assertThat(u.summary()).isEmpty();
+            assertThat(u.replyTo()).isNull();
+            assertThat(u.evidenceKind()).isNull();
+        });
+        ArgumentCaptor<ChatRequest> directorCaptor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(director).chat(directorCaptor.capture());
+        assertThat(((UserMessage) directorCaptor.getValue().messages().get(1)).singleText())
+                .contains("ペルソナの主張テキスト");
+        verify(credit).settle(eq(reservationId), eq(DebateAdviceGeneratorService.DEBATE_CREDIT), any());
+    }
+
+    /** #196: 議論が走らない回は、画面に出す発言が無く、まとめ役にも一言を求めない。 */
+    @Test
+    void singleShotWithoutDebateHasNoUtterances() {
+        ChatLanguageModel director = modelReturning(DIRECTOR_WITH_SUMMARY_JSON);
+
+        var advice = newService(director)
+                .generateForJob(List.of(rowWith(0.5, 4)), context(), SubscriptionPlan.PRO, List.of(), null);
+
+        assertThat(advice.utterances()).isEmpty();
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(director).chat(captor.capture());
+        assertThat(((SystemMessage) captor.getValue().messages().get(0)).text())
+                .contains("debate_summary は空文字にすること");
+    }
+
+    /** #196: 長すぎる要約は、上限の中の最後の「。」まで残す。「。」が無ければ上限で切って「…」を付ける。 */
+    @Test
+    void longSummaryIsCutAtLastSentenceEnd() {
+        String firstSentence = "あ".repeat(50) + "。";
+        int max = DebateAdviceGeneratorService.SCREEN_SUMMARY_MAX_CHARS;
+
+        assertThat(DebateAdviceGeneratorService.clampSummary(firstSentence + "い".repeat(max)))
+                .isEqualTo(firstSentence);
+        assertThat(DebateAdviceGeneratorService.clampSummary("う".repeat(max + 10)))
+                .hasSize(max)
+                .endsWith("…");
+        assertThat(DebateAdviceGeneratorService.clampSummary(" 一文目です。\n二文目です。 ")).isEqualTo("一文目です。二文目です。");
     }
 }

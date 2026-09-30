@@ -30,6 +30,10 @@ public final class DebateAdviceOutputSchema {
                 .build();
     }
 
+    /**
+     * Why: {@code debate_summary} は議論の最後に画面へ出す、まとめ役の一言（#196）。スキーマは静的なため、
+     * 議論が無い回も必須のまま空文字を返させる。
+     */
     static JsonObjectSchema rootObjectSchema() {
         return JsonObjectSchema.builder()
                 .addStringProperty("diagnostic_message")
@@ -39,7 +43,8 @@ public final class DebateAdviceOutputSchema {
                 .addProperty(
                         "roadmap_items",
                         JsonArraySchema.builder().items(roadmapItemSchema()).build())
-                .required("diagnostic_message", "minority_reports", "roadmap_items")
+                .addStringProperty("debate_summary")
+                .required("diagnostic_message", "minority_reports", "roadmap_items", "debate_summary")
                 .additionalProperties(false)
                 .build();
     }
