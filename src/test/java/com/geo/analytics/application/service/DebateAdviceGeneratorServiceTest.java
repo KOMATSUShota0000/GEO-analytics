@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 class DebateAdviceGeneratorServiceTest {
 
@@ -695,5 +697,40 @@ class DebateAdviceGeneratorServiceTest {
                 .hasSize(max)
                 .endsWith("…");
         assertThat(DebateAdviceGeneratorService.clampSummary(" 一文目です。\n二文目です。 ")).isEqualTo("一文目です。二文目です。");
+    }
+
+    /** #197: 画面が議論の途中でも読めるよう、発言は次の発言者を呼ぶ前に受け手へ渡し、最後にまとめ役の一言を渡す。 */
+    @Test
+    void recorderReceivesEachUtteranceBeforeTheNextSpeakerAndDirectorLast() {
+        ChatLanguageModel persona = scenarioPersonas();
+        DebateRecorder recorder = mock(DebateRecorder.class);
+        CreditVaultService credit = mock(CreditVaultService.class);
+        when(credit.reserve(any(), eq(DebateAdviceGeneratorService.DEBATE_CREDIT))).thenReturn(UUID.randomUUID());
+
+        var advice = newService(modelReturning(DIRECTOR_WITH_SUMMARY_JSON), persona, credit).generateForJob(
+                List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, tasks(3), null, recorder);
+
+        InOrder order = inOrder(persona, recorder);
+        for (DebateUtterance u : advice.utterances().subList(0, 6)) {
+            order.verify(persona).chat(any(ChatRequest.class));
+            order.verify(recorder).spoke(u);
+        }
+        order.verify(recorder).spoke(advice.utterances().getLast());
+        verify(recorder, never()).failed();
+    }
+
+    /** #197: 議論が失敗したら受け手に知らせる。議論なしの総合診断には、まとめ役の一言は無い。 */
+    @Test
+    void recorderIsToldWhenTheDebateFails() {
+        DebateRecorder recorder = mock(DebateRecorder.class);
+        CreditVaultService credit = mock(CreditVaultService.class);
+        when(credit.reserve(any(), eq(DebateAdviceGeneratorService.DEBATE_CREDIT))).thenReturn(UUID.randomUUID());
+
+        newService(modelReturning(DIRECTOR_WITH_SUMMARY_JSON), modelThrowing(new RuntimeException("down")), credit)
+                .generateForJob(List.of(rowWith(0.5, 4)), billingContext(), SubscriptionPlan.PRO, List.of(), null,
+                        recorder);
+
+        verify(recorder).failed();
+        verify(recorder, never()).spoke(any());
     }
 }

@@ -160,15 +160,18 @@ public class DebateAdviceGeneratorService {
      * @param tasks 改善タスク（{@link com.geo.analytics.domain.model.RemediationTaskOrder} の順）。
      *              ロードマップはこの番号で範囲を指す。無い解析では空
      * @param jobFacts 依頼時の事業情報とサイト診断の結果。議論の材料になる（#195）。無ければ {@code null}
+     * @param recorder 議論の発言を、できた順に受け取る（#197）
      */
     public JobAdvice generateForJob(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             SubscriptionPlan plan,
             List<RemediationTask> tasks,
-            DebateJobFacts jobFacts) {
+            DebateJobFacts jobFacts,
+            DebateRecorder recorder) {
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(project, "project");
+        Objects.requireNonNull(recorder, "recorder");
         SubscriptionPlan resolvedPlan = plan == null ? SubscriptionPlan.STANDARD : plan;
         List<RemediationTask> orderedTasks = tasks == null ? List.of() : List.copyOf(tasks);
         DebateJobFacts facts = jobFacts == null ? DebateJobFacts.empty() : jobFacts;
@@ -192,9 +195,20 @@ public class DebateAdviceGeneratorService {
         //      核の第一項に挙げる体験であり、プランで有無を分けると「改善提案の質」がプランで別物になる。
         //      課金識別子が揃わない場合だけは、チケットを予約できないため単発生成へ落とす。
         if (project.hasBillingIdentity()) {
-            return generateWithShortDebate(rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks, facts);
+            return generateWithShortDebate(
+                    rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks, facts, recorder);
         }
         return generateSingleShot(rows, project, resolvedPlan, medZ, medSt, hint, orderedTasks, null);
+    }
+
+    /** 発言を保存しない呼び出し。 */
+    public JobAdvice generateForJob(
+            List<AuditHistoryEntity> rows,
+            ProjectAdviceContext project,
+            SubscriptionPlan plan,
+            List<RemediationTask> tasks,
+            DebateJobFacts jobFacts) {
+        return generateForJob(rows, project, plan, tasks, jobFacts, DebateRecorder.NONE);
     }
 
     /**
@@ -209,13 +223,14 @@ public class DebateAdviceGeneratorService {
             int medSt,
             StrategyInsight hint,
             List<RemediationTask> tasks,
-            DebateJobFacts facts) {
+            DebateJobFacts facts,
+            DebateRecorder recorder) {
         // 非同期 gap analysis スレッドは ScopedValue（テナントコンテキスト）が未バインドのため、
         // CreditVaultService が要求する organizationId を project から復元して確立する。
         TenantIdentity identity =
                 new TenantIdentity(project.organizationId(), project.workspaceId(), null);
         return ScopedValue.where(TenantContextHolder.CONTEXT, identity)
-                .call(() -> reserveDebateAndGenerate(rows, project, plan, medZ, medSt, hint, tasks, facts));
+                .call(() -> reserveDebateAndGenerate(rows, project, plan, medZ, medSt, hint, tasks, facts, recorder));
     }
 
     private JobAdvice reserveDebateAndGenerate(
@@ -226,11 +241,13 @@ public class DebateAdviceGeneratorService {
             int medSt,
             StrategyInsight hint,
             List<RemediationTask> tasks,
-            DebateJobFacts facts) {
+            DebateJobFacts facts,
+            DebateRecorder recorder) {
         UUID reservationId = creditVaultService.reserve(project.projectId(), DEBATE_CREDIT);
         try {
-            ShortDebate debate = runShortDebate(rows, project, tasks, facts);
+            ShortDebate debate = runShortDebate(rows, project, tasks, facts, recorder);
             JobAdvice result = generateSingleShot(rows, project, plan, medZ, medSt, hint, tasks, debate);
+            recorder.spoke(result.utterances().getLast());
             creditVaultService.settle(reservationId, DEBATE_CREDIT, "debate_advice_pro");
             SECURITY_AUDIT.info(
                     "advice_generated source=AI_DEBATE plan={} turns={} medZ={}",
@@ -246,6 +263,7 @@ public class DebateAdviceGeneratorService {
                     plan,
                     exception.getClass().getSimpleName());
             log.warn("pro debate failed, refunded and falling back to single-shot plan={}", plan, exception);
+            recorder.failed();
             return generateSingleShot(rows, project, plan, medZ, medSt, hint, tasks, null);
         }
     }
@@ -449,7 +467,8 @@ public class DebateAdviceGeneratorService {
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             List<RemediationTask> tasks,
-            DebateJobFacts facts) {
+            DebateJobFacts facts,
+            DebateRecorder recorder) {
         IndustryType industry = project.industryType();
         String baseContext = buildDebateContext(rows, project, tasks, facts);
         StringBuilder accumulator = new StringBuilder();
@@ -470,19 +489,19 @@ public class DebateAdviceGeneratorService {
 
             PersonaTurn analyst = debateTurn(
                     DebatePersona.ANALYST, round, industry, contextForTurn, analystChatModel, readByFirstTwo, tasks.size());
+            said(analyst, utterances, recorder);
             PersonaTurn innovator = debateTurn(
                     DebatePersona.INNOVATOR, round, industry, contextForTurn, innovatorChatModel, readByFirstTwo,
                     tasks.size());
+            said(innovator, utterances, recorder);
             String skepticInput =
                     "アナリストの主張:\n" + analyst.discussion() + "\n\nイノベーターの主張:\n" + innovator.discussion()
                             + "\n\n上記の前提・論拠を批判的に検証し、反証可能性と見落としを指摘せよ。";
             PersonaTurn skeptic = debateTurn(
                     DebatePersona.SKEPTIC, round, industry, skepticInput, skepticChatModel,
                     EnumSet.of(DebatePersona.ANALYST, DebatePersona.INNOVATOR), tasks.size());
+            said(skeptic, utterances, recorder);
 
-            utterances.add(analyst.utterance());
-            utterances.add(innovator.utterance());
-            utterances.add(skeptic.utterance());
             accumulator
                     .append("\n## ラウンド ")
                     .append(round)
@@ -494,6 +513,12 @@ public class DebateAdviceGeneratorService {
                     .append(skeptic.discussion());
         }
         return new ShortDebate(accumulator.toString(), utterances);
+    }
+
+    /** Why: 画面が議論の途中でも発言を読めるよう、次の発言者を呼ぶ前に受け手へ渡す（#197）。 */
+    private static void said(PersonaTurn turn, List<DebateUtterance> utterances, DebateRecorder recorder) {
+        utterances.add(turn.utterance());
+        recorder.spoke(turn.utterance());
     }
 
     /**
