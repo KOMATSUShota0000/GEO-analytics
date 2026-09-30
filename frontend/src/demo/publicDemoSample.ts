@@ -2,6 +2,7 @@ import type {
   AiRecognitionSummary,
   CompetitorShare,
   ContentEvidenceItem,
+  DebateUtterance,
   JobMinorityReport,
   JobRoadmapItem,
   RemediationTask,
@@ -203,5 +204,91 @@ export const DEMO_MINORITY_REPORTS: JobMinorityReport[] = [
     insight: "施工事例12件すべてに「なぜこの間取りにしたか」を書き足してから公開する",
     conflictReason: "3か月以上かかり、その間トップページで何の会社かが伝わらない状態が続くため。",
     evidence: "地名なしの質問8問で、社名が一度も出ていない（測定結果）",
+  },
+];
+
+/**
+ * 4人のAIの議論の見本（#234）。本番と同じ形（2ラウンド×3人＋まとめ役、要約は120文字以内）にしてある。
+ *
+ * Why: 議論の結論が、上の改善ロードマップ（今すぐ1／1〜3ヶ月 2〜3／3〜6ヶ月 4〜5）と少数意見に
+ * そのままつながるようにした。根拠は本番で出せる種類だけを使う（AIが引用したページは、まだ測っていない）。
+ */
+export const DEMO_DEBATE_UTTERANCES: DebateUtterance[] = [
+  {
+    round: 1,
+    speaker: "ANALYST",
+    summary:
+      "測定の事実です。AIに聞いた10の質問のうち、社名が出たのは2問だけでした。出た2問はどちらも地名が入った質問で、地名なしの8問では一度も出ていません。",
+    replyTo: null,
+    stance: null,
+    evidenceKind: "QUERY_MENTIONS",
+    evidenceTaskNumber: null,
+    evidenceDetail: "地名あり 2問中2問で言及 ／ 地名なし 8問中0問",
+  },
+  {
+    round: 1,
+    speaker: "INNOVATOR",
+    summary:
+      "本命は改善タスク2です。施工事例ごとに「なぜこの間取りにしたか」を書けば、地名なしの質問でもAIが紹介しやすくなります。3か月かけて全12件に書き足しましょう。",
+    replyTo: null,
+    stance: null,
+    evidenceKind: "REMEDIATION_TASK",
+    evidenceTaskNumber: 2,
+    evidenceDetail: "",
+  },
+  {
+    round: 1,
+    speaker: "SKEPTIC",
+    summary:
+      "3か月は長すぎます。その間、トップページで何の会社かすら伝わらない状態が続きます。改善タスク1を今すぐ終えるべきです。12件すべてに書き足すのも、この規模の会社には重すぎます。",
+    replyTo: "INNOVATOR",
+    stance: "REBUT",
+    evidenceKind: null,
+    evidenceTaskNumber: null,
+    evidenceDetail: "",
+  },
+  {
+    round: 2,
+    speaker: "ANALYST",
+    summary:
+      "確認しました。社名が出なかった8問のうち6問で、AIが紹介していたのはA社かB社でした。サイト診断では、よくある質問のページが見当たりませんでした。",
+    replyTo: "SKEPTIC",
+    stance: "CONFIRM",
+    evidenceKind: "COMPETITORS",
+    evidenceTaskNumber: null,
+    evidenceDetail: "A社 6問 ／ B社 5問",
+  },
+  {
+    round: 2,
+    speaker: "INNOVATOR",
+    summary:
+      "案を直します。改善タスク1は今すぐ。タスク2は代表的な3件に絞り、タスク3のよくある質問と合わせて1〜3か月で進めます。競合が答えている質問に、こちらも答えられるようにします。",
+    replyTo: "SKEPTIC",
+    stance: "RESPOND",
+    evidenceKind: "REMEDIATION_TASK",
+    evidenceTaskNumber: 3,
+    evidenceDetail: "",
+  },
+  {
+    round: 2,
+    speaker: "SKEPTIC",
+    summary:
+      "その割り振りなら賛成です。ただ、よくある質問に価格の目安を書けるかは、この会社しだいです。書けない場合の答え方も用意しておくべきです。",
+    replyTo: "INNOVATOR",
+    stance: "CONDITIONAL_AGREE",
+    evidenceKind: null,
+    evidenceTaskNumber: null,
+    evidenceDetail: "",
+  },
+  {
+    round: null,
+    speaker: "DIRECTOR",
+    summary:
+      "まとめます。今すぐ改善タスク1、1〜3か月でタスク2と3（事例は代表3件に絞る）、3〜6か月でタスク4と5。「全事例に書き足してから公開する」案は時間がかかるため、少数意見として残します。",
+    replyTo: null,
+    stance: null,
+    evidenceKind: null,
+    evidenceTaskNumber: null,
+    evidenceDetail: "",
   },
 ];
