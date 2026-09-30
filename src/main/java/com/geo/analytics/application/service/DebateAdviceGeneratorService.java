@@ -9,14 +9,18 @@ import com.geo.analytics.application.dto.ProjectAdviceContext;
 import com.geo.analytics.application.dto.StrategyInsight;
 import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.entity.AuditHistoryEntity;
+import com.geo.analytics.domain.enums.DebateEvidenceKind;
+import com.geo.analytics.domain.enums.DebateStance;
 import com.geo.analytics.domain.enums.IndustryType;
 import com.geo.analytics.domain.enums.RoadmapPhase;
 import com.geo.analytics.domain.enums.SubscriptionPlan;
+import com.geo.analytics.domain.model.DebateUtterance;
 import com.geo.analytics.domain.model.MinorityReport;
 import com.geo.analytics.domain.model.RemediationTask;
 import com.geo.analytics.domain.model.RoadmapItem;
 import com.geo.analytics.domain.prompt.DebatePersonaSystemPrompts;
 import com.geo.analytics.infrastructure.ai.DebateMaterialFormatter;
+import com.geo.analytics.infrastructure.ai.DebateTurnOutputSchema;
 import com.geo.analytics.infrastructure.config.AiConfig;
 import com.geo.analytics.infrastructure.tenant.TenantContextHolder;
 import com.geo.analytics.infrastructure.tenant.TenantIdentity;
@@ -24,17 +28,22 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import java.lang.ScopedValue;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * ジョブ全体アドバイスを 4 ペルソナ議論の知見をベースに AI で生成するサービス。
@@ -70,6 +79,13 @@ public class DebateAdviceGeneratorService {
     private static final int ROADMAP_MAX_COUNT = 6;
     private static final int ROADMAP_TITLE_MAX_CHARS = 60;
     private static final int ROADMAP_TEXT_MAX_CHARS = 120;
+
+    /**
+     * Why: 画面用の要約は、待ち時間に1発言ずつ流して読ませる（#194）。見本の発言（#199）が75〜90文字なので、
+     * 2〜3文に収まる120文字を上限にする。根拠の中身は吹き出しの下の小さな枠に出すため、さらに短くする。
+     */
+    static final int SCREEN_SUMMARY_MAX_CHARS = 120;
+    private static final int EVIDENCE_DETAIL_MAX_CHARS = 60;
 
     /**
      * 短縮版議論のターン上限。<b>コスト試算（2026-05-30）の生命線</b>であり、
@@ -111,14 +127,31 @@ public class DebateAdviceGeneratorService {
      *
      * <p>Why: {@code StrategyInsight} は16箇所で生成されており、そこへ項目を足すと無関係な経路まで
      * 巻き込む。議論の成果物として別の器で返す（#80）。
+     *
+     * @param utterances 画面に出す議論の発言（話した順）。議論が走らなかった・失敗した回は空（#196）
      */
     public record JobAdvice(
-            StrategyInsight insight, List<MinorityReport> minorityReports, List<RoadmapItem> roadmapItems) {
+            StrategyInsight insight,
+            List<MinorityReport> minorityReports,
+            List<RoadmapItem> roadmapItems,
+            List<DebateUtterance> utterances) {
         public JobAdvice {
             minorityReports = minorityReports == null ? List.of() : List.copyOf(minorityReports);
             roadmapItems = roadmapItems == null ? List.of() : List.copyOf(roadmapItems);
+            utterances = utterances == null ? List.of() : List.copyOf(utterances);
+        }
+
+        public JobAdvice(
+                StrategyInsight insight, List<MinorityReport> minorityReports, List<RoadmapItem> roadmapItems) {
+            this(insight, minorityReports, roadmapItems, List.of());
         }
     }
+
+    /** 短縮版議論の結果。まとめ役へは本文をつないだ {@code transcript} を、画面へは {@code utterances} を渡す。 */
+    private record ShortDebate(String transcript, List<DebateUtterance> utterances) {}
+
+    /** 1発言の結果。{@code discussion} は次の発言者とまとめ役に渡す本文。 */
+    private record PersonaTurn(String discussion, DebateUtterance utterance) {}
 
     /**
      * ジョブ全体アドバイスを AI で生成する。失敗時は {@link DebateAdviceGenerationException} を投げる。
@@ -196,8 +229,8 @@ public class DebateAdviceGeneratorService {
             DebateJobFacts facts) {
         UUID reservationId = creditVaultService.reserve(project.projectId(), DEBATE_CREDIT);
         try {
-            String transcript = runShortDebate(rows, project, tasks, facts);
-            JobAdvice result = generateSingleShot(rows, project, plan, medZ, medSt, hint, tasks, transcript);
+            ShortDebate debate = runShortDebate(rows, project, tasks, facts);
+            JobAdvice result = generateSingleShot(rows, project, plan, medZ, medSt, hint, tasks, debate);
             creditVaultService.settle(reservationId, DEBATE_CREDIT, "debate_advice_pro");
             SECURITY_AUDIT.info(
                     "advice_generated source=AI_DEBATE plan={} turns={} medZ={}",
@@ -220,7 +253,7 @@ public class DebateAdviceGeneratorService {
     /**
      * DIRECTOR LLM 1 回でアドバイス JSON を生成する（Free パス / 議論結論注入の共通経路）。
      *
-     * @param debateTranscript 短縮版議論のトランスクリプト。Free パスでは {@code null}。
+     * @param debate 短縮版議論の結果。Free パスでは {@code null}。
      */
     private JobAdvice generateSingleShot(
             List<AuditHistoryEntity> rows,
@@ -230,7 +263,8 @@ public class DebateAdviceGeneratorService {
             int medSt,
             StrategyInsight hint,
             List<RemediationTask> tasks,
-            String debateTranscript) {
+            ShortDebate debate) {
+        String debateTranscript = debate == null ? null : debate.transcript();
         String systemPrompt = buildSystemPrompt(debateTranscript != null, !tasks.isEmpty());
         String userPrompt = buildUserPrompt(rows, project, medZ, medSt, hint, tasks, debateTranscript);
 
@@ -276,7 +310,18 @@ public class DebateAdviceGeneratorService {
         return new JobAdvice(
                 new StrategyInsight(diagnostic, List.of(), medZ),
                 toMinorityReports(parsed),
-                toRoadmapItems(parsed, tasks.size()));
+                toRoadmapItems(parsed, tasks.size()),
+                withDirectorSummary(debate, parsed.debateSummary()));
+    }
+
+    /** Why: まとめ役の一言は、3人の発言のあとに「まとめ」として画面に出す（#196、2026-09-30 オーナー）。 */
+    private static List<DebateUtterance> withDirectorSummary(ShortDebate debate, String rawSummary) {
+        if (debate == null) {
+            return List.of();
+        }
+        List<DebateUtterance> out = new ArrayList<>(debate.utterances());
+        out.add(DebateUtterance.summaryOnly(null, DebatePersona.DIRECTOR, clampSummary(rawSummary)));
+        return out;
     }
 
     /**
@@ -400,7 +445,7 @@ public class DebateAdviceGeneratorService {
      * 短縮版 4 ペルソナ議論を {@link #SHORT_DEBATE_TURNS} ターン回し、トランスクリプトを構築する（SSE なし）。
      * 既存のペルソナ別 ChatLanguageModel ビーンと {@link DebatePersonaSystemPrompts} を流用する。
      */
-    private String runShortDebate(
+    private ShortDebate runShortDebate(
             List<AuditHistoryEntity> rows,
             ProjectAdviceContext project,
             List<RemediationTask> tasks,
@@ -408,43 +453,193 @@ public class DebateAdviceGeneratorService {
         IndustryType industry = project.industryType();
         String baseContext = buildDebateContext(rows, project, tasks, facts);
         StringBuilder accumulator = new StringBuilder();
+        List<DebateUtterance> utterances = new ArrayList<>(SHORT_DEBATE_TURNS * 3);
 
         for (int turn = 0; turn < SHORT_DEBATE_TURNS; turn++) {
+            int round = turn + 1;
             String contextForTurn =
                     accumulator.length() == 0
                             ? baseContext
                             : baseContext + "\n\n## これまでの議論の蓄積\n" + accumulator;
+            // Why: 返事の相手は、その発言者が入力で読んだ人に限る。アナリストとイノベーターは前のラウンドまでを、
+            //      スケプティックは同じラウンドの2人だけを読む。
+            Set<DebatePersona> readByFirstTwo =
+                    round == 1
+                            ? EnumSet.noneOf(DebatePersona.class)
+                            : EnumSet.of(DebatePersona.ANALYST, DebatePersona.INNOVATOR, DebatePersona.SKEPTIC);
 
-            String analyst =
-                    singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.ANALYST, industry),
-                            contextForTurn,
-                            analystChatModel);
-            String innovator =
-                    singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.INNOVATOR, industry),
-                            contextForTurn,
-                            innovatorChatModel);
+            PersonaTurn analyst = debateTurn(
+                    DebatePersona.ANALYST, round, industry, contextForTurn, analystChatModel, readByFirstTwo, tasks.size());
+            PersonaTurn innovator = debateTurn(
+                    DebatePersona.INNOVATOR, round, industry, contextForTurn, innovatorChatModel, readByFirstTwo,
+                    tasks.size());
             String skepticInput =
-                    "アナリストの主張:\n" + analyst + "\n\nイノベーターの主張:\n" + innovator
+                    "アナリストの主張:\n" + analyst.discussion() + "\n\nイノベーターの主張:\n" + innovator.discussion()
                             + "\n\n上記の前提・論拠を批判的に検証し、反証可能性と見落としを指摘せよ。";
-            String skeptic =
-                    singleChat(
-                            DebatePersonaSystemPrompts.forPersona(DebatePersona.SKEPTIC, industry),
-                            skepticInput,
-                            skepticChatModel);
+            PersonaTurn skeptic = debateTurn(
+                    DebatePersona.SKEPTIC, round, industry, skepticInput, skepticChatModel,
+                    EnumSet.of(DebatePersona.ANALYST, DebatePersona.INNOVATOR), tasks.size());
 
+            utterances.add(analyst.utterance());
+            utterances.add(innovator.utterance());
+            utterances.add(skeptic.utterance());
             accumulator
                     .append("\n## ラウンド ")
-                    .append(turn + 1)
+                    .append(round)
                     .append("\n### アナリスト\n")
-                    .append(analyst)
+                    .append(analyst.discussion())
                     .append("\n### イノベーター\n")
-                    .append(innovator)
+                    .append(innovator.discussion())
                     .append("\n### スケプティック\n")
-                    .append(skeptic);
+                    .append(skeptic.discussion());
         }
-        return accumulator.toString();
+        return new ShortDebate(accumulator.toString(), utterances);
+    }
+
+    /**
+     * Why: 書式（{@link DebateTurnOutputSchema}）と画面用の書き方は、ビーンとシステムプロンプトの本体ではなく
+     * この呼び出しにだけ付ける。どちらもオンボーディングの議論と共用しているため（#80 / #196）。
+     */
+    private PersonaTurn debateTurn(
+            DebatePersona speaker,
+            int round,
+            IndustryType industry,
+            String userContent,
+            ChatLanguageModel model,
+            Set<DebatePersona> read,
+            int taskCount) {
+        Set<DebatePersona> replyable = EnumSet.noneOf(DebatePersona.class);
+        replyable.addAll(read);
+        replyable.remove(speaker);
+        String systemPrompt =
+                DebatePersonaSystemPrompts.forPersona(speaker, industry) + screenOutputRules(replyable, taskCount);
+        String raw = singleChat(systemPrompt, userContent, model, DebateTurnOutputSchema.debateTurnResponseFormat());
+        return toPersonaTurn(speaker, round, raw, replyable, taskCount);
+    }
+
+    /**
+     * Why: 画面用の項目が壊れていても議論は止めない（#196）。JSON として読めなければ応答の全文を本文として次へ渡し、
+     * 要約は空にする。返事の相手が読んでいない人を指す・根拠の改善タスクの番号が無い、といった項目は捨てる。
+     */
+    private PersonaTurn toPersonaTurn(
+            DebatePersona speaker, int round, String raw, Set<DebatePersona> replyable, int taskCount) {
+        DebateTurnJson parsed;
+        try {
+            parsed = objectMapper.readValue(stripCodeFence(raw), DebateTurnJson.class);
+        } catch (JsonProcessingException jsonProcessingException) {
+            parsed = null;
+        }
+        if (parsed == null) {
+            log.warn("debate turn JSON parse failed speaker={} round={} raw={}", speaker, round, truncate(raw, 200));
+            return new PersonaTurn(raw == null ? "" : raw, DebateUtterance.summaryOnly(round, speaker, ""));
+        }
+        String summary = clampSummary(parsed.screenSummary());
+        String discussion = parsed.discussion() == null || parsed.discussion().isBlank()
+                ? summary
+                : parsed.discussion().strip();
+
+        DebatePersona replyTo = parseEnum(DebatePersona.class, parsed.replyTo());
+        if (!replyable.contains(replyTo)) {
+            replyTo = null;
+        }
+        DebateStance stance = replyTo == null ? null : parseEnum(DebateStance.class, parsed.stance());
+
+        DebateEvidenceKind evidenceKind = parseEnum(DebateEvidenceKind.class, parsed.evidenceKind());
+        Integer taskNumber = parsed.evidenceTaskNumber();
+        String detail = clamp(flatten(parsed.evidenceDetail()), EVIDENCE_DETAIL_MAX_CHARS);
+        if (evidenceKind == DebateEvidenceKind.REMEDIATION_TASK) {
+            if (taskNumber == null || taskNumber < 1 || taskNumber > taskCount) {
+                evidenceKind = null;
+            }
+        } else {
+            taskNumber = null;
+            if (detail.isEmpty()) {
+                evidenceKind = null;
+            }
+        }
+        if (evidenceKind == null) {
+            taskNumber = null;
+            detail = "";
+        }
+        return new PersonaTurn(
+                discussion,
+                new DebateUtterance(round, speaker, summary, replyTo, stance, evidenceKind, taskNumber, detail));
+    }
+
+    /**
+     * Why: 3人のシステムプロンプトは GEO の用語（AI可視性ランクなど）を使うよう指示している。画面用の要約は代理店の担当者と
+     * そのクライアントが読むため、ここでその用語も避けるよう上書きする（#139）。
+     */
+    static String screenOutputRules(Set<DebatePersona> replyable, int taskCount) {
+        StringBuilder sb = new StringBuilder("\n【出力の形（解析ごとの議論）】\n次の項目を持つ JSON だけを返すこと。\n");
+        sb.append("- discussion: 議論用の本文。上の役割の指示どおりに書く。次の発言者とまとめ役がこれを読む。\n")
+                .append("- screen_summary: 画面に出す発言。discussion の要点を、あなたの役割の立場から話し言葉で2〜3文・")
+                .append(SCREEN_SUMMARY_MAX_CHARS)
+                .append("文字以内にまとめる。読み手は Web 制作会社・代理店の担当者と、その先のクライアント（経営者・広報など）で、")
+                .append("エンジニアとは限らない。「です・ます」調で書き、「LLM」ではなく「AI」と書く。指標名・英語の専門用語・")
+                .append("「GEO」「AI可視性ランク」「AI推奨ポテンシャル」などの用語と、[引用: …] の形は使わない。\n");
+        sb.append("- reply_to と stance: ");
+        if (replyable.isEmpty()) {
+            sb.append("まだほかの人の発言を読んでいないので、どちらも NONE にする。\n");
+        } else {
+            sb.append("入力にある ")
+                    .append(replyable.stream().map(p -> p.name() + "（" + speakerName(p) + "）")
+                            .collect(Collectors.joining("・")))
+                    .append(" の発言に返しているなら、reply_to にその相手を、stance に ")
+                    .append(Arrays.stream(DebateStance.values()).map(s -> s.name() + "（" + s.label() + "）")
+                            .collect(Collectors.joining("・")))
+                    .append(" のどれかを入れる。返事でなければ、どちらも NONE にする。\n");
+        }
+        String kinds = Arrays.stream(DebateEvidenceKind.values())
+                .filter(k -> k != DebateEvidenceKind.REMEDIATION_TASK || taskCount > 0)
+                .map(k -> k == DebateEvidenceKind.REMEDIATION_TASK
+                        ? k.name() + "（改善タスク。evidence_task_number にその番号 1〜" + taskCount + "）"
+                        : k.name() + "（測定の事実の「" + k.label() + "」）")
+                .collect(Collectors.joining("・"));
+        sb.append("- evidence_kind・evidence_task_number・evidence_detail: screen_summary の根拠を1つだけ、")
+                .append(kinds)
+                .append(" から選ぶ。根拠が無ければ NONE。evidence_detail には根拠の中身を")
+                .append(EVIDENCE_DETAIL_MAX_CHARS)
+                .append("文字以内で書く（例: 社名が出た質問 2問 / 10問）。evidence_task_number は改善タスク以外では 0 にする。\n");
+        return sb.toString();
+    }
+
+    private static String speakerName(DebatePersona persona) {
+        return switch (persona) {
+            case ANALYST -> "アナリスト";
+            case INNOVATOR -> "イノベーター";
+            case SKEPTIC -> "スケプティック";
+            case DIRECTOR -> "ディレクター";
+        };
+    }
+
+    /**
+     * Why: 長すぎる要約を文の途中で切ると、意味の通らない文が画面に流れる。上限の中で最後の「。」までを残し、
+     * 「。」が無ければ上限で切って「…」を付ける。
+     */
+    static String clampSummary(String raw) {
+        String flat = flatten(raw);
+        if (flat.length() <= SCREEN_SUMMARY_MAX_CHARS) {
+            return flat;
+        }
+        String head = flat.substring(0, SCREEN_SUMMARY_MAX_CHARS);
+        int end = head.lastIndexOf('。');
+        return end > 0 ? head.substring(0, end + 1) : head.substring(0, SCREEN_SUMMARY_MAX_CHARS - 1) + "…";
+    }
+
+    private static String flatten(String raw) {
+        return raw == null ? "" : raw.replaceAll("\\s*\\R\\s*", "").strip();
+    }
+
+    private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, raw.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     /**
@@ -522,6 +717,12 @@ public class DebateAdviceGeneratorService {
                         : "- roadmap_items は改善ロードマップ。phase は NOW（今すぐ）/ SHORT_TERM（1〜3ヶ月）/ "
                                 + "MID_TERM（3〜6ヶ月）のいずれか。3〜" + ROADMAP_MAX_COUNT + "件、各フェーズに最低1件を置き、"
                                 + "前のフェーズの成果の上に次が積み上がる順序にすること。last_task_number は 0 にすること。\n";
+        String summaryRule =
+                withDebate
+                        ? "- debate_summary は、議論の最後に画面へ出す、まとめ役としての一言。議論で決まった進め方と、"
+                                + "少数意見として残した案があればそれを、話し言葉の2〜3文・" + SCREEN_SUMMARY_MAX_CHARS
+                                + "文字以内で書くこと。\n"
+                        : "- debate_summary は空文字にすること。\n";
         return intro
                 + "出力 JSON スキーマ:\n"
                 + "{\n"
@@ -533,7 +734,8 @@ public class DebateAdviceGeneratorService {
                 + " \"last_task_number\": 整数,"
                 + " \"title\": \"" + ROADMAP_TITLE_MAX_CHARS + "文字以内\","
                 + " \"rationale\": \"なぜこのフェーズなのか\","
-                + " \"expected_impact\": \"見込まれる効果\"}]\n"
+                + " \"expected_impact\": \"見込まれる効果\"}],\n"
+                + "  \"debate_summary\": \"議論のまとめの一言\"\n"
                 + "}\n\n"
                 + "読み手と書き方:\n"
                 + "- 読み手は Web 制作会社・代理店の担当者と、その先のクライアント（経営者・広報など）。"
@@ -548,6 +750,7 @@ public class DebateAdviceGeneratorService {
                 + "- minority_reports は0〜2件。合意案に入れなかったが捨てるに惜しい案があるときだけ書くこと。"
                 + "無理に埋めず、無ければ空配列にすること。evidence には入力に無い内容を書いてはならない。\n"
                 + roadmapRule
+                + summaryRule
                 + "- JSON 以外の文字（前置き・後置き・コードフェンス）は出力しないこと。\n";
     }
 
@@ -599,9 +802,16 @@ public class DebateAdviceGeneratorService {
     }
 
     private String singleChat(String systemPrompt, String userContent, ChatLanguageModel model) {
+        return singleChat(systemPrompt, userContent, model, null);
+    }
+
+    /** @param responseFormat {@code null} ならビーンに設定した書式に従う */
+    private String singleChat(
+            String systemPrompt, String userContent, ChatLanguageModel model, ResponseFormat responseFormat) {
         return model.chat(
                         ChatRequest.builder()
                                 .messages(SystemMessage.from(systemPrompt), UserMessage.from(userContent))
+                                .responseFormat(responseFormat)
                                 .build())
                 .aiMessage()
                 .text();
@@ -646,7 +856,18 @@ public class DebateAdviceGeneratorService {
     record DebateAdviceJson(
             @JsonProperty("diagnostic_message") String diagnosticMessage,
             @JsonProperty("minority_reports") List<MinorityReportJson> minorityReports,
-            @JsonProperty("roadmap_items") List<RoadmapItemJson> roadmapItems) {}
+            @JsonProperty("roadmap_items") List<RoadmapItemJson> roadmapItems,
+            @JsonProperty("debate_summary") String debateSummary) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DebateTurnJson(
+            @JsonProperty("discussion") String discussion,
+            @JsonProperty("screen_summary") String screenSummary,
+            @JsonProperty("reply_to") String replyTo,
+            @JsonProperty("stance") String stance,
+            @JsonProperty("evidence_kind") String evidenceKind,
+            @JsonProperty("evidence_task_number") Integer evidenceTaskNumber,
+            @JsonProperty("evidence_detail") String evidenceDetail) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record RoadmapItemJson(
