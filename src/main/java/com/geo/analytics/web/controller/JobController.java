@@ -2,6 +2,7 @@ package com.geo.analytics.web.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geo.analytics.application.service.JobAnalysisBenchmarkAssembler;
+import com.geo.analytics.application.service.JobDebateQueryService;
 import com.geo.analytics.application.service.JobKnowledgeIngestionService;
 import com.geo.analytics.application.service.JobPersistenceService;
 import com.geo.analytics.application.service.StrategyInsightService;
@@ -48,6 +49,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -71,6 +73,7 @@ public class JobController {
     private final JobKnowledgeIngestionService jobKnowledgeIngestionService;
     private final WorkspacePlanResolver workspacePlanResolver;
     private final JobQueryGenerationService jobQueryGenerationService;
+    private final JobDebateQueryService jobDebateQueryService;
 
     public JobController(
             JobPersistenceService jobPersistenceService,
@@ -82,7 +85,8 @@ public class JobController {
             JobAnalysisBenchmarkAssembler jobAnalysisBenchmarkAssembler,
             JobKnowledgeIngestionService jobKnowledgeIngestionService,
             WorkspacePlanResolver workspacePlanResolver,
-            JobQueryGenerationService jobQueryGenerationService) {
+            JobQueryGenerationService jobQueryGenerationService,
+            JobDebateQueryService jobDebateQueryService) {
         this.jobPersistenceService = jobPersistenceService;
         this.jobQuerySubmissionService = jobQuerySubmissionService;
         this.jobSyncTestService = jobSyncTestService;
@@ -93,6 +97,7 @@ public class JobController {
         this.jobKnowledgeIngestionService = jobKnowledgeIngestionService;
         this.workspacePlanResolver = workspacePlanResolver;
         this.jobQueryGenerationService = jobQueryGenerationService;
+        this.jobDebateQueryService = jobDebateQueryService;
     }
 
     //ここから重要。読もう。
@@ -163,7 +168,8 @@ public class JobController {
     public ResponseEntity<JobStatusResponse> getJobStatus(@PathVariable UUID jobId) {
         JobEntity jobEntity = jobPersistenceService.findJobById(jobId);
         var rollup = strategyInsightService.rollupJob(jobPersistenceService.findResultsByJobId(jobId));
-        return ResponseEntity.ok(JobStatusResponse.from(jobEntity, rollup));
+        return ResponseEntity.ok(JobStatusResponse.from(
+                jobEntity, rollup, jobDebateQueryService.findUtterances(jobId), LocalDateTime.now()));
     }
 
     /**

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.geo.analytics.GeoAnalyticsApplication;
 import com.geo.analytics.application.service.BatchPersistenceService;
+import com.geo.analytics.application.service.JobDebateQueryService;
 import com.geo.analytics.application.service.SyncVerificationService;
 import com.geo.analytics.domain.ai.DebatePersona;
 import com.geo.analytics.domain.enums.DebateEvidenceKind;
@@ -53,6 +54,9 @@ class JobDebateUtteranceIntegrationTest extends PostgresTestBase {
 
     @Autowired
     private BatchPersistenceService batchPersistenceService;
+
+    @Autowired
+    private JobDebateQueryService jobDebateQueryService;
 
     @Autowired
     @Qualifier("batchJdbcTemplate")
@@ -111,6 +115,22 @@ class JobDebateUtteranceIntegrationTest extends PostgresTestBase {
                 (short) 3, null, "DIRECTOR", "まとめます。", null, null, null, null, "");
         assertThat(utterancesAs(ORG_B)).isEmpty();
         assertThat(debateStatus()).isEqualTo("RUNNING");
+    }
+
+    /** #198: 画面側の読み出しは、テナントの文脈だけで自社の発言を話した順に返す（組織IDはサービスの入口で渡る）。 */
+    @Test
+    void queryServiceReturnsUtterancesInOrderForTheOwningOrganizationOnly() {
+        batchPersistenceService.insertDebateUtterance(JOB, ORG_A, 2, SKEPTIC_FIRST);
+        batchPersistenceService.insertDebateUtterance(JOB, ORG_A, 1, ANALYST_FIRST);
+        batchPersistenceService.insertDebateUtterance(JOB, ORG_A, 3, DIRECTOR_SUMMARY);
+
+        assertThat(utterancesViaServiceAs(ORG_A)).containsExactly(ANALYST_FIRST, SKEPTIC_FIRST, DIRECTOR_SUMMARY);
+        assertThat(utterancesViaServiceAs(ORG_B)).isEmpty();
+    }
+
+    private List<DebateUtterance> utterancesViaServiceAs(UUID organizationId) {
+        return ScopedValue.where(TenantContextHolder.CONTEXT, new TenantIdentity(organizationId, null, null))
+                .call(() -> jobDebateQueryService.findUtterances(JOB));
     }
 
     @Test

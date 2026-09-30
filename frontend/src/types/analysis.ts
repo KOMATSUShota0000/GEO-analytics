@@ -25,6 +25,58 @@ function pickBool(r: JsonDict, camel: string, snake: string): boolean | undefine
   return typeof v === "boolean" ? v : undefined;
 }
 
+/** 4人のAIの議論の状態。null は、議論の状態を持つ前の解析（発言が保存されていない）。 */
+export type DebateStatus = "RUNNING" | "COMPLETED" | "SKIPPED" | "FAILED";
+export type DebateSpeaker = "ANALYST" | "INNOVATOR" | "SKEPTIC" | "DIRECTOR";
+
+/** 議論の1発言。round が null なのは、まとめ役（DIRECTOR）の一言。 */
+export interface DebateUtterance {
+  round: number | null;
+  speaker: DebateSpeaker;
+  summary: string;
+  replyTo: DebateSpeaker | null;
+  stance: string | null;
+  evidenceKind: string | null;
+  evidenceTaskNumber: number | null;
+  evidenceDetail: string;
+}
+
+const DEBATE_STATUSES: readonly string[] = ["RUNNING", "COMPLETED", "SKIPPED", "FAILED"];
+const DEBATE_SPEAKERS: readonly string[] = ["ANALYST", "INNOVATOR", "SKEPTIC", "DIRECTOR"];
+
+function asDebateSpeaker(value: unknown): DebateSpeaker | null {
+  return typeof value === "string" && DEBATE_SPEAKERS.includes(value) ? (value as DebateSpeaker) : null;
+}
+
+// Why: 発言者が読めない行は、誰の発言か出せないので落とす。ほかの項目は欠けていても発言として出せる。
+function normalizeDebateUtterances(value: unknown): DebateUtterance[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: DebateUtterance[] = [];
+  for (const raw of value) {
+    if (raw === null || typeof raw !== "object") {
+      continue;
+    }
+    const r = raw as JsonDict;
+    const speaker = asDebateSpeaker(r.speaker);
+    if (speaker === null) {
+      continue;
+    }
+    out.push({
+      round: typeof r.round === "number" ? r.round : null,
+      speaker,
+      summary: typeof r.summary === "string" ? r.summary : "",
+      replyTo: asDebateSpeaker(r.replyTo),
+      stance: typeof r.stance === "string" ? r.stance : null,
+      evidenceKind: typeof r.evidenceKind === "string" ? r.evidenceKind : null,
+      evidenceTaskNumber: typeof r.evidenceTaskNumber === "number" ? r.evidenceTaskNumber : null,
+      evidenceDetail: typeof r.evidenceDetail === "string" ? r.evidenceDetail : "",
+    });
+  }
+  return out;
+}
+
 export interface JobStatusResponse {
   jobId: string;
   projectId: string | null;
@@ -38,6 +90,8 @@ export interface JobStatusResponse {
   diagnosticMessage: string | null;
   jobMedianModifiedZ: number | null;
   adviceSource: string | null;
+  debateStatus: DebateStatus | null;
+  debateUtterances: DebateUtterance[];
 }
 
 export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | null {
@@ -111,6 +165,11 @@ export function normalizeJobStatusResponse(value: unknown): JobStatusResponse | 
     diagnosticMessage: dm,
     jobMedianModifiedZ: jmz,
     adviceSource,
+    debateStatus:
+      typeof r.debateStatus === "string" && DEBATE_STATUSES.includes(r.debateStatus)
+        ? (r.debateStatus as DebateStatus)
+        : null,
+    debateUtterances: normalizeDebateUtterances(r.debateUtterances),
   };
 }
 

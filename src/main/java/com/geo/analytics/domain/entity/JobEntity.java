@@ -75,6 +75,10 @@ public class JobEntity extends BaseTenantEntity {
     private List<String> jobRecommendedActions;
     @Column(name = "job_advice_source", length = 32)
     private String jobAdviceSource;
+    // Why: 議論の状態は裏の処理（batch_worker）だけが書く。このエンティティは保存のたびに全列を書き戻すため、
+    //      読むだけにして、画面側の保存が古い値で上書きしないようにする（#198）。
+    @Column(name = "debate_status", length = 16, insertable = false, updatable = false)
+    private String debateStatus;
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "minority_reports", nullable = false, columnDefinition = "jsonb")
     private List<MinorityReport> minorityReports = new ArrayList<>();
@@ -260,6 +264,12 @@ public class JobEntity extends BaseTenantEntity {
     }
     public void setJobAdviceSource(String jobAdviceSource) {
         this.jobAdviceSource = jobAdviceSource;
+    }
+    public String getDebateStatus() {
+        return debateStatus;
+    }
+    public void setDebateStatus(String debateStatus) {
+        this.debateStatus = debateStatus;
     }
     public UUID getGapBatchIdempotencyKey() {
         return gapBatchIdempotencyKey;
