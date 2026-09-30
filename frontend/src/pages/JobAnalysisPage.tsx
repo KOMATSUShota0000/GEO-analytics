@@ -17,12 +17,14 @@ import { JobDiagnosisPanel } from "../components/analysis/JobDiagnosisPanel";
 import { MinorityReportPanel } from "../components/MinorityReportPanel";
 import { RoadmapTimeline } from "../components/RoadmapTimeline";
 import { DebateLivePanel } from "../components/debate/DebateLivePanel";
+import { DebateAbsenceNote, DebateSummaryRow } from "../components/debate/DebateSummaryRow";
 import { CompetitorShareChart } from "../components/CompetitorShareChart";
 import { GrowthTrajectoryChart } from "../components/strategy/GrowthTrajectoryChart";
 import CircularProgress from "@mui/material/CircularProgress";
 
 // Why: 改善タスクが無いあいだも同じ配列を渡し、議論の表示が毎回作り直されないようにする。
 const NO_REMEDIATION_TASKS: RemediationTask[] = [];
+const NO_DEBATE_UTTERANCES: DebateUtterance[] = [];
 import { useJobStatusPolling } from "../hooks/useJobStatusPolling";
 import { useGrowthTrend } from "../hooks/useGrowthTrend";
 import {
@@ -30,6 +32,7 @@ import {
   parseJobAnalysisDetail,
   resolveAverageSomScore,
   type JobAnalysisDetail,
+  type DebateUtterance,
   type JobProjectInfo,
   type RemediationTask,
   type ResultDetail,
@@ -640,6 +643,15 @@ export function JobAnalysisPage(): JSX.Element {
             tasks={data?.remediationTasks ?? NO_REMEDIATION_TASKS}
             onShowResults={() => setWatchingDebate(false)}
           />
+        )}
+        {!showDebatePanel && debateStatus === "COMPLETED" && (
+          <DebateSummaryRow
+            utterances={jobStatus?.debateUtterances ?? NO_DEBATE_UTTERANCES}
+            tasks={data?.remediationTasks ?? NO_REMEDIATION_TASKS}
+          />
+        )}
+        {!showDebatePanel && (debateStatus === "SKIPPED" || debateStatus === "FAILED") && (
+          <DebateAbsenceNote status={debateStatus} />
         )}
         {showJobStrategyBlock && (
           <JobDiagnosisPanel
