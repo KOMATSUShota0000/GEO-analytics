@@ -13,6 +13,14 @@ const TYPE_TICK_MS = 35;
 const CHARS_PER_TICK = 2;
 const PAUSE_BETWEEN_UTTERANCES_MS = 1000;
 
+// Why: 議論を見ている人に「終わると何が変わるのか」を先に伝える（#238）。中身の言葉は結果画面の各欄の説明に合わせる。
+// マイノリティ・レポートは惜しい案があるときだけ作られる（0〜2件）ので、毎回できるとは書かない。
+const DEBATE_OUTCOMES = [
+  { name: "総合診断", detail: "いまAIの回答で自社がどう扱われているかと、その理由" },
+  { name: "改善ロードマップ", detail: "改善タスクを、いつまでに何番まで終えるかの時間割" },
+  { name: "マイノリティ・レポート", detail: "採用しなかったが、条件しだいで効く案（そういう案が出たときだけ）" },
+] as const;
+
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -79,8 +87,16 @@ export function DebateLivePanel({ utterances, finished, tasks, onShowResults }: 
       <div className="flex flex-col gap-1.5">
         <h2 className="text-lg font-bold text-slate-900 sm:text-xl">4人のAIが、改善の進め方を話し合っています</h2>
         <p className="text-sm leading-relaxed text-slate-600">
-          測定結果と改善タスクをもとに、何から、いつまでに取り組むかを決めています。終わると、ここに総合診断と改善ロードマップが表示されます。
+          測定結果と改善タスクをもとに、何から、いつまでに取り組むかを決めています。終わると、次のものができあがります。
         </p>
+        <dl className="mt-1.5 flex flex-col gap-2 rounded-xl bg-slate-50 px-4 py-3 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-1.5">
+          {DEBATE_OUTCOMES.map((outcome) => (
+            <div key={outcome.name} className="flex flex-col gap-0.5 sm:contents">
+              <dt className="text-[13px] font-bold text-slate-800">{outcome.name}</dt>
+              <dd className="text-[13px] leading-relaxed text-slate-600">{outcome.detail}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
 
       <ol className="grid grid-cols-3 gap-2">
@@ -132,7 +148,7 @@ export function DebateLivePanel({ utterances, finished, tasks, onShowResults }: 
         <div className="flex flex-col gap-4 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-[18px] sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
             <span className="text-base font-bold text-emerald-800">議論がまとまりました</span>
-            <span className="text-[13px] text-emerald-800">総合診断と改善ロードマップを表示します。</span>
+            <span className="text-[13px] text-emerald-800">総合診断・改善ロードマップ・マイノリティ・レポートを表示します。</span>
           </div>
           <button
             type="button"
