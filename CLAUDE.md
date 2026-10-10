@@ -40,6 +40,7 @@ GEO（Generative Engine Optimization）特化 B2B SaaS。Web制作会社・代�
 | チケット消費・予約 | `application/credit/`（`CreditReservationAspect`） |
 | クロール・本文抽出 | `infrastructure/crawler/` |
 | 画面 | `frontend/src/pages/`、共通部品は `frontend/src/components/` |
+| GEO で何が効くかの知見（根拠・出典つき） | `docs/geo-knowledge/`（入口は `README.md`。評価項目・クロール・計測を変える前に読む） |
 
 ## 触ってはいけない場所
 
