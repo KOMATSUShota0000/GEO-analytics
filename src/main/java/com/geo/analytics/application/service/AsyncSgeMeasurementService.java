@@ -54,16 +54,20 @@ public class AsyncSgeMeasurementService {
         Objects.requireNonNull(query, "query");
         UUID jobId = job.getId();
         UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
+        //ダミーデータをつくっている、
         SgeMentionResult empty = new SgeMentionResult(false, 0, "{}", "");
         if (serpApiKey.isBlank()) {
             log.warn(
                     "SERPAPI key is not configured. Degrading AI Overview to estimated. jobId={} queryId={}",
                     jobId, query.getId());
+            //データベースに情報を登録するメソッド。
             persistSgeResult(workspaceId, jobId, query, empty);
             return empty;
         }
         try {
+            //リクエストの頻度などを管理し、安全なタイミングで受け取った処理を実行しています。
             SgeMentionResult fetched = serpApiGlobalRequestGate.execute(
+                    //クエリとブランド名を渡して外部APIに問い合わせている。メソッド名てきには、言及をチェックしている感じか。
                     () -> sgeMeasurementPort.checkSgeMention(query.getQueryText(), job.getBrandName()));
             SgeMentionResult resolved = fetched != null ? fetched : empty;
             persistSgeResult(workspaceId, jobId, query, resolved);

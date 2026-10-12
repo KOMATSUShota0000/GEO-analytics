@@ -146,13 +146,19 @@ public class JobQuerySubmissionService {
         }
         var batchTenantId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         long batchDeposit = (long) keywordCount * QuotaCreditCalculator.DEPOSIT_PER_KEYWORD;
+        //・要求した枠を無事に消費できたかどうかの真偽値
+        // ・消費した後のバケット内の残りトークン数
+        // ・もしトークンが足りなくて消費に失敗した場合、次にトークンが回復するまでの待ち時間
+        //これらがbatchProbeの正体でConsumptionProbeというクラスのインスタンスだよ。だからメソッドとかも持ってる。
         var batchProbe = quotaManager.resolve(batchTenantId).tryConsumeAndReturnRemaining(batchDeposit);
+        //消費できたかどうか
         if (!batchProbe.isConsumed()) {
             var workspacePlan = quotaManager.resolveWorkspacePlan(batchTenantId);
             throw new RateLimitExceededException(batchProbe, workspacePlan.getDailyLimit(), workspacePlan.name());
         }
         UUID workspaceId = Objects.requireNonNullElse(job.getWorkspaceId(), DefaultTenantIds.WORKSPACE_ID);
         UUID organizationId = resolveOrganizationId(workspaceId);
+        //updateJobStatusを実行するタイミングがわからん。claudeちゃんどのセッションでもいいのでこの質問に触れてくれや。
         jobPersistenceService.updateJobStatus(jobId, JobStatus.CREATED, null);
         scheduleHybridContinuation(
                 jobId,
@@ -222,6 +228,8 @@ public class JobQuerySubmissionService {
 
     //ここまで読む
 
+
+    //ここから読む
     private void continueAfterCompetitorsPersisted(
             UUID jobId,
             List<String> queryTexts,
@@ -229,6 +237,7 @@ public class JobQuerySubmissionService {
             boolean realtime,
             long batchDeposit,
             UUID batchTenantId) {
+        //リアルタイム処理の分岐。リアルタイム処理なら早期returnする。バッチ処理なら下に続く。
         if (realtime) {
             jobPersistenceService.registerQueriesAndTransitionToRealtimeProcessing(jobId, queryTexts, planEnum);
             // Why: リアルタイム経路はクエリごとに「AI Overview 取得 → そのクエリの検証」と直列に処理する（#92）。
@@ -236,6 +245,7 @@ public class JobQuerySubmissionService {
             executeImmediateParallelProcessing(jobId);
             return;
         }
+        //ここから下がbatch処理
         try {
             jobPersistenceService.registerQueriesAndTransitionToFileUploaded(jobId, queryTexts, planEnum);
         } catch (RuntimeException runtimeException) {
@@ -250,8 +260,10 @@ public class JobQuerySubmissionService {
     }
 
     private PlanLimitsSnapshot effectiveLimits(JobEntity job, SubscriptionPlan requestPlan) {
+        //rawはDBに保存されているPlanLimitsSnapshotのJSON文字列。
         var raw = job.getPlanLimitsSnapshot();
         if (raw != null && !raw.isBlank()) {
+            //ここでjson文字列型をjavaで扱いやすいオブジェクトの型に変換している。今回はPlanLimitsSnapshot(クラス)型に変換している。
             return jsonbOperations.deserialize(raw, PlanLimitsSnapshot.class);
         }
         return PlanLimitsSnapshot.fromPlan(Objects.requireNonNullElse(job.getAppliedPlan(), requestPlan));
@@ -261,6 +273,7 @@ public class JobQuerySubmissionService {
         log.debug("deep analysis batch placeholder jobId={}", jobId);
     }
 
+    //リアルタイムの処理
     private void executeImmediateParallelProcessing(UUID jobId) {
         var jobEntity = jobPersistenceService.findJobById(jobId);
         var brandName = jobEntity.getBrandName();
@@ -278,6 +291,7 @@ public class JobQuerySubmissionService {
                                         processOneQueryRealtimeCore(
                                                 jobEntity, tenantId, brandName, targetUrl, qe, appliedPlan,
                                                 measuredCounter);
+                                      //↓トークン返金の処理
                                     } catch (Throwable x) {
                                         quotaManager.addTokens(
                                                 tenantId,
@@ -333,6 +347,10 @@ public class JobQuerySubmissionService {
         }
     }
 
+    //ここまで読む
+
+    //並列で複数スレッドがクエリごとにブランド名とかの言及回数を調べているってこと
+    //これはそれらのスレッドがひとりひとり通る処理
     private void processOneQueryRealtimeCore(
             JobEntity jobEntity,
             UUID tenantId,
@@ -342,12 +360,15 @@ public class JobQuerySubmissionService {
             SubscriptionPlan appliedPlan,
             AtomicInteger measuredCounter) {
         UUID jobId = jobEntity.getId();
-        // Why: 検証の材料は実測の AI Overview（ADR-039）。このクエリ分を取得してから、その本文を材料に検証する。
-        //      旧実装はクロールした自社サイト本文を材料にしており、AI 回答内での見え方を測れていなかった。
+        //measureAndPersistForQuery()は、SerpAPIに問い合わせて、結果をDBに登録するメソッド。言及の有無や件数も返す。
         var sgeMentionResult = asyncSgeMeasurementService.measureAndPersistForQuery(jobEntity, queryEntity);
         String aiOverviewText = sgeMentionResult.bodyText();
+        //内容がちゃんと入っていればtrue
         boolean measured = aiOverviewText != null && !aiOverviewText.isBlank();
         if (measured) {
+            //低レイヤーなメソッドを使っているがただ言及回数をカウントしているだけ。
+            //incrementAndGet()はインクリメントと違ってほかのスレッドが同時にアクセスしても安全に値を更新できる。（アトミック（不可分）な処理）
+            //ループじゃないので１スレッド一回しかカウントしない。だから実質スレッドごとに成功したら+1、失敗したら+0ってこと。全スレッドの成功回数の合計だな。
             measuredCounter.incrementAndGet();
         }
         log.info(
@@ -365,15 +386,23 @@ public class JobQuerySubmissionService {
                 jobId,
                 queryEntity.getId(),
                 brandName);
+
+        //ここまで読んだ。
+            
+        //geminiが返してきた結果を得る
         String rawJson = syncVerificationResult.rawResponseJson();
         String serializedConsultant;
         try {
+            //jsonの生結果データをjavaのオブジェクトに変換。
             var consultantOutputData = somScoreParser.parseConsultantOutput(rawJson);
+            //再度、javaのオブジェクトをjson文字列に変換している。変換することで無駄なものを落としてる
             serializedConsultant = jsonbOperations.serialize(consultantOutputData);
         } catch (RuntimeException ex) {
             log.warn(
                     "Failed to parse consultant output for audit persistence query={} rawResponse={}",
+                    //失敗したクエリがどれかわかるため
                     queryEntity.getQueryText(),
+                    //失敗したクエリの実際のgeminiの回答結果（ここに大体原因がある）
                     rawJson,
                     ex);
             serializedConsultant = rawJson;
@@ -400,6 +429,7 @@ public class JobQuerySubmissionService {
                 somScore,
                 gbvsNorm,
                 modifiedZ);
+        //1問ぶんの結果を保存するメソッド
         jobPersistenceService.upsertAuditHistoryForJobQuery(
                 jobId,
                 queryEntity.getId(),

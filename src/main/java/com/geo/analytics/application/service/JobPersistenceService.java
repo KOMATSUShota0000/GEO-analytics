@@ -405,7 +405,9 @@ public class JobPersistenceService {
             return List.of();
         }
         try {
+            //JSON の文字列を、Java のオブジェクトに変換する
             ConsultantOutputData data = objectMapper.readValue(consultantJson, ConsultantOutputData.class);
+            
             List<TaskDTO> tasks = data.prioritizedTasks();
             if (tasks == null || tasks.isEmpty()) {
                 return List.of();
@@ -416,11 +418,15 @@ public class JobPersistenceService {
                 if (task == null) {
                     continue;
                 }
+                //taskのtitleだけ抜き取ってる。
                 String title = task.title();
                 if (title != null && !title.isBlank()) {
+                    //strip()で前後の空白を削除している。
                     titles.add(title.strip());
                 }
             }
+            //List.copyOfで、titlesをコピーして返しているが、これは不変のリストを返すため。つまり、返されたリストは変更できない。
+            //あと、コピー元と紐づかないため、コピー元のリストが変更されても、コピー先のリストには影響しない。逆もそう。（まあコピー先は変更できないんだがね。）
             return List.copyOf(titles);
         } catch (Exception exception) {
             return List.of();
@@ -491,21 +497,30 @@ public class JobPersistenceService {
             List<CompetitorResult> competitorResults) {
         UUID tenantId = readWorkspaceIdForJob(jobId);
         TenantPlanScope.executeWithTenant(tenantId, () -> {
+            //jobsテーブルからjobIDに対応する行をとってきてる
+            //その一行をとってきて、それに対して何をするんだろう。その一行はjobentity型なのでjobentityクラスに書いてあるメソッドをその一行に対して実行できる。
             JobEntity jobEntity = jobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found: " + jobId));
             UUID workspaceId = jobEntity.getWorkspaceId() != null ? jobEntity.getWorkspaceId() : DefaultTenantIds.WORKSPACE_ID;
             UUID projectId = Objects.requireNonNull(jobEntity.getProjectId(), "projectId");
             ProjectEntity projectEntity = projectRepository.getReferenceById(projectId);
+            //SyncVerificationResult にgeminiで診断した大体の結果は入ってる。sentimentIntensityも同様に入ってる。
+            //大体はgeminiからSyncVerificationResultに保存され、そこから結果をいろんな場所で取って使う感じ。
+            //-1が最悪、+1が最高の印象。つまり印象が悪くないか判断してる
             var negativeAlert = sentimentIntensity < -0.5;
-            // AIがブランドを正しい実体として認識しているかの定性ステート（V13 Sprint3）。
-            // SoM測定で得た応答由来のシグナル（言及有無・正規化済み実体ラベル）と顧客の正規ブランド名から導出する。
-            // 追加API呼び出しはなく、スコア計算にも一切渡さない（SoMとの二重計上回避＝ADR-024）。
+           
+            // resolvedEntityLabelはgeminiが返してきたブランド名の表記ゆれを直す。
+            // classifyメソッドは表記を直したものであるresolvedEntityLabelとgetBrandNameを比較して、ブランド名が正しく認識されているかを判定する。
             var aiRecognitionState = AiRecognitionClassifier.classify(
                 brandMentioned, resolvedEntityLabel, jobEntity.getBrandName());
-            // 定型文を排し、SoM 絶対値・引用順位に加えサイト固有の優先改善タスクを後半文へ反映する（ADR-018/020）。
-            // rawResponse はコンサル出力 JSON（prioritizedTasks を含む）。パース不能時は帯テンプレへフォールバックする。
+            //一本の診断結果のjsonからtitleだけとってそれをリストにして返すメソッド。titleは改善タスクの見出し
             var siteTaskHints = extractSiteTaskHints(rawResponse);
+
+            //「戦略診断の結果」タブに表示するための文章を生成する。改善タスクの見出しと、改善タスクの見出しに対応する文章が表示される。
             var insight = strategyInsightService.describeForQuery(somScore, aiCitationPosition, siteTaskHints);
+
+
+            //ここまで読んだ。
             var actions = new ArrayList<>(insight.recommendedActions());
             Optional<AuditHistoryEntity> existingOptional = auditHistoryRepository.findByJobIdAndQuery(jobId, queryText);
             if (existingOptional.isPresent()) {
