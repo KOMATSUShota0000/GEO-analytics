@@ -86,6 +86,10 @@ public class SyncVerificationService {
                 queryId,
                 canonicalMainBrand,
                 aiOverviewText);
+        //Portと書いてあるので外部の何かとつながっているとわかる。
+        //さかのぼってみると、geminiに問い合わせてる処理だった。
+        //インターフェースにはメソッドの設計書しかなくて、implementしているクラスに実際の詳しい処理が書いてあるから
+        //インターフェースまで定義に戻って、その後そのインターフェースを参照しているクラスをf12で探せばすべてがそこにある。
         var verificationResponse = aiVerificationPort.verify(verificationRequest);
         return toResult(verificationRequest, verificationResponse);
     }

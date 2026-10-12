@@ -12,6 +12,7 @@ public record ConsultantOutputData(
         @JsonProperty("ai_citation_position") Integer aiCitationPosition,
         @JsonProperty("sentiment_intensity") Double sentimentIntensity,
         @JsonProperty("brand_mentioned") Boolean brandMentioned,
+        //jsonの中にprioritizedTasksという配列があるので、ConsultantOutputDataクラスの中にフィールドとしてprioritizedTasksというリストを作っている。
         @JsonProperty("prioritizedTasks") List<TaskDTO> prioritizedTasks,
         @JsonProperty("competitorComparison") List<CompetitorShareEntry> competitorComparison,
         @JsonProperty("reversalStrategy") String reversalStrategy) {

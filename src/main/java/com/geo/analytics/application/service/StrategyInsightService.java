@@ -106,6 +106,7 @@ public final class StrategyInsightService {
                 "言及は獲得できていますが、推奨の文脈で選ばれる『信頼の差』が残ります。第三者レビュー・比較サイト・PR露出を増やしてください。",
                 ACTIONS_LOW);
         }
+        //somが6未満の場合は、AIに認識されていないとみなしている。
         return new TierAdvice(
             "Invisible（存在なし）",
             "AI上でブランドがほぼ不可視です。Schema.org 等の構造化データ整備と権威メディアからのサイテーション獲得を最優先にしてください。",
@@ -120,21 +121,23 @@ public final class StrategyInsightService {
         return describeForQuery(som, aiPos, null);
     }
 
-    /**
-     * {@link #describeForQuery(Double, Integer)} に加え、ルーブリック監査が抽出した
-     * サイト固有の優先改善タスク（{@code prioritizedTasks} の title）で後半アドバイスと
-     * 推奨アクションを動的化する（ADR-020）。
-     * タスクが空・null の場合は SoM 帯テンプレートへ安全にフォールバックする。
-     */
+    //siteTasksは一本の診断の結果から改善タスクの見出しだけを抽出してリストにしたもの
     public StrategyInsight describeForQuery(Double som, Integer aiPos, List<String> siteTasks) {
         double s = som != null ? som : 0.0;
+        //市場リーダーとかの部分の文章をsomで条件分岐して返してる
         TierAdvice ta = tierAdviceFromSom(s);
         String citation = (aiPos != null && aiPos > 0)
+            //formatメソッドが埋め込みを可能にしてる
+            //Localeはどの国・言語の書き方にするか。例えばドイツならString.format(Locale.GERMANY, "%.1f", 42.0)  // → "42,0"  ← 小数点がカンマになる！
+            //Locale.ROOT は「特定の国に寄せない、基本の書き方」。Locale を省略すると、サーバーの OS の設定が使われる。
             ? String.format(Locale.ROOT, "AI回答内で%d番目の推奨として引用されています", aiPos)
             : "順位付き推奨リストには未掲載です";
+
+        //title のリストを掃除して、最大3件に絞ってる。
         List<String> tasks = sanitizeSiteTasks(siteTasks);
         String nextMove;
         List<String> actions;
+        //サイト固有の対策が1件もなかったときの「代わりの文章」を使っている。ta.nextMove()やta.actions()が代わりの文章
         if (tasks.isEmpty()) {
             nextMove = ta.nextMove();
             actions = ta.actions();

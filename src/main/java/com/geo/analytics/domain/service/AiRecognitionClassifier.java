@@ -26,7 +26,7 @@ public final class AiRecognitionClassifier {
      * @param canonicalBrand       顧客の正規ブランド名（判定の基準）
      */
     public static AiRecognitionState classify(boolean brandMentioned, String resolvedEntityLabel, String canonicalBrand) {
-        // 言及がない／実体を解決できない／基準が無い場合は「認識していない」と扱う（取り違えと断定しない）。
+        // 言及がない／実体を解決できない／基準が無い場合は「認識していない」と扱う。
         if (!brandMentioned || isBlank(resolvedEntityLabel) || isBlank(canonicalBrand)) {
             return AiRecognitionState.UNKNOWN;
         }
@@ -37,7 +37,7 @@ public final class AiRecognitionClassifier {
 
     /**
      * 2つのラベルが同一実体を指すかを正規化のうえ判定する。法人格表記（株式会社等）や空白の揺れを吸収し、
-     * 完全一致に加えて十分な長さの包含関係（「アクメ」⊂「アクメ株式会社」等）も同一とみなす。
+     * 完全一致に加えて十分な長さの包含関係（「アサヒ」⊂「アサヒ株式会社」等）も同一とみなす。
      */
     private static boolean matchesSameEntity(String a, String b) {
         String na = normalize(a);
