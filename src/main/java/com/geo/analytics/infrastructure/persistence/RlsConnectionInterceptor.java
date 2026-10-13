@@ -80,23 +80,34 @@ public class RlsConnectionInterceptor implements Ordered {
         return Ordered.LOWEST_PRECEDENCE;
     }
 
-    @Around(
+    //ここから読む
+
+    //@Transactionalが付いているクラスかメソッドが実行されたタイミングで以下の処理を実行する。
+    //付箋の寿命が、トランザクションと同じだから、このアノテーションを選んだ。
+    @Around(//withinのほうがクラスにアノテーションが付いてる場合、annotationのほうがメソッドにアノテーションが付いてる場合にマッチする。
             "@within(org.springframework.transaction.annotation.Transactional) || @annotation(org.springframework.transaction.annotation.Transactional)")
     public Object aroundTransactional(ProceedingJoinPoint pjp) throws Throwable {
         if (!rlsEnabled) {
+            // pjp は横取りする前の元のメソッドの呼び出し。つまり、この時点で横取りやめて元のメソッドの実行に返します
             return pjp.proceed();
         }
-
+        
+        //横取りする前の元のメソッドに @GlobalAccess の印が付いているか。印は「会社を問わず触ってよい例外」
         boolean global = hasGlobalAccess(pjp);
+        //今のスレッドでトランザクションが動いているか。スレッドのメモ帳（actualTransactionActive）にトランザクション開始したタイミングで
+        //springがトランザクション中みたいなことをメモしてくれる。そのメモを見て何か書いてあればtrueを返す。
         boolean txActive = TransactionSynchronizationManager.isActualTransactionActive();
 
         if (!global && !txActive) {
+            //ここのpjp は「呼ばれようとして、ここで止められたメソッド」そのもの
+            //エラー原因をログにのこしている処理。
             recordNakedQueryBlocked(pjp);
             throw new SecurityException(
                     "Database access without an active transaction and without @GlobalAccess is blocked "
                             + "(possible missing @Transactional).");
         }
 
+        //@GlobalAccess の付いたメソッドが呼ばれるたびに、毎回ログに記録しています
         if (global) {
             recordGlobalAccess(pjp);
         }
@@ -109,6 +120,7 @@ public class RlsConnectionInterceptor implements Ordered {
         Optional<UUID> tenant = TenantContextHolder.getTenantId();
         if (org.isEmpty() && tenant.isEmpty()) {
             if (global) {
+                //RlsBypass（RLSのすり抜け）を有効にしてる。org,tennant情報が空でも、RLSの制約をすり抜けてDBにアクセスできるようにしてる。テナント縦断のglobal処理だから。
                 enableRlsBypassOnConnection();
                 return pjp.proceed();
             }
@@ -116,18 +128,23 @@ public class RlsConnectionInterceptor implements Ordered {
                     "Transactional database access requires tenant context (organization or workspace). "
                             + "Annotate with @GlobalAccess only for intentional system routes.");
         }
+
+        //org.orElseGetは,orgが空なら,ラムダ式の処理を実行する。
         UUID resolvedOrg = org.orElseGet(() -> resolveOrgFromWorkspace(tenant.orElse(null)));
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
+            //テナント縦断の処理ならRLSすり抜けてええよ
             if (global) {
                 applyRlsBypass(connection);
             }
+            //orgが空じゃなければ、SET_ORGのSQLを実行して、付箋に組織IDをセットする。これでRLSの制約に引っかからずにDBにアクセスできる。
             if (resolvedOrg != null) {
                 try (PreparedStatement ps = connection.prepareStatement(SET_ORG)) {
                     ps.setString(1, resolvedOrg.toString());
                     ps.execute();
                 }
             }
+            //tenantが空じゃなければ、SET_TENANTのSQLを実行して、付箋にワークスペースIDをセットする。これでRLSの制約に引っかからずにDBにアクセスできる。
             if (tenant.isPresent()) {
                 try (PreparedStatement ps = connection.prepareStatement(SET_TENANT)) {
                     ps.setString(1, tenant.get().toString());
@@ -136,6 +153,8 @@ public class RlsConnectionInterceptor implements Ordered {
             }
         });
         return pjp.proceed();
+
+        //ここまで読む
     }
 
     private void enableRlsBypassOnConnection() {
@@ -150,11 +169,14 @@ public class RlsConnectionInterceptor implements Ordered {
     }
 
     private static boolean hasGlobalAccess(ProceedingJoinPoint pjp) {
+        //横取り元のメソッドが「どのメソッドか」という情報（シグネチャ）を取り出す命令。この情報の中に、メソッド名・属しているクラス・引数の型などが含まれている
         MethodSignature signature = (MethodSignature) pjp.getSignature();
         Method method = signature.getMethod();
+        //このメソッドに、この印が付いているかを確認してる。@GlobalAccessがついていたらこの時点でtrueを返す
         if (AnnotatedElementUtils.hasAnnotation(method, GlobalAccess.class)) {
             return true;
         }
+        //上はメソッドに対して。下は、横取り元のメソッドが属しているクラスに、この印が付いているかを確認してる。
         Class<?> targetClass = pjp.getTarget() != null ? pjp.getTarget().getClass() : method.getDeclaringClass();
         return AnnotatedElementUtils.hasAnnotation(targetClass, GlobalAccess.class)
                 || AnnotatedElementUtils.hasAnnotation(method.getDeclaringClass(), GlobalAccess.class);
@@ -162,6 +184,7 @@ public class RlsConnectionInterceptor implements Ordered {
 
     private void recordGlobalAccess(ProceedingJoinPoint pjp) {
         Method m = ((MethodSignature) pjp.getSignature()).getMethod();
+        //getDeclaringClass()はmethod型が持っているめそっどで、そのメソッドがどのクラスの中に書かれているか
         String className = m.getDeclaringClass().getName();
         String methodName = m.getName();
         SECURITY_AUDIT.info(
@@ -176,11 +199,16 @@ public class RlsConnectionInterceptor implements Ordered {
         Method m = ((MethodSignature) pjp.getSignature()).getMethod();
         String className = m.getDeclaringClass().getName();
         String methodName = m.getName();
+        //ここでログに「トランザクションなしでデータベースにアクセスしようとしたのでブロックしたよ」って書き込む。そしてどこが原因だったかもとってきてる
         SECURITY_AUDIT.error(
                 "RlsConnectionInterceptor: blocked naked (non-transactional) database access class={} method={} target={}",
+                //メソッドの定義されているクラス
                 className,
+                //そのメソッドの名前
                 methodName,
+                //メソッドが呼び出されたクラス
                 pjp.getTarget() != null ? pjp.getTarget().getClass().getName() : "null");
+        //meterRegistry は、一回の起動でのアプリの中のいろいろな数を集めておく帳簿。今回はエラーが起きたら+1する。
         meterRegistry.counter(COUNTER_NAKED_BLOCKED, TAG_CLASS, className, TAG_METHOD, methodName).increment();
     }
 
